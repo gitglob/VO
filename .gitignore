@@ -1,0 +1,26 @@
+# VSCode configurations
+.vscode
+
+# Python cache
+**/__pycache__/
+
+# Virtual environment
+.venv
+
+# Datasets
+data
+
+# Reading material
+book
+papers
+
+# Output
+results
+
+# Model checkpoints
+checkpoints
+
+# Redirected terminal output
+*.txt
+
+**/.gitkeep
