@@ -94,10 +94,10 @@ def main():
             # Estimate the relative pose (odometry) between the current frame and the last keyframe
             displacement, error = estimate_relative_pose(matches, 
                                                   frame.keypoints, 
+                                                  frame.depth, 
                                                   prev_keyframe.keypoints,  
                                                   prev_keyframe.depth, 
-                                                  K, dist_coeffs,
-                                                  debug) # (4, 4)
+                                                  K, debug) # (4, 4)
             if displacement is None:
                 print(f"Warning: solvePnP failed!")
                 continue

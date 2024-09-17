@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import open3d as o3d
 from src.utils import keypoints_depth_to_3d_points
 
 
@@ -20,16 +21,8 @@ def extract_features(image):
         so the total size of descriptors will be numel(keypoints) * obj.descriptorSize(), i.e a matrix of size N-by-32 of class uint8, one row per keypoint.
     """
     # Initialize the ORB detector
-    orb = cv2.ORB_create(nfeatures=5000)
-    # orb = cv2.ORB_create(nfeatures=2000,   # maximum number of keypoints to be detected, default = 500
-    #                      scaleFactor=1.02,  # lower means more keypoints, default = 1.2
-    #                      nlevels=10,       # higher means more keypoints, default = 8
-    #                      edgeThreshold=31, # lower means detecting more keypoints near the image borders, default = 31
-    #                      firstLevel=1,     # higher means more focus on smaller features
-    #                      WTA_K=4,          # higher increases the distinctiveness of features, default = 2
-    #                      patchSize=11)     # higher means each keypoint captures more context, default = 31
+    orb = cv2.ORB_create()
 
-    
     # Detect keypoints and compute descriptors
     keypoints, descriptors = orb.detectAndCompute(image, None)
     
@@ -61,13 +54,15 @@ def match_features(frame, prev_frame, debug=False):
     matches = bf.knnMatch(curr_desc, prev_desc, k=2)
 
     # Filter matches with high dissimilarity
-    matches = filter_matches(matches, debug)
+    # matches = filter_matches(matches, debug)
 
     # Filter outlier matches
-    matches = remove_outlier_matches(matches, frame.keypoints, prev_frame.keypoints, debug)
+    # matches = remove_outlier_matches(matches, frame.keypoints, prev_frame.keypoints, debug)
     
-    # print(f"Left with {len(matches)} matches!")
-    return matches
+    if debug:
+        print(f"{len(matches)} matches!")
+
+    return [m for m, _ in matches]
 
 def filter_matches(matches, debug=False):
     """Filter out matches using Lowe's Ratio Test"""
@@ -116,7 +111,7 @@ def is_significant_motion(P, t_threshold=0.3, yaw_threshold=1, debug=False):
     return is_keyframe
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(matches, cur_keypts, prev_keypts, prev_depth, K, dist_coeffs=None, debug=False):
+def estimate_relative_pose(matches, cur_keypts, cur_depth, prev_keypts, prev_depth, K, debug=False):
     """
     Estimate the relative pose between two frames using matched keypoints and depth information.
 
@@ -135,63 +130,74 @@ def estimate_relative_pose(matches, cur_keypts, prev_keypts, prev_depth, K, dist
     Returns:
         - pose or None: The new pose as a 4x4 transformation matrix
     """
-    pose = np.eye(4) # placeholder for displacement
+    pose = np.eye(4)  # Placeholder for the final transformation
 
     # Extract matched keypoints' coordinates
     cur_keypt_pixel_coords = np.float64([cur_keypts[m.queryIdx].pt for m in matches])
     prev_keypt_pixel_coords = np.float64([prev_keypts[m.trainIdx].pt for m in matches])
 
-    # Convert the keypoints to 3D coordinates using the depth map
-    prev_pts_3d, indices = keypoints_depth_to_3d_points(prev_keypt_pixel_coords, prev_depth, 
-                                                        cx=K[0, 2], cy=K[1, 2], 
-                                                        fx=K[0, 0], fy=K[1, 1])
-    
-    # Check if enough 3D points exist to estimate the camera pose using the Direct Linear Transformation (DLT) algorithm
-    if len(prev_pts_3d) < 6:
-        print(f"Warning: Not enough points for pose estimation. Got {len(prev_pts_3d)}, expected at least 6.")
+    # Convert the previous keypoints to 3D coordinates using the previous frame's depth map
+    prev_pts_3d, _ = keypoints_depth_to_3d_points(prev_keypt_pixel_coords, prev_depth, 
+                                                             cx=K[0, 2], cy=K[1, 2], 
+                                                             fx=K[0, 0], fy=K[1, 1])
+
+    # Convert the current keypoints to 3D coordinates using the current frame's depth map
+    cur_pts_3d, _ = keypoints_depth_to_3d_points(cur_keypt_pixel_coords, cur_depth, 
+                                                           cx=K[0, 2], cy=K[1, 2], 
+                                                           fx=K[0, 0], fy=K[1, 1])
+
+    # Ensure we have enough 3D points
+    if len(prev_pts_3d) < 6 or len(cur_pts_3d) < 6:
+        print(f"Warning: Not enough 3D points for pose estimation. Got {len(prev_pts_3d)} and {len(cur_pts_3d)}, expected at least 6.")
         return None, None
-    
-    # Use solvePnP to estimate the pose
-    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_pts_3d, cur_keypt_pixel_coords[indices], 
-                                                      cameraMatrix=K, distCoeffs=dist_coeffs, 
-                                                      reprojectionError=1.0, confidence=0.999, 
-                                                      iterationsCount=5000)
 
-    # Compute reprojection error and print it
-    error = compute_reprojection_error(prev_pts_3d[inliers], cur_keypt_pixel_coords[indices][inliers], rvec, tvec, K, dist_coeffs)
-    if debug:
-        print(f"Reprojection error: {error:.2f} pixels")
+    # Convert the 3D points into Open3D point cloud format
+    prev_pcd = o3d.geometry.PointCloud()
+    cur_pcd = o3d.geometry.PointCloud()
+    prev_pcd.points = o3d.utility.Vector3dVector(prev_pts_3d)
+    cur_pcd.points = o3d.utility.Vector3dVector(cur_pts_3d)
 
-    if success:
-        # Refine pose using inliers by calling solvePnP again without RANSAC
-        success_refine, rvec_refined, tvec_refined = cv2.solvePnP(prev_pts_3d[inliers], cur_keypt_pixel_coords[indices][inliers], 
-                                                                  K, dist_coeffs, rvec, tvec, useExtrinsicGuess=True)
+    # Paint the source and target point clouds
+    cur_pcd.paint_uniform_color([0, 0, 1])  # Blue for the current frame
+    prev_pcd.paint_uniform_color([1, 0, 0])  # Red for the previous frame
 
-        if success_refine:
-            # Compute the refined reprojection error
-            error_refined = compute_reprojection_error(prev_pts_3d[inliers], cur_keypt_pixel_coords[indices][inliers], rvec_refined, tvec_refined, K, dist_coeffs)
-            if debug:
-                print(f"Refined reprojection error: {error_refined:.2f} pixels")
+    # Visualize the point clouds before alignment
+    # o3d.visualization.draw_geometries([prev_pcd, cur_pcd], window_name="Before ICP", point_show_normal=False)
 
-            # Convert the refined rotation vector to a rotation matrix
-            R_refined, _ = cv2.Rodrigues(rvec_refined)
+    # Compute normals for the point clouds
+    prev_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+    cur_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
 
-            # Construct the refined pose matrix
-            pose[:3, :3] = R_refined
-            pose[:3, 3] = tvec_refined.flatten()
+    # Apply ICP to estimate the transformation between the two point clouds
+    threshold = 0.5  # distance threshold (can be adjusted)
 
-            return np.linalg.inv(pose), error_refined
-        else:
-            return None, None
+    # Fine ICP on the full-resolution point clouds, using the initial result
+    icp_result = o3d.pipelines.registration.registration_icp(
+        source=prev_pcd,
+        target=cur_pcd,
+        max_correspondence_distance=threshold / 2,  # Use a smaller threshold for the fine step
+        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane()
+    )
+
+    # Check if ICP converged and return the transformation
+    if icp_result.fitness > 0.0:
+        if debug:
+            print(f"ICP Fitness: {icp_result.fitness:.3f}, Inlier RMSE: {icp_result.inlier_rmse:.3f}")
+
+            # Transform the current point cloud to align with the previous one
+            cur_pcd.transform(icp_result.transformation)
+
+            # Visualize the point clouds after alignment
+            # o3d.visualization.draw_geometries([prev_pcd, cur_pcd], window_name="After ICP", point_show_normal=False)
+
+        pose = icp_result.transformation
+        return pose, icp_result.fitness
     else:
+        print("ICP failed to converge")
         return None, None
-    
-def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs=None):
-    """Compute the reprojection error for the given 3D-2D point correspondences and pose."""
-    # Project the 3D points to 2D using the estimated pose
-    projected_pts_2d, _ = cv2.projectPoints(pts_3d, rvec, tvec, K, dist_coeffs)
-    
-    # Calculate the reprojection error
-    error = np.sqrt(np.mean(np.sum(((pts_2d - projected_pts_2d).squeeze()) ** 2, axis=1)))
-    
-    return error
+
+def downsample_point_cloud(pcd, voxel_size):
+    """
+    Downsample a point cloud using a voxel grid filter.
+    """
+    return pcd.voxel_down_sample(voxel_size)
