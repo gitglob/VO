@@ -1,8 +1,8 @@
 from pathlib import Path
-import numpy as np
+from src.local_map import LocalMap
 from src.data import Dataset
 from src.frame import Frame
-from src.frontend import extract_features, match_features, estimate_relative_pose, is_significant_motion
+from src.frontend import extract_features, match_features, estimate_relative_pose, is_significant_motion, initialize
 from src.visualize import plot_matches, plot_vo_trajectory, plot_ground_truth
 from src.visualize import plot_keypoints, plot_2d_trajectory, plot_ground_truth_2d, plot_trajectory_components
 from src.utils import save_image, delete_subdirectories
@@ -42,6 +42,8 @@ def main():
 
     # Run the main VO loop
     i = -1
+    pose_initialized = False
+    local_map = LocalMap
     while not data.finished():
         # Advance the iteration
         i+=1
@@ -66,8 +68,9 @@ def main():
         frame = Frame(i, img, depth, keypoints, descriptors)
         frames.append(frame)
 
-        # The first frame is de facto a keyframe
+        # The very first frame is the reference frame
         if i == 0:
+            ref_frame = frame
             pose = gt_pose
             error = 0
             frame.set_pose(pose)
@@ -78,13 +81,43 @@ def main():
             if debug:
                 save_image(img, keyframe_save_path)
 
+        # If this is the second frame, we need to initialize the 3d points
+        if i == 1:
+            # Feature matching
+            matches = match_features(ref_frame, frame, debug) # (N) : N < M
+            if debug:
+                match_save_path = main_dir / "results" / scene / "matches" / f"{frame.id}_{ref_frame.id}.png"
+                plot_matches(ref_frame.img, ref_frame.keypoints,
+                             frame.img, frame.keypoints,
+                             matches, match_save_path)
+                
+            # Etract the initial pose of the robot using either the Essential or Homography matrix
+            initial_pose, points3d, success = initialize(ref_frame.keypoints,
+                                                frame.keypoints,
+                                                matches,
+                                                K)
+            
+            if success:
+                local_map.add_points(points3d)
+                pose_initialized = True
+            
+            # The second frame is de facto a keyframe
+            error = 0
+            frame.set_pose(initial_pose)
+            poses.append(initial_pose)
+            gt_poses.append(gt_pose)
+            keyframes.append(frame)
+            keyframe_save_path = main_dir / "results" / scene / "keyframes" / f"{i}_rgb.png"
+            if debug:
+                save_image(img, keyframe_save_path)
+
         # Check if this is the very first image, so that we can perform VO
-        if i != 0:
+        if pose_initialized:
             # Extract the last keyframe
             prev_keyframe = keyframes[-1]
 
             # Feature matching
-            matches = match_features(frame, prev_keyframe, debug) # (N) : N < M
+            matches = match_features(prev_keyframe, frame, debug) # (N) : N < M
             if debug:
                 match_save_path = main_dir / "results" / scene / "matches" / f"{frame.id}_{prev_keyframe.id}.png"
                 plot_matches(frame.img, frame.keypoints, 
@@ -93,9 +126,9 @@ def main():
 
             # Estimate the relative pose (odometry) between the current frame and the last keyframe
             displacement, error = estimate_relative_pose(matches, 
-                                                  frame.keypoints, 
-                                                  prev_keyframe.keypoints,  
+                                                  prev_keyframe.keypoints,
                                                   prev_keyframe.depth, 
+                                                  frame.keypoints,
                                                   K, dist_coeffs,
                                                   debug) # (4, 4)
             if displacement is None:
@@ -110,9 +143,9 @@ def main():
             if debug:
                 keyframe_save_dir = main_dir / "results" / scene / "keyframes"
                 save_image(frame.img, keyframe_save_dir / f"{i}_rgb.png")
-                plot_matches(frame.img, frame.keypoints, 
-                         prev_keyframe.img, prev_keyframe.keypoints, 
-                         matches, keyframe_save_dir / f"{frame.id}_{prev_keyframe.id}.png")
+                plot_matches(prev_keyframe.img, prev_keyframe.keypoints,
+                             frame.img, frame.keypoints,
+                             matches, keyframe_save_dir / f"{frame.id}_{prev_keyframe.id}.png")
                 
             # Calculate the new pose
             pose = prev_keyframe.pose @ displacement # (4, 4)

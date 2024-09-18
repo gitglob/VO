@@ -98,11 +98,11 @@ class Frame():
         """
         # Extract matched keypoints' pixel coordinates
         if query:
-            curr_pts = np.float64([self.keypoints[m.queryIdx].pt for m in matches])
-            prev_pts = np.float64([prev_keypoints[m.trainIdx].pt for m in matches])
+            prev_pts = np.float64([self.keypoints[m.queryIdx].pt for m in matches])
+            curr_pts = np.float64([prev_keypoints[m.trainIdx].pt for m in matches])
         else:
-            curr_pts = np.float64([self.keypoints[m.trainIdx].pt for m in matches])
-            prev_pts = np.float64([prev_keypoints[m.queryIdx].pt for m in matches])
+            prev_pts = np.float64([self.keypoints[m.trainIdx].pt for m in matches])
+            curr_pts = np.float64([prev_keypoints[m.queryIdx].pt for m in matches])
 
         # Triangulate points
         curr_pts_undistorted = cv2.undistortPoints(np.expand_dims(curr_pts, axis=1), K, None)
