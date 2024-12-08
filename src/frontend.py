@@ -35,7 +35,7 @@ def extract_features(image):
     
     return keypoints, descriptors
 
-def match_features(frame, prev_frame, debug=False):
+def match_features(prev_frame, frame, debug=False):
     """
     Matches features between two frames.
     
@@ -49,22 +49,20 @@ def match_features(frame, prev_frame, debug=False):
         curr_desc: the descriptors of the current frame
         prev_desc: the descriptors of the previous frame
     """
-    curr_desc = frame.descriptors
     prev_desc = prev_frame.descriptors
+    curr_desc = frame.descriptors
 
     # Create BFMatcher object
-    # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # Match descriptors
-    # matches = bf.match(curr_desc, prev_desc)
-    matches = bf.knnMatch(curr_desc, prev_desc, k=2)
+    matches = bf.knnMatch(prev_desc, curr_desc, k=2)
 
     # Filter matches with high dissimilarity
     matches = filter_matches(matches, debug)
 
     # Filter outlier matches
-    matches = remove_outlier_matches(matches, frame.keypoints, prev_frame.keypoints, debug)
+    matches = remove_outlier_matches(matches, prev_frame.keypoints, frame.keypoints, debug)
     
     # print(f"Left with {len(matches)} matches!")
     return matches
@@ -80,13 +78,13 @@ def filter_matches(matches, debug=False):
         print(f"Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
     return good_matches
 
-def remove_outlier_matches(matches, keypoints, prev_keypoints, debug=False):
+def remove_outlier_matches(matches, prev_keypoints, keypoints, debug=False):
     # Extract the keypoint pixel coordinates
-    pixel_coords = np.float32([keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 2)
-    prev_pixel_coords = np.float32([prev_keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 2)
+    prev_pixel_coords = np.float32([prev_keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 2)
+    pixel_coords = np.float32([keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 2)
 
     # Find the homography matrix and mask using RANSAC
-    H, mask = cv2.findHomography(pixel_coords, prev_pixel_coords, cv2.RANSAC,
+    H, mask = cv2.findHomography(prev_pixel_coords, pixel_coords, cv2.RANSAC,
                                  ransacReprojThreshold=2.0, maxIters=5000, confidence=0.95)
 
     # Use the mask to filter inlier matches
@@ -116,7 +114,7 @@ def is_significant_motion(P, t_threshold=0.3, yaw_threshold=1, debug=False):
     return is_keyframe
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(matches, cur_keypts, prev_keypts, prev_depth, K, dist_coeffs=None, debug=False):
+def estimate_relative_pose(matches, prev_keypts, prev_depth, cur_keypts, K, dist_coeffs=None, debug=False):
     """
     Estimate the relative pose between two frames using matched keypoints and depth information.
 
@@ -138,8 +136,8 @@ def estimate_relative_pose(matches, cur_keypts, prev_keypts, prev_depth, K, dist
     pose = np.eye(4) # placeholder for displacement
 
     # Extract matched keypoints' coordinates
-    cur_keypt_pixel_coords = np.float64([cur_keypts[m.queryIdx].pt for m in matches])
-    prev_keypt_pixel_coords = np.float64([prev_keypts[m.trainIdx].pt for m in matches])
+    prev_keypt_pixel_coords = np.float64([prev_keypts[m.queryIdx].pt for m in matches])
+    cur_keypt_pixel_coords = np.float64([cur_keypts[m.trainIdx].pt for m in matches])
 
     # Convert the keypoints to 3D coordinates using the depth map
     prev_pts_3d, indices = keypoints_depth_to_3d_points(prev_keypt_pixel_coords, prev_depth, 

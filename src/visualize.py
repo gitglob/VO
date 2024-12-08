@@ -139,7 +139,7 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
 
     if limits:
         ax1.set_xlim([-2, 5]) 
-        ax1.set_ylim([-1, 6])
+        ax1.set_ylim([-2, 4])
         ax2.set_ylim([-0.1, 0.1])
 
     fig.suptitle('Map and Trajectory Views')
@@ -274,8 +274,8 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     ax1.scatter(tx[-1], ty[-1], color='red', s=100, label='End')    # End point
     ax1.set_xlabel('X')
     ax1.set_ylabel('Y')
-    ax1.set_xlim([-2, 5]) 
-    ax1.set_ylim([-1, 6])
+    # ax1.set_xlim([-2, 5]) 
+    # ax1.set_ylim([-2, 4])
     ax1.set_title('XY Trajectory')
     ax1.legend()
     ax1.grid(True)
