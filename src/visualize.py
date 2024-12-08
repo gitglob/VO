@@ -1,11 +1,25 @@
 import os
 import cv2
+import open3d as o3d
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
 matplotlib.use('TkAgg')
 
 
+def plot_icp(T, prev_pcd, cur_pcd):
+    # Transform the current point cloud using the ICP result
+    prev_pcd.transform(T)
+
+    # Paint clouds for clarity
+    prev_pcd.paint_uniform_color([1, 0, 0]) # Red
+    cur_pcd.paint_uniform_color([0, 1, 0])  # Green
+
+    # Visualize the alignment
+    o3d.visualization.draw_geometries([prev_pcd, cur_pcd],
+                                        window_name="After ICP Alignment",
+                                        point_show_normal=False)
+            
 def plot_trajectory_components(poses, gt_poses, reproj_error, save_path=None, show_plot=False):
     poses = np.array(poses)
     gt_poses = np.array(gt_poses)
@@ -139,7 +153,7 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
 
     if limits:
         ax1.set_xlim([-2, 5]) 
-        ax1.set_ylim([-1, 6])
+        ax1.set_ylim([-2, 4])
         ax2.set_ylim([-0.1, 0.1])
 
     fig.suptitle('Map and Trajectory Views')
@@ -172,7 +186,7 @@ def plot_vo_trajectory(poses, save_path=None, show_plot=False):
     ax.legend()
     
     ax.set_xlim([-2, 5]) 
-    ax.set_ylim([-1, 6])
+    ax.set_ylim([-2, 4])
     ax.set_zlim([-0.1, 0.1])
 
     if save_path:
@@ -275,7 +289,7 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     ax1.set_xlabel('X')
     ax1.set_ylabel('Y')
     ax1.set_xlim([-2, 5]) 
-    ax1.set_ylim([-1, 6])
+    ax1.set_ylim([-2, 4])
     ax1.set_title('XY Trajectory')
     ax1.legend()
     ax1.grid(True)

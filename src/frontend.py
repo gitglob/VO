@@ -21,14 +21,22 @@ def extract_features(image):
         so the total size of descriptors will be numel(keypoints) * obj.descriptorSize(), i.e a matrix of size N-by-32 of class uint8, one row per keypoint.
     """
     # Initialize the ORB detector
-    orb = cv2.ORB_create()
+    orb = cv2.ORB_create(nfeatures=5000)
+    # orb = cv2.ORB_create(nfeatures=2000,   # maximum number of keypoints to be detected, default = 500
+    #                      scaleFactor=1.02,  # lower means more keypoints, default = 1.2
+    #                      nlevels=10,       # higher means more keypoints, default = 8
+    #                      edgeThreshold=31, # lower means detecting more keypoints near the image borders, default = 31
+    #                      firstLevel=1,     # higher means more focus on smaller features
+    #                      WTA_K=4,          # higher increases the distinctiveness of features, default = 2
+    #                      patchSize=11)     # higher means each keypoint captures more context, default = 31
 
+    
     # Detect keypoints and compute descriptors
     keypoints, descriptors = orb.detectAndCompute(image, None)
     
     return keypoints, descriptors
 
-def match_features(frame, prev_frame, debug=False):
+def match_features(prev_frame, frame, debug=False):
     """
     Matches features between two frames.
     
@@ -42,27 +50,23 @@ def match_features(frame, prev_frame, debug=False):
         curr_desc: the descriptors of the current frame
         prev_desc: the descriptors of the previous frame
     """
-    curr_desc = frame.descriptors
     prev_desc = prev_frame.descriptors
+    curr_desc = frame.descriptors
 
     # Create BFMatcher object
-    # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # Match descriptors
-    # matches = bf.match(curr_desc, prev_desc)
-    matches = bf.knnMatch(curr_desc, prev_desc, k=2)
+    matches = bf.knnMatch(prev_desc, curr_desc, k=2)
 
     # Filter matches with high dissimilarity
-    # matches = filter_matches(matches, debug)
+    matches = filter_matches(matches, debug)
 
     # Filter outlier matches
-    # matches = remove_outlier_matches(matches, frame.keypoints, prev_frame.keypoints, debug)
+    matches = remove_outlier_matches(matches, prev_frame.keypoints, frame.keypoints, debug)
     
-    if debug:
-        print(f"{len(matches)} matches!")
-
-    return [m for m, _ in matches]
+    # print(f"Left with {len(matches)} matches!")
+    return matches
 
 def filter_matches(matches, debug=False):
     """Filter out matches using Lowe's Ratio Test"""
@@ -75,13 +79,13 @@ def filter_matches(matches, debug=False):
         print(f"Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
     return good_matches
 
-def remove_outlier_matches(matches, keypoints, prev_keypoints, debug=False):
+def remove_outlier_matches(matches, prev_keypoints, keypoints, debug=False):
     # Extract the keypoint pixel coordinates
-    pixel_coords = np.float32([keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 2)
-    prev_pixel_coords = np.float32([prev_keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 2)
+    prev_pixel_coords = np.float32([prev_keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 2)
+    pixel_coords = np.float32([keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 2)
 
     # Find the homography matrix and mask using RANSAC
-    H, mask = cv2.findHomography(pixel_coords, prev_pixel_coords, cv2.RANSAC,
+    H, mask = cv2.findHomography(prev_pixel_coords, pixel_coords, cv2.RANSAC,
                                  ransacReprojThreshold=2.0, maxIters=5000, confidence=0.95)
 
     # Use the mask to filter inlier matches
@@ -111,7 +115,7 @@ def is_significant_motion(P, t_threshold=0.3, yaw_threshold=1, debug=False):
     return is_keyframe
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(matches, cur_keypts, cur_depth, prev_keypts, prev_depth, K, debug=False):
+def estimate_relative_pose(matches, prev_keypts, prev_depth, cur_keypts, curr_depth, K, debug=False):
     """
     Estimate the relative pose between two frames using matched keypoints and depth information.
 
@@ -130,74 +134,48 @@ def estimate_relative_pose(matches, cur_keypts, cur_depth, prev_keypts, prev_dep
     Returns:
         - pose or None: The new pose as a 4x4 transformation matrix
     """
-    pose = np.eye(4)  # Placeholder for the final transformation
-
     # Extract matched keypoints' coordinates
-    cur_keypt_pixel_coords = np.float64([cur_keypts[m.queryIdx].pt for m in matches])
-    prev_keypt_pixel_coords = np.float64([prev_keypts[m.trainIdx].pt for m in matches])
+    prev_keypt_pixel_coords = np.float64([prev_keypts[m.queryIdx].pt for m in matches])
+    cur_keypt_pixel_coords = np.float64([cur_keypts[m.trainIdx].pt for m in matches])
 
-    # Convert the previous keypoints to 3D coordinates using the previous frame's depth map
+    # Convert the keypoints to 3D coordinates using the depth map
     prev_pts_3d, _ = keypoints_depth_to_3d_points(prev_keypt_pixel_coords, prev_depth, 
-                                                             cx=K[0, 2], cy=K[1, 2], 
-                                                             fx=K[0, 0], fy=K[1, 1])
+                                                        cx=K[0, 2], cy=K[1, 2], 
+                                                        fx=K[0, 0], fy=K[1, 1])
+    cur_pts_3d, _ = keypoints_depth_to_3d_points(cur_keypt_pixel_coords, curr_depth, 
+                                                        cx=K[0, 2], cy=K[1, 2], 
+                                                        fx=K[0, 0], fy=K[1, 1])
+    
+    # Ensure we have enough points
+    # For a rigid transformation, at least 3 non-collinear points are needed.
+    if len(prev_pts_3d) < 3 or len(cur_pts_3d) < 3:
+        print(f"Warning: Not enough 3D points for pose estimation. Got {len(prev_pts_3d)} and {len(cur_pts_3d)}.")
+        return None, None, None, None
 
-    # Convert the current keypoints to 3D coordinates using the current frame's depth map
-    cur_pts_3d, _ = keypoints_depth_to_3d_points(cur_keypt_pixel_coords, cur_depth, 
-                                                           cx=K[0, 2], cy=K[1, 2], 
-                                                           fx=K[0, 0], fy=K[1, 1])
-
-    # Ensure we have enough 3D points
-    if len(prev_pts_3d) < 6 or len(cur_pts_3d) < 6:
-        print(f"Warning: Not enough 3D points for pose estimation. Got {len(prev_pts_3d)} and {len(cur_pts_3d)}, expected at least 6.")
-        return None, None
-
-    # Convert the 3D points into Open3D point cloud format
+    # Create Open3D point clouds
     prev_pcd = o3d.geometry.PointCloud()
     cur_pcd = o3d.geometry.PointCloud()
     prev_pcd.points = o3d.utility.Vector3dVector(prev_pts_3d)
     cur_pcd.points = o3d.utility.Vector3dVector(cur_pts_3d)
-
-    # Paint the source and target point clouds
-    cur_pcd.paint_uniform_color([0, 0, 1])  # Blue for the current frame
-    prev_pcd.paint_uniform_color([1, 0, 0])  # Red for the previous frame
-
-    # Visualize the point clouds before alignment
-    # o3d.visualization.draw_geometries([prev_pcd, cur_pcd], window_name="Before ICP", point_show_normal=False)
-
-    # Compute normals for the point clouds
+    
+    # (Optional) Estimate normals if you want to use point-to-plane ICP
     prev_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
     cur_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
 
-    # Apply ICP to estimate the transformation between the two point clouds
-    threshold = 0.5  # distance threshold (can be adjusted)
-
-    # Fine ICP on the full-resolution point clouds, using the initial result
+    # Run ICP to find the best-fit transformation
+    threshold = 0.5  # This can be tuned based on your scene scale and noise levels
     icp_result = o3d.pipelines.registration.registration_icp(
         source=prev_pcd,
         target=cur_pcd,
-        max_correspondence_distance=threshold / 2,  # Use a smaller threshold for the fine step
+        max_correspondence_distance=threshold,
         estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane()
     )
 
-    # Check if ICP converged and return the transformation
     if icp_result.fitness > 0.0:
         if debug:
             print(f"ICP Fitness: {icp_result.fitness:.3f}, Inlier RMSE: {icp_result.inlier_rmse:.3f}")
-
-            # Transform the current point cloud to align with the previous one
-            cur_pcd.transform(icp_result.transformation)
-
-            # Visualize the point clouds after alignment
-            # o3d.visualization.draw_geometries([prev_pcd, cur_pcd], window_name="After ICP", point_show_normal=False)
-
-        pose = icp_result.transformation
-        return pose, icp_result.fitness
+            
+        return icp_result.transformation, icp_result.fitness, prev_pcd, cur_pcd
     else:
         print("ICP failed to converge")
-        return None, None
-
-def downsample_point_cloud(pcd, voxel_size):
-    """
-    Downsample a point cloud using a voxel grid filter.
-    """
-    return pcd.voxel_down_sample(voxel_size)
+        return None, None, None, None
