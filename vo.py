@@ -4,12 +4,13 @@ from src.frame import Frame
 from src.frontend import extract_features, match_features, estimate_relative_pose, is_significant_motion
 from src.visualize import plot_matches, plot_vo_trajectory, plot_ground_truth
 from src.visualize import plot_keypoints, plot_2d_trajectory, plot_ground_truth_2d, plot_trajectory_components
-from src.utils import save_image, delete_subdirectories
+from src.utils import save_depth, save_image, delete_subdirectories
 main_dir = Path(__file__).parent
+data_dir = Path.home() / "Documents" / "data" / "vSLAM"
 
 
 def main():
-    debug = False
+    debug = True
     use_dist = False
     cleanup = True
     scene = "rgbd_dataset_freiburg2_pioneer_360"
@@ -21,8 +22,8 @@ def main():
         delete_subdirectories(results_dir)
 
     # Read the data
-    data_dir = main_dir / "data" / scene
-    data = Dataset(data_dir, use_dist)
+    dataset_dir = data_dir / scene
+    data = Dataset(dataset_dir, use_dist)
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
@@ -51,8 +52,8 @@ def main():
         # Capture new image frame (current_frame)
         type, ts, img, depth, gt_pose = data.get()
         if debug:
-            depth_save_path = results_dir / "depth" / f"{i}_d.png"
-            save_image(depth, depth_save_path)
+            depth_save_path = results_dir / "depth" / f"{i}_d"
+            save_depth(depth, depth_save_path)
             rgb_save_path = results_dir / "img" / f"{i}_rgb.png"
             save_image(img, rgb_save_path)
         
@@ -87,9 +88,9 @@ def main():
             matches = match_features(prev_keyframe, frame, debug) # (N) : N < M
             if debug:
                 match_save_path = results_dir / "matches" / f"{frame.id}_{prev_keyframe.id}.png"
-                plot_matches(frame.img, frame.keypoints, 
-                         prev_keyframe.img, prev_keyframe.keypoints, 
-                         matches, match_save_path)
+                plot_matches(prev_keyframe.img, prev_keyframe.keypoints, 
+                             frame.img, frame.keypoints, 
+                             matches, match_save_path)
 
             # Estimate the relative pose (odometry) between the current frame and the last keyframe
             displacement, error = estimate_relative_pose(matches, 

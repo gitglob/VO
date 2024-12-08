@@ -152,7 +152,7 @@ def estimate_relative_pose(matches, prev_keypts, prev_depth, cur_keypts, K, dist
     # Use solvePnP to estimate the pose
     success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_pts_3d, cur_keypt_pixel_coords[indices], 
                                                       cameraMatrix=K, distCoeffs=dist_coeffs, 
-                                                      reprojectionError=1.0, confidence=0.999, 
+                                                      reprojectionError=0.2, confidence=0.999, 
                                                       iterationsCount=5000)
 
     # Compute reprojection error and print it

@@ -4,6 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
+import matplotlib.pyplot as plt
 
 
 def delete_subdirectories(data_dir):
@@ -51,6 +52,50 @@ def save_2_images(image1, image2, save_path):
     # Save the combined image using OpenCV
     cv2.imwrite(save_path, combined_image)
 
+def save_depth(image, save_path):
+    # Create the directory if it doesn't exist
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Check if the image is a PIL image, convert it to a NumPy array
+    if isinstance(image, Image.Image):
+        image = np.array(image)
+
+    # If the image is a NumPy array, ensure it's in a format that can be saved by OpenCV
+    if isinstance(image, np.ndarray):
+        # Convert the image to BGR format if it's in RGB (PIL is usually in RGB)
+        if len(image.shape) == 3 and image.shape[2] == 3:  # Check if it's a 3-channel image
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    
+    # Save the image using OpenCV
+    depth_path = save_path.parent / (save_path.name + '_depth.png')
+    cv2.imwrite(depth_path, image)
+
+    # Convert the depth image to 3d points
+    points = depth_to_3d_points(image)
+
+    # Extract the Z (depth) component from the points
+    Z = points[:, 2]
+    
+    # Normalize the Z values to an 8-bit range
+    # Handling NaNs or Infs if they exist:
+    Z = Z[np.isfinite(Z)]
+    if Z.size == 0:
+        print("Warning: No valid Z points to create a heatmap.")
+        return
+    
+    # Z_norm is a 1D array. Reshape into a w*h image
+    h, w = image.shape[:2]
+    Z_img = Z.reshape(h, w)
+    
+    # Use matplotlib to create a heatmap with a colorbar
+    plt.figure(figsize=(8, 6))
+    plt.imshow(Z_img, cmap='jet', aspect='auto', origin='upper')
+    plt.colorbar(label="Depth (m)")
+    plt.title("Depth Heatmap")
+    heatmap_path = save_path.parent / (save_path.name + '_heat.png')
+    plt.savefig(heatmap_path, bbox_inches='tight')
+    plt.close()
+    
 def save_image(image, save_path):
     # Create the directory if it doesn't exist
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -132,7 +177,7 @@ def quat2rot_matrix(qx, qy, qz, qw):
     
     return rotation_matrix
 
-def depth_to_3d_points(depth_image, cx, cy, fx, fy, factor=5000):
+def depth_to_3d_points(depth_image, cx = 319.5, cy = 239.5, fx=525.0, fy=525.0, factor=5000):
     """
     Convert a depth image to 3D points using camera intrinsics.
 
