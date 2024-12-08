@@ -81,7 +81,7 @@ def normalize_and_save_trajectory(input_file, output_file):
 
 def main():
     main_dir = Path(__file__).parent.parent
-    scene = "rgbd_dataset_freiburg2_pioneer_360"
+    scene = "rgbd_dataset_freiburg2_pioneer_slam2"
     gt_txt = main_dir / "data" / scene / "groundtruth_clipped.txt"
     gt_txt_norm = main_dir / "data" / scene / "groundtruth_norm.txt"
 

@@ -45,18 +45,16 @@ def match_features(prev_frame, frame, debug=False):
     curr_desc = frame.descriptors
 
     # Create BFMatcher object
-    # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # Match descriptors
-    # matches = bf.match(prev_desc, curr_desc)
     matches = bf.knnMatch(prev_desc, curr_desc, k=2)
 
     # Filter matches with high dissimilarity
     matches = filter_matches(matches, debug)
 
     # Filter outlier matches
-    # matches = remove_outlier_matches(matches, prev_frame.keypoints, frame.keypoints, debug)
+    matches = remove_outlier_matches(matches, prev_frame.keypoints, frame.keypoints, debug)
     
     # print(f"Left with {len(matches)} matches!")
     return matches
@@ -74,11 +72,11 @@ def filter_matches(matches, debug=False):
 
 def remove_outlier_matches(matches, prev_keypoints, keypoints, debug=False):
     # Extract the keypoint pixel coordinates
-    pixel_coords = np.float32([keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 2)
     prev_pixel_coords = np.float32([prev_keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 2)
+    pixel_coords = np.float32([keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 2)
 
     # Find the homography matrix and mask using RANSAC
-    H, mask = cv2.findHomography(pixel_coords, prev_pixel_coords, cv2.RANSAC,
+    H, mask = cv2.findHomography(prev_pixel_coords, pixel_coords, cv2.RANSAC,
                                  ransacReprojThreshold=2.0, maxIters=5000, confidence=0.95)
 
     # Use the mask to filter inlier matches
@@ -344,7 +342,7 @@ def estimate_relative_pose(matches, prev_keypts, prev_depth, cur_keypts, K, dist
     # Use solvePnP to estimate the pose
     success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_pts_3d, cur_keypt_pixel_coords[indices], 
                                                       cameraMatrix=K, distCoeffs=dist_coeffs, 
-                                                      reprojectionError=1.0, confidence=0.999, 
+                                                      reprojectionError=0.2, confidence=0.999, 
                                                       iterationsCount=5000)
 
     # Compute reprojection error and print it
