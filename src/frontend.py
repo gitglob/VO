@@ -86,14 +86,18 @@ def remove_outlier_matches(matches, prev_keypoints, keypoints, debug=False):
         print(f"Ransac filtered {len(matches) - len(inlier_matches)}/{len(matches)} matches!")
     return inlier_matches
 
-def initialize(prev_kpts, curr_kpts, matches, K):
+def initialize(prev_frame, cur_frame, matches, K):
+    if len(matches) < 5:
+        print("Not enough matches to compute the Essential Matrix!")
+        return prev_frame.pose, None, False
+
     # Extract locations of matched keypoints
-    prev_kpt_pixel_coords = np.float32([prev_kpts[m.queryIdx].pt for m in matches])
-    cur_kpt_pixel_coords = np.float32([curr_kpts[m.trainIdx].pt for m in matches])
+    prev_kpt_pixel_coords = np.float32([prev_frame.keypoints[m.queryIdx].pt for m in matches])
+    cur_kpt_pixel_coords = np.float32([cur_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Compute the Essential Matrix
     E, mask_E = cv2.findEssentialMat(
-        cur_kpt_pixel_coords, prev_kpt_pixel_coords, K, method=cv2.RANSAC, prob=0.999, threshold=1.0
+        cur_kpt_pixel_coords, prev_kpt_pixel_coords, K, method=cv2.RANSAC, prob=0.99, threshold=1.5
     )
 
     # Compute the Homography Matrix
@@ -186,8 +190,8 @@ def initialize(prev_kpts, curr_kpts, matches, K):
     valid_indices = filter_small_triangulation_angles(points_3d, R, t)
 
     # If initialization is successful, return the initial pose and filtered points
-    if valid_indices:
-        return initial_pose, points_3d[valid_indices.T], True
+    if valid_indices is not None:
+        return initial_pose, points_3d[:, valid_indices], True
     else:
         return None, None, False
 

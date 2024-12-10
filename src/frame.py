@@ -31,10 +31,9 @@ class Landmark():
         self.unique_id = 'f' + str(frame_id) + 'l' + str(landmark_id) # Unique landmark identifier
 
 class Frame():
-    def __init__(self, id: int, img: np.ndarray, depth: np.ndarray, keypoints, descriptors, bow = None):
+    def __init__(self, id: int, img: np.ndarray, keypoints, descriptors, bow = None):
         self.id = id              # The frame id
         self.img = img.copy()     # The rgb image
-        self.depth = depth.copy() # The depth image at that frame 
         self.bow = bow            # The bag of words of that image
         self.keypoints = keypoints
         self.descriptors = descriptors

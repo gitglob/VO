@@ -1,3 +1,5 @@
+import os
+import glob
 import pandas as pd
 import cv2
 import numpy as np
@@ -22,103 +24,62 @@ class Dataset:
 
         self._read(data_dir)
         self._init_calibration()
-        self._combine_data()
 
-    def _read(self, data_dir):        
-        rgb_txt = data_dir / "rgb.txt"
-        self._rgb = pd.read_csv(rgb_txt, comment='#', sep='\s+', header=None, names=["timestamp", "filename"])
-        self._rgb['type'] = 'rgb'
-        
-        depth_txt = data_dir / "depth.txt"
-        self._depth = pd.read_csv(depth_txt, comment='#', sep='\s+', header=None, names=["timestamp", "filename"])
-        self._depth['type'] = 'depth'
-        
-        groundtruth_txt = data_dir / "groundtruth_norm.txt"
-        self._ground_truth = pd.read_csv(groundtruth_txt, comment='#', sep='\s+', header=None, names=["timestamp", "tx", "ty", "tz", "qx", "qy", "qz", "qw"])
+    def _read(self, data_dir):      
+        images_dir = data_dir / "images"  
+        ground_truth_txt = data_dir / "groundtruthSync.txt"
+        pcalib_txt = data_dir / "pcalib.txt"
+        times_txt = data_dir / "times.txt"
+        self.camera_txt = data_dir / "camera.txt"
+        self.statistics_txt = data_dir / "statistics.txt"
+
+        self._image_paths = glob.glob(os.path.join(images_dir, "*.jpg"))
+        self._image_paths.sort()
+        self._times = np.loadtxt(times_txt)[:,1]
+        self._pcalib = np.loadtxt(pcalib_txt)
+        self._ground_truth = pd.read_csv(ground_truth_txt, comment='#', sep='\s+', header=None, 
+                                         names=["timestamp", "tx", "ty", "tz", "qx", "qy", "qz", "qw"])
         
     def _init_calibration(self):
         """Intrinsics matrix, source: https://cvg.cit.tum.de/data/datasets/rgbd-dataset/file_formats#intrinsic_camera_calibration_of_the_kinect """
-        if self.use_dist:
-            fx = 520.9  # focal length x
-            fy = 521.0  # focal length y
-            cx = 325.1  # optical center x
-            cy = 249.7  # optical center y
-            
-            # Distortion parameters
-            d0 = 0.2312	
-            d1 = -0.7849
-            d2 = -0.0033
-            d3 = -0.0001
-            d4 = 0.9172
-            self._dist_coeffs = np.array([d0, d1, d2, d3, d4], dtype=np.float64)
-        else:
-            fx = 525.0  # focal length x
-            fy = 525.0  # focal length y
-            cx = 319.5  # optical center x
-            cy = 239.5  # optical center y
+        fx = 0.535719308086809  # focal length x
+        fy = 0.669566858850269  # focal length y
+        cx = 0.493248545285398  # optical center x
+        cy = 0.500408664348414  # optical center y
+        omega = 0.897966326944875
 
         self._K = np.array([[fx,  0, cx],
                             [ 0, fy, cy],
                             [ 0,  0,  1]], dtype=np.float64)
 
-    def _combine_data(self):
-        # Match the RGB data with the Depth data and Ground Truth
-        rgb_copy = self._rgb
-        
-        rgb_copy["closest_depth"] = self._rgb["timestamp"].apply(find_closest, timestamps=self._depth["timestamp"])
-        rgb_copy = pd.merge(self._rgb, self._depth, left_on="closest_depth", right_on="timestamp", suffixes=("_rgb", "_depth"))
-        
-        rgb_copy["closest_gt"] = self._rgb["timestamp"].apply(find_closest, timestamps=self._ground_truth["timestamp"])
-        rgb_copy = pd.merge(rgb_copy, self._ground_truth, left_on="closest_gt", right_on="timestamp", suffixes=("_rgb", "_gt"))
-        
-        self._data = rgb_copy.drop(columns=["closest_depth", "closest_gt", "type_rgb", "type_depth"])
-
     def get(self):
         """ Returns the next RGB image in terms of timestamp """
-        row = self._data.iloc[self._current_index]
-        timestamp = row["timestamp_rgb"]
-        
-        self._current_index += 1
-
-        image_path = self.data_dir / row["filename_rgb"]
+        timestamp = self._times[self._current_index]
+        image_path = self._image_paths[self._current_index]
         image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
 
-        depth_path = self.data_dir / row["filename_depth"]
-        depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+        gt_row = self._ground_truth.iloc[self._current_index]
+        if not np.isclose(timestamp, gt_row["timestamp"], atol=1e-4):
+            raise ValueError(f"Image and G.T. timestamps are different!! \n{timestamp} vs {gt_row['timestamp']}")
 
-        t = [row["tx"], row["ty"], row["tz"]]
-        R = quat2rot_matrix(row["qx"], row["qy"], row["qz"], row["qw"])
+        t = [gt_row["tx"], gt_row["ty"], gt_row["tz"]]
+        R = quat2rot_matrix(gt_row["qx"], gt_row["qy"], gt_row["qz"], gt_row["qw"])
         gt = np.eye(4)
         gt[:3, :3] = R
         gt[:3, 3] = t
 
-        return "rgbd", timestamp, image, depth, gt
-        
-    def frames(self, fraction=0.1):
-        """ Returns x images from the dataset """
-        # Sample the rgb dataframe
-        interval = int(1 / fraction)
-        sampled_rgb = self._rgb.iloc[::interval, :]
+        self._current_index += 1
 
-        # Extract the image filenames
-        sampled_image_filenames = sampled_rgb["filename"].tolist()
-
-        # Read all the images into a list        
-        images = []
-        for img_path in sampled_image_filenames:
-            image = cv2.imread(self.data_dir / img_path, cv2.IMREAD_UNCHANGED)
-            images.append(image)
-
-        return images
+        return timestamp, image, gt
 
     def ground_truth(self):
         return self._ground_truth
 
     def finished(self):
-        return self._current_index >= len(self._data)
+        return self._current_index >= len(self._image_paths)
     
     def get_intrinsics(self):
         return self._K, self._dist_coeffs
        
     def length(self):
-        return len(self._data)
+        return len(self._image_paths)

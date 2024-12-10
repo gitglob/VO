@@ -6,16 +6,16 @@ from src.visualize import plot_matches, plot_vo_trajectory, plot_ground_truth
 from src.visualize import plot_keypoints, plot_2d_trajectory, plot_ground_truth_2d, plot_trajectory_components
 from src.utils import save_depth, save_image, delete_subdirectories
 main_dir = Path(__file__).parent
-data_dir = Path.home() / "Documents" / "data" / "vSLAM"
+data_dir = Path.home() / "Documents" / "data" / "VO"
 
 
 def main():
     debug = True
     use_dist = False
     cleanup = True
-    scene = "rgbd_dataset_freiburg2_pioneer_360"
+    scene = "sequence_37"
     print(f"\t\tUsing dataset: `{scene}` ...")
-    results_dir = main_dir / "results" / scene / "3d_2d"
+    results_dir = main_dir / "results" / scene / "2d_2d"
 
     # Clean previous results
     if cleanup:
@@ -44,7 +44,6 @@ def main():
     # Run the main VO loop
     i = -1
     pose_initialized = False
-    local_map = LocalMap
     while not data.finished():
         # Advance the iteration
         i+=1
@@ -52,10 +51,8 @@ def main():
             print(f"\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
-        type, ts, img, depth, gt_pose = data.get()
+        ts, img, gt_pose = data.get()
         if debug:
-            depth_save_path = results_dir / "depth" / f"{i}_d"
-            save_depth(depth, depth_save_path)
             rgb_save_path = results_dir / "img" / f"{i}_rgb.png"
             save_image(img, rgb_save_path)
         
@@ -66,7 +63,7 @@ def main():
             plot_keypoints(img, keypoints, kpts_save_path)
 
         # Create a frame 
-        frame = Frame(i, img, depth, keypoints, descriptors)
+        frame = Frame(i, img, keypoints, descriptors)
         frames.append(frame)
 
         # The very first frame is the reference frame
@@ -93,13 +90,9 @@ def main():
                              matches, match_save_path)
                 
             # Etract the initial pose of the robot using either the Essential or Homography matrix
-            initial_pose, points3d, success = initialize(ref_frame.keypoints,
-                                                frame.keypoints,
-                                                matches,
-                                                K)
+            initial_pose, points3d, success = initialize(ref_frame, frame, matches, K)
             
             if success:
-                local_map.add_points(points3d)
                 pose_initialized = True
             
             # The second frame is de facto a keyframe
