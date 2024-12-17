@@ -285,7 +285,7 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     ax2.plot(np.arange(len(tz)), tz, 'r-', label='Z Trajectory')
     ax2.scatter(0, tz[0], color='green', s=100, label='Start')  # Start point
     ax2.scatter(len(tz) - 1, tz[-1], color='red', s=100, label='End')  # End point
-    ax2.set_ylim([-0.1, 0.1])
+    # ax2.set_ylim([-0.1, 0.1])
     ax2.set_xlabel('Time')
     ax2.set_ylabel('Z')
     ax2.set_title('Z Trajectory')

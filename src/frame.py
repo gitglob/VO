@@ -1,7 +1,7 @@
-from typing import List
+from typing import List, Tuple, Dict
 import numpy as np
 import cv2
-from src.frontend import extract_features
+from cv2 import DMatch
 
 
 class Landmark():
@@ -32,37 +32,41 @@ class Landmark():
 
 class Frame():
     def __init__(self, id: int, img: np.ndarray, keypoints, descriptors, bow = None):
-        self.id = id              # The frame id
-        self.img = img.copy()     # The rgb image
-        self.bow = bow            # The bag of words of that image
-        self.keypoints = keypoints
-        self.descriptors = descriptors
-        self._landmarks = {}
+        self.id: int = id                           # The frame id
+        self.img: np.ndarray = img.copy()           # The rgb image
+        self.bow = bow                              # The bag of words of that image
+
+        self.keypoints: Tuple = keypoints           # The extracted ORB keypoints
+        self.descriptors: np.ndarray = descriptors  # The extracted ORB descriptors
+        
+        self.matches_as_prev: List[DMatch] = None   # The keypoints that matched the previous keyframe
+        self.matches_as_curr: List[DMatch] = None   # The keypoints that matched the next keyframe
+        
+        self.points: np.ndarray = None              # Placeholder for the triangulated 3D points that correspond to some matched keypoints
+        self.matches: Dict[List[DMatch]] = {}       # Placeholder for the matches between this frame's keypoints and others'
+        self._landmarks = {}                        # The landmarks
+
+    def set_matches(self, with_frame_id: int, matches: List[DMatch]):
+        """Sets matches with a specfici frame"""
+        self.matches[with_frame_id] = np.array(matches, dtype=object)
+
+    def get_filtered_matches(self, frame_id):
+        matches = self.matches[frame_id]
+        filtered_matches = matches[self.inlier_mask]
+
+        return filtered_matches
 
     def set_pose(self, pose):
         self.pose = pose.copy()   # The robot pose at that frame
 
-    # @property
-    # def keypoints(self):
-    #     if self._keypoints is None:
-    #         self._extract_features()
-    #     return self._keypoints
+    def set_points(self, points: np.ndarray):
+        self.points = points
 
-    # @property
-    # def descriptors(self):
-    #     if self._descriptors is None:
-    #         self._extract_features()
-    #     return self._descriptors
-
-    # def _extract_features(self):
-    #     """ Extracts the keypoints and descriptors of the associated image """
-    #     self._keypoints, self._descriptors = extract_features(self.img) 
+    def set_inlier_mask(self, inlier_mask):
+        self.inlier_mask = inlier_mask
 
     def find_landmarks(self, matches, K, match_keypts, match_pose, query=True):
         """ Finds and initializes the frame landmarks """
-        # Extract features from image
-        self._extract_features()
-
         # Triangulate landmark_positions
         positions = self.triangulate_landmarks(matches, K, match_keypts, match_pose, query)
         
