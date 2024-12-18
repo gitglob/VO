@@ -70,137 +70,79 @@ def main():
         # The very first frame is the reference frame
         if frame.id == 0:
             print(f"{i}: Taking reference frame...")
-            ref_frame = frame
+            prev_keyframe = frame
             pose = gt_pose
             error = 0
             frame.set_pose(pose)
-            poses.append(pose)
-            gt_poses.append(gt_pose)
-            keyframes.append(frame)
-            keyframe_save_path = results_dir / "keyframes" / f"{i}_rgb.png"
-            if debug:
-                save_image(img, keyframe_save_path)
 
-        # If this is the second frame, we need to initialize the 3d points
-        if frame.id == 1:
-            print(f"{i}: Trying to initialize pose...")
-            # Feature matching
-            matches = match_features(ref_frame, frame, debug) # (N) : N < M
-            if debug:
-                match_save_path = main_dir / "results" / scene / "matches" / f"{frame.id}_{ref_frame.id}.png"
-                plot_matches(ref_frame.img, ref_frame.keypoints,
-                             frame.img, frame.keypoints,
-                             matches, match_save_path)
-                
-            # Etract the initial pose of the robot using either the Essential or Homography matrix
-            initial_pose, success = initialize(ref_frame, frame, matches, K)
-            
-            if success:
-                print("Estimated pose through triangulation successfully!")
-                pose_initialized = True
-            
-            # The second frame is de facto a keyframe
-            error = 0
-            frame.set_pose(initial_pose)
-            poses.append(initial_pose)
-            gt_poses.append(gt_pose)
-            keyframes.append(frame)
-            keyframe_save_path = results_dir / "keyframes" / f"{i}_rgb.png"
-            if debug:
-                save_image(img, keyframe_save_path)
-
-        # If this is the third frame, we need to calculate the scale
-        if pose_initialized and frame.id > 1:
-            print(f"{i}: Trying to compute scale...")
+        # After the first frame, we perform feature matching
+        else:
             # Extract the last keyframe
             prev_keyframe = keyframes[-1]
 
             # Feature matching
             matches = match_features(prev_keyframe, frame, debug) # (N) : N < M
-            if debug:
-                match_save_path = main_dir / "results" / scene / "matches" / f"{frame.id}_{ref_frame.id}.png"
-                plot_matches(ref_frame.img, ref_frame.keypoints,
-                             frame.img, frame.keypoints,
-                             matches, match_save_path)
+            
+            # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
+            if not pose_initialized:
+                print(f"{i}: Trying to initialize pose...")
+                # Etract the initial pose using the Essential or Homography matrix (2d-2d)
+                pose, success = initialize(prev_keyframe, frame, matches, K)
+                if success:
+                    print("Estimated pose through triangulation successfully!")
+                    pose_initialized = True
+
+                # If this is not the 2nd frame, we also compute the relative scale
+                if len(keyframes) > 1:              
+                    print(f"{i}: Trying to compute scale...")
+                    # Use the previous and current matches and frames to compute the relative scale
+                    pre_prev_keyframe = keyframes[-2]
+                    scale_factor, success = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)
+                    if success:
+                        print("Scale computed successfully!")
+                        scale_computed = True
+
+                    # Scale the pose
+                    pose[:3, 3] = pose[:3, 3]*scale_factor
                 
-            # Etract the initial pose of the robot using either the Essential or Homography matrix
-            initial_pose, success = initialize(prev_keyframe, frame, matches, K)
-            
-            if success:
-                print("Estimated pose through triangulation successfully!")
+                frame.set_pose(pose)
+                error = 0
 
-            # Feature matching
-            matches = match_features(prev_keyframe, frame, debug) # (N) : N < M
+            # If scale has been initialized, we can calculate VO using PnP
+            elif scale_computed:
+                # Estimate the relative pose using PnP (3d-2d)
+                displacement, error = estimate_relative_pose(prev_keyframe, 
+                                                    frame, 
+                                                    K, dist_coeffs,
+                                                    debug) # (4, 4)
+                if displacement is None:
+                    print(f"Warning: solvePnP failed!")
+                    continue
+            
+                # Check if this frame is a keyframe (significant motion or lack of feature matches)
+                if not is_significant_motion(displacement, debug=debug):
+                    continue
+                    
+                # Calculate the new pose
+                pose = prev_keyframe.pose @ displacement # (4, 4)
+                frame.set_pose(pose)
+            
+            # Save the matches
             if debug:
-                match_save_path = results_dir / "matches" / f"{frame.id}_{prev_keyframe.id}.png"
-                plot_matches(prev_keyframe.img, prev_keyframe.keypoints, 
-                             frame.img, frame.keypoints, 
-                             matches, match_save_path)
+                match_save_path = main_dir / "results" / scene / "matches" / f"{frame.id}_{prev_keyframe.id}.png"
+                plot_matches(prev_keyframe.img, prev_keyframe.keypoints,
+                            frame.img, frame.keypoints,
+                            matches, match_save_path)
+
+        # Save the keyframe
+        if debug:
+            keyframe_save_dir = results_dir / "keyframes"
+            save_image(frame.img, keyframe_save_dir / f"{i}_rgb.png")
                 
-            # Use the previous and current matches and frames to compute the relative scale
-            pre_prev_keyframe = keyframes[-2]
-            scale_factor, success = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)
-            
-            if success:
-                print("Scale computed successfully!")
-
-            # Scale the pose
-            pose = initial_pose*scale_factor
-            
-            # The third frame is de facto a keyframe
-            error = 0
-            frame.set_pose(initial_pose)
-            poses.append(initial_pose)
-            gt_poses.append(gt_pose)
-            keyframes.append(frame)
-            keyframe_save_path = results_dir / "keyframes" / f"{i}_rgb.png"
-            if debug:
-                save_image(img, keyframe_save_path)
-
-        # Check if this is the very first image, so that we can perform VO
-        if scale_computed:
-            # Extract the last keyframe
-            prev_keyframe = keyframes[-1]
-
-            # Feature matching
-            matches = match_features(prev_keyframe, frame, debug) # (N) : N < M
-            if debug:
-                match_save_path = results_dir / "matches" / f"{frame.id}_{prev_keyframe.id}.png"
-                plot_matches(prev_keyframe.img, prev_keyframe.keypoints, 
-                             frame.img, frame.keypoints, 
-                             matches, match_save_path)
-
-            # Estimate the relative pose (odometry) between the current frame and the last keyframe
-            displacement, error = estimate_relative_pose(matches, 
-                                                  prev_keyframe.keypoints,  
-                                                  prev_keyframe.inlier_points, 
-                                                  frame.keypoints, 
-                                                  K, dist_coeffs,
-                                                  debug) # (4, 4)
-            if displacement is None:
-                print(f"Warning: solvePnP failed!")
-                continue
-           
-            # Check if this frame is a keyframe (significant motion or lack of feature matches)
-            if not is_significant_motion(displacement, debug=debug):
-                continue
-
-            # Save keyframe
-            if debug:
-                keyframe_save_dir = results_dir / "keyframes"
-                save_image(frame.img, keyframe_save_dir / f"{i}_rgb.png")
-                plot_matches(prev_keyframe.img, prev_keyframe.keypoints, 
-                             frame.img, frame.keypoints, 
-                             matches, keyframe_save_dir / f"{frame.id}_{prev_keyframe.id}.png")
-                
-            # Calculate the new pose
-            pose = prev_keyframe.pose @ displacement # (4, 4)
-            frame.set_pose(pose)
-            
-            # Make the current pose, depth, img, descriptors and keypoints the previous ones
-            poses.append(pose)
-            gt_poses.append(gt_pose)
-            keyframes.append(frame)
+        # Keep the poses, ground truth, and keyframes
+        poses.append(pose)
+        gt_poses.append(gt_pose)
+        keyframes.append(frame)
         
         # Visualize the current state of the map and trajectory
         traj2d_save_path = results_dir / "vo" / f"{i}.png"

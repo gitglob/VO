@@ -47,7 +47,7 @@ class Frame():
         self._landmarks = {}                        # The landmarks
 
     def set_matches(self, with_frame_id: int, matches: List[DMatch]):
-        """Sets matches with a specfici frame"""
+        """Sets matches with a specfic frame"""
         self.matches[with_frame_id] = np.array(matches, dtype=object)
 
     def get_filtered_matches(self, frame_id):

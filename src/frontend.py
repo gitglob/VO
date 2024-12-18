@@ -93,7 +93,16 @@ def remove_outlier_matches(matches, prev_keypoints, keypoints, debug=False):
 
 ###########################################################################################
 
-def initialize(prev_frame: Frame, cur_frame: Frame, matches, K):
+def initialize(prev_frame: Frame, cur_frame: Frame, K):
+    """
+    The purpose of this function is to:
+    - Calculate the Essential Matrix based on the matches keypoints of 2 frames.
+      The Essential Matrix is the Rotation and Translation of the camera between these frames.
+    - Calculate the 3D positions of the tracked points through Triangulation.
+      Triangulation is a process with which given two different views of the same point and
+      the relative position of the camera between them, we can calculate its 3D position.
+    """
+    matches = prev_frame.get_filtered_matches(cur_frame.id)
     if len(matches) < 5:
         print("Not enough matches to compute the Essential Matrix!")
         return prev_frame.pose, None, False
@@ -197,14 +206,15 @@ def initialize(prev_frame: Frame, cur_frame: Frame, matches, K):
 
     ## Compute relative Scale
     # Triangulate
-    prev_points_3d = triangulate(inlier_prev_pixels, inlier_curr_pixels, R, t, K)
+    points_3d = triangulate(inlier_prev_pixels, inlier_curr_pixels, R, t, K)
 
     # Filter points with small triangulation angles
-    valid_indices_mask, filtered_prev_points_3d = filter_small_triangulation_angles(prev_points_3d, R, t)
+    valid_indices_mask, filtered_points_3d = filter_small_triangulation_angles(points_3d, R, t)
 
     # If initialization is successful, return the initial pose and filtered points
     if valid_indices_mask is not None:
-        prev_frame.set_points(filtered_prev_points_3d)
+        prev_frame.set_points(filtered_points_3d)
+        cur_frame.set_points(filtered_points_3d)
         prev_frame.set_inlier_mask(valid_indices_mask)
         return initial_pose, True
     else:
@@ -244,18 +254,18 @@ def compute_symmetric_transfer_error(E_or_H, cur_kpt_pixels, prev_kpt_pixels, ma
     mean_error = np.mean(errors)
     return mean_error, num_inliers
 
-def triangulate(inlier_prev_pixels, inlier_curr_pixels, R, t, K):
+def triangulate(prev_pixels, curr_pixels, R, t, K):
     # Compute projection matrices for triangulation
     M1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))  # First camera at origin
     M2 = K @ np.hstack((R, t))  # Second camera at R, t
 
     # Triangulate points
-    prev_points_4d_hom = cv2.triangulatePoints(M1, M2, inlier_prev_pixels.T, inlier_curr_pixels.T)
+    prev_points_4d_hom = cv2.triangulatePoints(M1, M2, prev_pixels.T, curr_pixels.T)
 
     # Convert homogeneous coordinates to 3D
-    prev_points_3d = prev_points_4d_hom[:3] / prev_points_4d_hom[3]
+    points_3d = prev_points_4d_hom[:3] / prev_points_4d_hom[3]
 
-    return prev_points_3d
+    return points_3d
 
 def filter_small_triangulation_angles(points_3d, R, t):
     # Compute triangulation angles for each point
@@ -296,7 +306,7 @@ def filter_small_triangulation_angles(points_3d, R, t):
         print("Discarding frame 2 due to insufficient triangulation quality.")
         return None, None
     
-    return valid_angles_mask, filtered_points_3d
+    return valid_angles_mask, filtered_points_3d.T
 
 def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Frame):
     """Computes the relative scale between 2 frames"""
@@ -340,18 +350,18 @@ def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Fram
         p1 = pre_prev_frame_points[l1]
 
         # Extract the distance between that point and every other common point
-        for l2 in pre_prev_pair_indices[i+1, :]:
+        for l2 in pre_prev_pair_indices[i+1:]:
             p2 = pre_prev_frame_points[l2]
             pre_prev_distances.append(euclidean_distance(p1, p2))
 
     # Compute all the distances between common point 3D coordinates in the prev frame
     prev_distances = []
-    for k1 in prev_pair_indices:
+    for i, k1 in enumerate(prev_pair_indices):
         # Extract the index and 3D point of the prev frame on the common point
         p1 = prev_frame_points[k1]
 
         # Extract the distance between that point and every other common point
-        for k2 in prev_pair_indices[i+1, :]:
+        for k2 in prev_pair_indices[i+1:]:
             p2 = pre_prev_frame_points[k2]
             prev_distances.append(euclidean_distance(p1, p2))
 
@@ -367,7 +377,7 @@ def euclidean_distance(p1: np.ndarray, p2: np.ndarray):
 ###########################################################################################
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(matches: List, prev_frame: Frame, curr_frame: Frame, K: np.ndarray, dist_coeffs=None, debug=False):
+def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, dist_coeffs=None, debug=False):
     """
     Estimate the relative pose between two frames using matched keypoints and depth information.
 
@@ -386,35 +396,36 @@ def estimate_relative_pose(matches: List, prev_frame: Frame, curr_frame: Frame, 
         - pose or None: The new pose as a 4x4 transformation matrix
     """
     pose = np.eye(4) # placeholder for displacement
+    matches = prev_frame.get_filtered_matches(curr_frame.id)
 
     # Extract the matched keypoints' coordinates from the current frame
-    cur_keypt_pixel_coords = np.float64([curr_frame.keypoints[m.trainIdx].pt for m in matches])
-    cur_keypt_pixel_coords = cur_keypt_pixel_coords[prev_frame.inlier_mask]
+    cur_kpt_pixels = np.float64([curr_frame.keypoints[m.trainIdx].pt for m in matches])
+    cur_kpt_pixels = cur_kpt_pixels[prev_frame.inlier_mask]
     
     # Check if enough 3D points exist to estimate the camera pose using the Direct Linear Transformation (DLT) algorithm
-    if len(prev_frame.inlier_points) < 6:
-        print(f"Warning: Not enough points for pose estimation. Got {len(prev_frame.inlier_points)}, expected at least 6.")
+    if len(prev_frame.points) < 6:
+        print(f"Warning: Not enough points for pose estimation. Got {len(prev_frame.points)}, expected at least 6.")
         return None, None
     
     # Use solvePnP to estimate the pose
-    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.inlier_points, cur_keypt_pixel_coords, 
+    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.points, cur_kpt_pixels, 
                                                       cameraMatrix=K, distCoeffs=dist_coeffs, 
                                                       reprojectionError=0.2, confidence=0.999, 
                                                       iterationsCount=5000)
 
     # Compute reprojection error and print it
-    error = compute_reprojection_error(prev_frame.inlier_points[inliers], cur_keypt_pixel_coords[prev_frame.inlier_mask][inliers], rvec, tvec, K, dist_coeffs)
+    error = compute_reprojection_error(prev_frame.points[inliers], cur_kpt_pixels[prev_frame.inlier_mask][inliers], rvec, tvec, K, dist_coeffs)
     if debug:
         print(f"Reprojection error: {error:.2f} pixels")
 
     if success:
         # Refine pose using inliers by calling solvePnP again without RANSAC
-        success_refine, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.inlier_points[inliers], cur_keypt_pixel_coords[prev_frame.inlier_mask][inliers], 
+        success_refine, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.points[inliers], cur_kpt_pixels[prev_frame.inlier_mask][inliers], 
                                                                   K, dist_coeffs, rvec, tvec, useExtrinsicGuess=True)
 
         if success_refine:
             # Compute the refined reprojection error
-            error_refined = compute_reprojection_error(prev_pts_3d[inliers], cur_keypt_pixel_coords[indices][inliers], rvec_refined, tvec_refined, K, dist_coeffs)
+            error_refined = compute_reprojection_error(prev_frame.points[inliers], cur_kpt_pixels[indices][inliers], rvec_refined, tvec_refined, K, dist_coeffs)
             if debug:
                 print(f"Refined reprojection error: {error_refined:.2f} pixels")
 
