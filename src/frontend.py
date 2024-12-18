@@ -30,7 +30,7 @@ def extract_features(image):
     
     return keypoints, descriptors
 
-def match_features(prev_frame: Frame, frame: Frame, debug=False):
+def match_features(prev_frame: Frame, frame: Frame, scale_computed=False, debug=False):
     """
     Matches features between two frames.
     
@@ -44,7 +44,13 @@ def match_features(prev_frame: Frame, frame: Frame, debug=False):
         curr_desc: the descriptors of the current frame
         prev_desc: the descriptors of the previous frame
     """
-    prev_desc = prev_frame.descriptors
+    # Get frame descriptors
+    if scale_computed:
+        # If the 3d points have been initialized with triangulation, we need to keep tracking the same points
+        prev_desc = prev_frame.landmark_descriptors
+    else:
+        # If not, we use all the features
+        prev_desc = prev_frame.descriptors
     curr_desc = frame.descriptors
 
     # Create BFMatcher object
@@ -60,7 +66,12 @@ def match_features(prev_frame: Frame, frame: Frame, debug=False):
     matches = remove_outlier_matches(matches, prev_frame.keypoints, frame.keypoints, debug)
     prev_frame.set_matches(frame.id, matches)
     frame.set_matches(prev_frame.id, matches)
-    
+
+    # If the 3d points have been initialized, then the matched features are also landmarks
+    if scale_computed:
+        f_landmark_indices = [m.queryIdx for m in matches]
+        frame.set_landmark_indices(f_landmark_indices)
+
     # print(f"Left with {len(matches)} matches!")
     return matches
 
@@ -102,10 +113,10 @@ def initialize(prev_frame: Frame, cur_frame: Frame, K):
       Triangulation is a process with which given two different views of the same point and
       the relative position of the camera between them, we can calculate its 3D position.
     """
-    matches = prev_frame.get_filtered_matches(cur_frame.id)
+    matches = prev_frame.matches[cur_frame.id]
     if len(matches) < 5:
         print("Not enough matches to compute the Essential Matrix!")
-        return prev_frame.pose, None, False
+        return prev_frame.pose, False
 
     # Extract locations of matched keypoints
     prev_kpt_pixels = np.float32([prev_frame.keypoints[m.queryIdx].pt for m in matches])
@@ -310,38 +321,15 @@ def filter_small_triangulation_angles(points_3d, R, t):
 
 def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Frame):
     """Computes the relative scale between 2 frames"""
-    # Extract the matches between the frames -2 and -1
-    pre_prev_frame_matches = pre_prev_frame.get_filtered_matches(prev_frame.id)
-    # Extract the triangulated 3D points of the previoud frame
-    pre_prev_frame_points = pre_prev_frame.points
-
-    # Extract the indices of the query keypoints from frame -1
-    pre_prev_indices = [m.trainIdx for m in pre_prev_frame_matches]
-
-    # Extract the matches between the frames -1 and 0
-    prev_frame_matches = prev_frame.get_filtered_matches(frame.id)
-    # Extract the triangulated 3D points of the previoud frame
-    prev_frame_points = prev_frame.points
-
-    # Extract the indices of the query keypoints from frame -1
-    prev_indices = [m.queryIdx for m in prev_frame_matches]
-
-    # Find the same matched points in matches [-2, -1] and [-1, 0]
-    pre_prev_pair_indices = []
-    prev_pair_indices = []
-    # Iterate over matches [-2, -1]
-    for l, pre_prev_idx in enumerate(pre_prev_indices):
-        # Iterate over matches [-1, 0]
-        for k, prev_idx in enumerate(prev_indices):
-            # Check if the matches involve the same point of the frame -1
-            if pre_prev_idx == prev_idx:
-                pre_prev_pair_indices.append(l)
-                prev_pair_indices.append(k)
+    # Get the common features between frames t-2, t-1, t
+    pre_prev_pair_indices, prev_pair_indices = get_common_match_indices(pre_prev_frame, prev_frame, frame)
 
     # If there are less than 2 common point matches, we cannot compute the scale
-    if len(pre_prev_indices) < 2:
+    if len(prev_pair_indices) < 2:
         return None, False
-                    
+                 
+    # Extract the triangulated 3D points of the previoud frame
+    pre_prev_frame_points = pre_prev_frame.points   
     # Iterate over the found common point matches
     pre_prev_distances = []
     # Compute all the distances between common point 3D coordinates in the pre-prev frame
@@ -354,6 +342,8 @@ def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Fram
             p2 = pre_prev_frame_points[l2]
             pre_prev_distances.append(euclidean_distance(p1, p2))
 
+    # Extract the triangulated 3D points of the previoud frame
+    prev_frame_points = prev_frame.points
     # Compute all the distances between common point 3D coordinates in the prev frame
     prev_distances = []
     for i, k1 in enumerate(prev_pair_indices):
@@ -370,6 +360,50 @@ def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Fram
     scale = np.median(scales)
 
     return scale, True
+
+def get_common_match_indices(frame: Frame, frame1: Frame, frame2: Frame):
+    """Given 3 consecutive frames, it returns the indices of the common features between all of them."""
+    # Extract the matches between the frames -2 and -1
+    f_f1_matches = frame.get_filtered_matches(frame1.id)
+
+    # Extract the indices of the query keypoints from frame -1
+    f_f1_query_indices = [m.queryIdx for m in f_f1_matches]
+    f_f1_train_indices = [m.trainIdx for m in f_f1_matches]
+
+    # Extract the matches between the frames -1 and 0
+    f1_f2_matches = frame1.get_filtered_matches(frame2.id)
+
+    # Extract the indices of the query keypoints from frame -1
+    f1_f2_query_indices = [m.queryIdx for m in f1_f2_matches]
+    f1_f2_train_indices = [m.trainIdx for m in f1_f2_matches]
+
+    # Find the same matched points in matches [-2, -1] and [-1, 0]
+    f_landmarks = []
+    f1_landmarks = []
+    f2_landmarks = []
+    f_f1_pair_indices = []
+    f1_f2_pair_indices = []
+    # Iterate over matches [-2, -1]
+    for i in range(len(f_f1_train_indices)):
+        f_f1_kpt_idx = f_f1_train_indices[i]
+        # Iterate over matches [-1, 0]
+        for j in range(len(f1_f2_query_indices)):
+            f1_f2_kpt_idx = f1_f2_query_indices[j]
+            # Check if the matches involve the same point of the frame -1
+            if f_f1_kpt_idx == f1_f2_kpt_idx:
+                f_landmarks.append(f_f1_query_indices[i])
+                f1_landmarks.append(f_f1_train_indices[i])
+                f2_landmarks.append(f1_f2_train_indices[i])
+                f_f1_pair_indices.append(i)
+                f1_f2_pair_indices.append(j)
+                break
+
+    # Mark the common features as landmarks, so that they are tracked until they are no longer detected
+    frame.set_landmark_indices(f_landmarks)
+    frame1.set_landmark_indices(f1_landmarks)
+    frame2.set_landmark_indices(f2_landmarks)
+
+    return f_f1_pair_indices, f1_f2_pair_indices
 
 def euclidean_distance(p1: np.ndarray, p2: np.ndarray):
     return np.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2)
@@ -396,11 +430,6 @@ def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, 
         - pose or None: The new pose as a 4x4 transformation matrix
     """
     pose = np.eye(4) # placeholder for displacement
-    matches = prev_frame.get_filtered_matches(curr_frame.id)
-
-    # Extract the matched keypoints' coordinates from the current frame
-    cur_kpt_pixels = np.float64([curr_frame.keypoints[m.trainIdx].pt for m in matches])
-    cur_kpt_pixels = cur_kpt_pixels[prev_frame.inlier_mask]
     
     # Check if enough 3D points exist to estimate the camera pose using the Direct Linear Transformation (DLT) algorithm
     if len(prev_frame.points) < 6:
@@ -408,24 +437,24 @@ def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, 
         return None, None
     
     # Use solvePnP to estimate the pose
-    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.points, cur_kpt_pixels, 
+    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.points, curr_frame.landmarks, 
                                                       cameraMatrix=K, distCoeffs=dist_coeffs, 
                                                       reprojectionError=0.2, confidence=0.999, 
                                                       iterationsCount=5000)
 
     # Compute reprojection error and print it
-    error = compute_reprojection_error(prev_frame.points[inliers], cur_kpt_pixels[prev_frame.inlier_mask][inliers], rvec, tvec, K, dist_coeffs)
+    error = compute_reprojection_error(prev_frame.points[inliers], curr_frame.landmarks[inliers], rvec, tvec, K, dist_coeffs)
     if debug:
         print(f"Reprojection error: {error:.2f} pixels")
 
     if success:
         # Refine pose using inliers by calling solvePnP again without RANSAC
-        success_refine, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.points[inliers], cur_kpt_pixels[prev_frame.inlier_mask][inliers], 
+        success_refine, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.points[inliers], curr_frame.landmarks[inliers], 
                                                                   K, dist_coeffs, rvec, tvec, useExtrinsicGuess=True)
 
         if success_refine:
             # Compute the refined reprojection error
-            error_refined = compute_reprojection_error(prev_frame.points[inliers], cur_kpt_pixels[indices][inliers], rvec_refined, tvec_refined, K, dist_coeffs)
+            error_refined = compute_reprojection_error(prev_frame.points[inliers], curr_frame.landmarks[inliers], rvec_refined, tvec_refined, K, dist_coeffs)
             if debug:
                 print(f"Refined reprojection error: {error_refined:.2f} pixels")
 

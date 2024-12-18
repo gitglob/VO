@@ -43,7 +43,6 @@ def main():
 
     # Run the main VO loop
     i = -1
-    pose_initialized = False
     scale_computed = False
     while not data.finished():
         # Advance the iteration
@@ -81,26 +80,26 @@ def main():
             prev_keyframe = keyframes[-1]
 
             # Feature matching
-            matches = match_features(prev_keyframe, frame, debug) # (N) : N < M
-            
+            matches = match_features(prev_keyframe, frame, scale_computed, debug) # (N) : N < M
+
             # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
-            if not pose_initialized:
+            if not scale_computed:
                 print(f"{i}: Trying to initialize pose...")
                 # Etract the initial pose using the Essential or Homography matrix (2d-2d)
-                pose, success = initialize(prev_keyframe, frame, matches, K)
-                if success:
-                    print("Estimated pose through triangulation successfully!")
-                    pose_initialized = True
+                pose, success = initialize(prev_keyframe, frame, K)
+                if not success:
+                    print("Pose initialization failed!")
+                    continue
 
                 # If this is not the 2nd frame, we also compute the relative scale
                 if len(keyframes) > 1:              
                     print(f"{i}: Trying to compute scale...")
                     # Use the previous and current matches and frames to compute the relative scale
                     pre_prev_keyframe = keyframes[-2]
-                    scale_factor, success = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)
-                    if success:
-                        print("Scale computed successfully!")
-                        scale_computed = True
+                    scale_factor, scale_computed = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)
+                    if not scale_computed:
+                        print("Scale computation failed! There are less than 2 common point pairs!")
+                        continue
 
                     # Scale the pose
                     pose[:3, 3] = pose[:3, 3]*scale_factor
@@ -109,7 +108,7 @@ def main():
                 error = 0
 
             # If scale has been initialized, we can calculate VO using PnP
-            elif scale_computed:
+            else:
                 # Estimate the relative pose using PnP (3d-2d)
                 displacement, error = estimate_relative_pose(prev_keyframe, 
                                                     frame, 
@@ -117,6 +116,7 @@ def main():
                                                     debug) # (4, 4)
                 if displacement is None:
                     print(f"Warning: solvePnP failed!")
+                    scale_computed = False
                     continue
             
                 # Check if this frame is a keyframe (significant motion or lack of feature matches)
