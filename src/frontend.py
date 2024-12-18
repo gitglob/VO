@@ -2,6 +2,7 @@ from typing import List
 import cv2
 import numpy as np
 from src.frame import Frame
+from src.utils import isnan
 
 
 ###########################################################################################
@@ -74,7 +75,7 @@ def match_features(prev_frame: Frame, frame: Frame, scale_computed=False, debug=
     if scale_computed:
         # The features of the previous frame need to be updated, as some might not be present in the new frame
         prev_frame_landmark_indices = [m.queryIdx for m in matches]
-        prev_frame.set_landmark_indices(prev_frame_landmark_indices)
+        prev_frame.update_landmark_indices(prev_frame_landmark_indices)
         # The features of the next frame are all the newly matched features
         frame_landmark_indices = [m.queryIdx for m in matches]
         frame.set_landmark_indices(frame_landmark_indices)
@@ -245,10 +246,10 @@ def initialize(prev_frame: Frame, curr_frame: Frame, K):
         
         # Restructure the 3d points to match the matches length
         # placing None at the features where a point was not triangulated
-        prev_points = np.full(len(prev_frame.keypoints), None)
+        prev_points = np.full((len(prev_frame.keypoints), 3), np.nan, dtype=np.float32)
         for i, idx in enumerate(prev_kpt_indices):
             prev_points[idx] = points_3d.T[i]
-        curr_points = np.full(len(curr_frame.keypoints), None)
+        curr_points = np.full((len(curr_frame.keypoints), 3), np.nan, dtype=np.float32)
         for i, idx in enumerate(curr_kpt_indices):
             curr_points[idx] = points_3d.T[i]
 
@@ -368,12 +369,12 @@ def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Fram
     for i, l1 in enumerate(pre_prev_pair_indices):
         # Extract the index and 3D point of the pre-prev frame on the common point
         p1 = pre_prev_frame_points[l1]
-        if p1 is None: continue
+        if isnan(p1): continue
 
         # Extract the distance between that point and every other common point
         for l2 in pre_prev_pair_indices[i+1:]:
             p2 = pre_prev_frame_points[l2]
-            if p2 is None: continue
+            if isnan(p2): continue
             pre_prev_distances.append(euclidean_distance(p1, p2))
 
     # Extract the triangulated 3D points of the previoud frame
@@ -383,12 +384,12 @@ def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Fram
     for i, k1 in enumerate(prev_pair_indices):
         # Extract the index and 3D point of the prev frame on the common point
         p1 = prev_frame_points[k1]
-        if p1 is None: continue
+        if isnan(p1): continue
 
         # Extract the distance between that point and every other common point
         for k2 in prev_pair_indices[i+1:]:
             p2 = pre_prev_frame_points[k2]
-            if p2 is None: continue
+            if isnan(p2): continue
             prev_distances.append(euclidean_distance(p1, p2))
 
     # Calculate the median scale
@@ -443,7 +444,7 @@ def euclidean_distance(p1: np.ndarray, p2: np.ndarray):
 ###########################################################################################
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, dist_coeffs=None, debug=False):
+def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, debug=False, dist_coeffs=None):
     """
     Estimate the relative pose between two frames using matched keypoints and depth information.
 
@@ -469,10 +470,8 @@ def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, 
         return None, None
     
     # Use solvePnP to estimate the pose
-    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.landmark_points, curr_frame.landmark_pixels, 
-                                                      cameraMatrix=K, distCoeffs=dist_coeffs, 
-                                                      reprojectionError=0.2, confidence=0.999, 
-                                                      iterationsCount=5000)
+    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.landmark_points, curr_frame.landmark_pixels, K, dist_coeffs,
+                                                      reprojectionError=0.2, confidence=0.999, iterationsCount=5000)
 
     # Compute reprojection error and print it
     error = compute_reprojection_error(prev_frame.points[inliers], curr_frame.landmark_pixels[inliers], rvec, tvec, K, dist_coeffs)
@@ -503,7 +502,7 @@ def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, 
     else:
         return None, None
     
-def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs=None):
+def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs):
     """Compute the reprojection error for the given 3D-2D point correspondences and pose."""
     # Project the 3D points to 2D using the estimated pose
     projected_pts_2d, _ = cv2.projectPoints(pts_3d, rvec, tvec, K, dist_coeffs)

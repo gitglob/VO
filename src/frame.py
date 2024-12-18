@@ -85,3 +85,14 @@ class Frame():
         # Only the initialization frames contain triangulated points  
         if self.points is not None:
             self.landmark_points = self.points[indices]
+
+    def update_landmark_indices(self, indices: List):
+        """Sets the indices of the keypoints that are tracked over time (found in consecutive frames)"""
+        self.landmark_indices = [self.landmark_indices[i] for i in indices]
+        
+        self.landmark_keypoints = [self.landmark_keypoints[i] for i in indices]
+        self.landmark_descriptors = self.landmark_descriptors[indices]
+        self.landmark_pixels = self.landmark_pixels[indices]
+
+        # Only the initialization frames contain triangulated points  
+        self.landmark_points = self.landmark_points[indices]

@@ -7,6 +7,12 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 
+def isnan(p: np.ndarray):
+    """Checks if a 3d point is nan."""
+    if np.isnan(p[0]) or np.isnan(p[1]) or np.isnan(p[2]):
+        return True
+    return False
+
 def delete_subdirectories(data_dir):
     # Convert to Path object if not already
     data_dir = Path(data_dir)

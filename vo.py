@@ -33,7 +33,7 @@ def main():
     plot_ground_truth_2d(gt, save_path=gt_save_path_2d)
 
     # Get the camera matrix
-    K, dist_coeffs = data.get_intrinsics()
+    K, _ = data.get_intrinsics()
 
     # Initialize the graph, the keyframes, and the bow list
     frames = []
@@ -110,10 +110,7 @@ def main():
             # If scale has been initialized, we can calculate VO using PnP
             else:
                 # Estimate the relative pose using PnP (3d-2d)
-                displacement, error = estimate_relative_pose(prev_keyframe, 
-                                                    frame, 
-                                                    K, dist_coeffs,
-                                                    debug) # (4, 4)
+                displacement, error = estimate_relative_pose(prev_keyframe, frame, K, debug) # (4, 4)
                 if displacement is None:
                     print(f"Warning: solvePnP failed!")
                     scale_computed = False
