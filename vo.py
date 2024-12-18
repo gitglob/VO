@@ -84,7 +84,7 @@ def main():
 
             # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
             if not scale_computed:
-                print(f"{i}: Trying to initialize pose...")
+                print(f"{i}: Initializing pose...")
                 # Etract the initial pose using the Essential or Homography matrix (2d-2d)
                 pose, success = initialize(prev_keyframe, frame, K)
                 if not success:
@@ -93,7 +93,7 @@ def main():
 
                 # If this is not the 2nd frame, we also compute the relative scale
                 if len(keyframes) > 1:              
-                    print(f"{i}: Trying to compute scale...")
+                    print(f"{i}: Computing scale...")
                     # Use the previous and current matches and frames to compute the relative scale
                     pre_prev_keyframe = keyframes[-2]
                     scale_factor, scale_computed = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)

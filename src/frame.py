@@ -1,6 +1,5 @@
 from typing import List, Tuple, Dict
 import numpy as np
-import cv2
 from cv2 import DMatch
 
 
@@ -39,19 +38,30 @@ class Frame():
         self.keypoints: Tuple = keypoints           # The extracted ORB keypoints
         self.descriptors: np.ndarray = descriptors  # The extracted ORB descriptors
         
-        self.points: np.ndarray = None              # Placeholder for the triangulated 3D points that correspond to some matched keypoints
+        self.points: np.ndarray = None              # Placeholder for the triangulated 3D points that correspond to some matched keypoints between 2 frames
         self.matches: Dict[List[DMatch]] = {}       # Placeholder for the matches between this frame's keypoints and others'
-        self.landmarks: List = []                   # Placeholder for the pixel coordinates of the tracked features (aka landmarks)
+        self.valid_kpt_indices: Dict[List[int]] = {}# Placeholder for the valid keypoint indices of the matches between this frame's keypoints and others'
+        self.landmarks: np.ndarray = None           # Placeholder for the pixel coordinates of the tracked features (aka landmarks)
 
     def set_matches(self, with_frame_id: int, matches: List[DMatch]):
         """Sets matches with a specfic frame"""
         self.matches[with_frame_id] = np.array(matches, dtype=object)
 
-    def get_filtered_matches(self, frame_id):
-        matches = self.matches[frame_id]
-        filtered_matches = matches[self.inlier_mask]
+    def set_valid_kpt_indices(self, with_frame_id: int, indices: List[int]):
+        """Sets the indices of the keypoints that are kept during triangulation (and correspond to actual 3D points)"""
+        self.valid_kpt_indices[with_frame_id] = indices
 
-        return filtered_matches
+    def get_valid_matches(self, with_frame_id: int):
+        """Get the valid indices. Valid indices are the ones that were actually used to generate 3D points during triangulation."""
+        matches = self.matches[with_frame_id]
+        valid_kpt_indices = self.valid_kpt_indices[with_frame_id]
+
+        valid_matches = []
+        for m in matches:
+            if m.queryIdx in valid_kpt_indices:
+                valid_matches.append(m)
+
+        return valid_matches
 
     def set_pose(self, pose):
         self.pose = pose.copy()   # The robot pose at that frame
@@ -59,11 +69,19 @@ class Frame():
     def set_points(self, points: np.ndarray):
         self.points = points
 
-    def set_inlier_mask(self, inlier_mask):
-        self.inlier_mask = inlier_mask
+    def get_valid_points(self):
+        """Returns only non-None points (triangulated points)"""
+        mask = np.array([x is not None for x in self.points])
+        return self.points[mask]
 
-    def set_landmark_indices(self, indices):
+    def set_landmark_indices(self, indices: List):
         """Sets the indices of the keypoints that are tracked over time (found in consecutive frames)"""
         self.landmark_indices = indices
-        self.landmarks = np.float64([self.keypoints[i].pt for i in self.landmark_indices])
-        self.landmark_descriptors = self.descriptors[self.landmark_indices]
+        
+        self.landmark_keypoints = [self.keypoints[i] for i in indices]
+        self.landmark_descriptors = self.descriptors[indices]
+        self.landmark_pixels = np.float64([self.keypoints[i].pt for i in indices])
+
+        # Only the initialization frames contain triangulated points  
+        if self.points is not None:
+            self.landmark_points = self.points[indices]
