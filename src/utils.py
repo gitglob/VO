@@ -7,6 +7,27 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 
+def transform_points(points_3d: np.ndarray, T: np.ndarray):
+    """
+    Apply a 4x4 transformation matrix T to a Nx3 array of 3D points.
+    Returns a Nx3 array of transformed 3D points.
+    """
+    # 1. Convert Nx3 -> Nx4 (homogeneous)
+    ones = np.ones((points_3d.shape[0], 1))
+    points_hom = np.hstack([points_3d, ones])  # shape (N, 4)
+
+    # 2. Multiply by the transform (assume row vectors)
+    transformed_hom = points_hom @ T.T  # shape (N, 4)
+
+    # 3. Normalize back to 3D
+    w = transformed_hom[:, 3]
+    x = transformed_hom[:, 0] / w
+    y = transformed_hom[:, 1] / w
+    z = transformed_hom[:, 2] / w
+    transformed_3d = np.column_stack((x, y, z))
+
+    return transformed_3d
+
 def isnan(p: np.ndarray):
     """Checks if a 3d point is nan."""
     if np.isnan(p[0]) or np.isnan(p[1]) or np.isnan(p[2]):

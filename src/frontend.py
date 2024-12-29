@@ -2,7 +2,7 @@ from typing import List
 import cv2
 import numpy as np
 from src.frame import Frame
-from src.utils import isnan
+from src.utils import isnan, transform_points
 
 
 ###########################################################################################
@@ -47,12 +47,12 @@ def match_features(prev_frame: Frame, frame: Frame, scale_computed=False, debug=
     """
     # Get frame descriptors
     if scale_computed:
-        print("\tMatching landmarks...")
+        print(f"\tMatching landmarks between frames: {prev_frame.id} & {frame.id}...")
         # If the 3d points have been initialized with triangulation, we need to keep tracking the same points
         prev_desc = prev_frame.landmark_descriptors
         prev_kpt = prev_frame.landmark_keypoints
     else:
-        print("\tMatching features...")
+        print(f"\tMatching features between frames: {prev_frame.id} & {frame.id}...")
         # If not, we use all the features
         prev_desc = prev_frame.descriptors
         prev_kpt = prev_frame.keypoints
@@ -74,10 +74,13 @@ def match_features(prev_frame: Frame, frame: Frame, scale_computed=False, debug=
     # If the 3d points have been initialized, then the matched features are also landmarks
     if scale_computed:
         # The features of the previous frame need to be updated, as some might not be present in the new frame
-        prev_frame_landmark_indices = [m.queryIdx for m in matches]
+        landmarks_kept_indices = [m.queryIdx for m in matches]
+        prev_frame_landmark_indices = [prev_frame.landmark_indices[i-1] for i in landmarks_kept_indices]
+        print(prev_frame.landmark_points)
         prev_frame.update_landmark_indices(prev_frame_landmark_indices)
+        print(prev_frame.landmark_points)
         # The features of the next frame are all the newly matched features
-        frame_landmark_indices = [m.queryIdx for m in matches]
+        frame_landmark_indices = [m.trainIdx for m in matches]
         frame.set_landmark_indices(frame_landmark_indices)
 
     return matches
@@ -111,7 +114,7 @@ def remove_outlier_matches(matches, prev_keypoints, keypoints, debug=False):
 
 ###########################################################################################
 
-def initialize(prev_frame: Frame, curr_frame: Frame, K):
+def initialize(prev_frame: Frame, frame: Frame, K):
     """
     The purpose of this function is to:
     - Calculate the Essential Matrix based on the matches keypoints of 2 frames.
@@ -121,7 +124,7 @@ def initialize(prev_frame: Frame, curr_frame: Frame, K):
       the relative position of the camera between them, we can calculate its 3D position.
     """
     # Extract the matches between the previous and current frame
-    matches = prev_frame.matches[curr_frame.id]
+    matches = prev_frame.matches[frame.id]
     if len(matches) < 5:
         print("Not enough matches to compute the Essential Matrix!")
         return prev_frame.pose, False
@@ -130,7 +133,7 @@ def initialize(prev_frame: Frame, curr_frame: Frame, K):
     prev_kpt_indices = np.array([m.queryIdx for m in matches])
     prev_kpt_pixels = np.float32([prev_frame.keypoints[idx].pt for idx in prev_kpt_indices])
     curr_kpt_indices = np.array([m.trainIdx for m in matches])
-    curr_kpt_pixels = np.float32([curr_frame.keypoints[idx].pt for idx in curr_kpt_indices])
+    curr_kpt_pixels = np.float32([frame.keypoints[idx].pt for idx in curr_kpt_indices])
 
     # Compute the Essential Matrix
     E, mask_E = cv2.findEssentialMat(
@@ -249,15 +252,15 @@ def initialize(prev_frame: Frame, curr_frame: Frame, K):
         prev_points = np.full((len(prev_frame.keypoints), 3), np.nan, dtype=np.float32)
         for i, idx in enumerate(prev_kpt_indices):
             prev_points[idx] = points_3d.T[i]
-        curr_points = np.full((len(curr_frame.keypoints), 3), np.nan, dtype=np.float32)
+        curr_points = np.full((len(frame.keypoints), 3), np.nan, dtype=np.float32)
         for i, idx in enumerate(curr_kpt_indices):
             curr_points[idx] = points_3d.T[i]
 
         # Set the new triangulated points and their corresponding valid keypoint indices to each frame
         prev_frame.set_points(prev_points)
-        prev_frame.set_valid_kpt_indices(curr_frame.id, prev_kpt_indices)
-        curr_frame.set_points(curr_points)
-        curr_frame.set_valid_kpt_indices(prev_frame.id, curr_kpt_indices)
+        prev_frame.set_valid_kpt_indices(frame.id, prev_kpt_indices)
+        frame.set_points(curr_points)
+        frame.set_valid_kpt_indices(prev_frame.id, curr_kpt_indices)
 
         # and return the initial pose and filtered points
         return pose, True
@@ -355,6 +358,7 @@ def filter_small_triangulation_angles(points_3d, R, t):
 def compute_relative_scale(pre_prev_frame: Frame, prev_frame: Frame, frame: Frame):
     """Computes the relative scale between 2 frames"""
     # Get the common features between frames t-2, t-1, t
+    print(f"\tEstimating scale using frames: {pre_prev_frame.id}, {prev_frame.id} & {frame.id}...")
     pre_prev_pair_indices, prev_pair_indices = get_common_match_indices(pre_prev_frame, prev_frame, frame)
 
     # If there are less than 2 common point matches, we cannot compute the scale
@@ -420,15 +424,17 @@ def get_common_match_indices(frame: Frame, frame1: Frame, frame2: Frame):
     f2_landmarks = []
     # Iterate over matches [-2, -1]
     for i in range(len(f_f1_train_indices)):
+        f_f1_query_idx = f_f1_query_indices[i]
         f_f1_train_idx = f_f1_train_indices[i]
         # Iterate over matches [-1, 0]
         for j in range(len(f1_f2_query_indices)):
             f1_f2_query_idx = f1_f2_query_indices[j]
+            f1_f2_train_idx = f1_f2_train_indices[j]
             # Check if the matches involve the same point of the frame -1
             if f_f1_train_idx == f1_f2_query_idx:
-                f_landmarks.append(f_f1_query_indices[i])
-                f1_landmarks.append(f_f1_train_indices[i])
-                f2_landmarks.append(f1_f2_train_indices[j])
+                f_landmarks.append(f_f1_query_idx)
+                f1_landmarks.append(f_f1_train_idx)
+                f2_landmarks.append(f1_f2_train_idx)
                 break
 
     # Mark the common features as landmarks, so that they are tracked until they are no longer detected
@@ -444,7 +450,7 @@ def euclidean_distance(p1: np.ndarray, p2: np.ndarray):
 ###########################################################################################
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, debug=False, dist_coeffs=None):
+def estimate_relative_pose(prev_frame: Frame, frame: Frame, K: np.ndarray, debug=False, dist_coeffs=None):
     """
     Estimate the relative pose between two frames using matched keypoints and depth information.
 
@@ -452,7 +458,7 @@ def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, 
     solvePnP Parameters:
         - matches (list): List of matched keypoints 
         - prev_frame: The previoud frame
-        - curr_frame: The current frame
+        - frame: The current frame
         - K: Camera intrinsic matrix 
     solvePnP Returns:
         success: A boolean flag indicating if the function successfully found a solution.
@@ -462,32 +468,33 @@ def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, 
     Returns:
         - pose or None: The new pose as a 4x4 transformation matrix
     """
+    print(f"\tEstimating relative pose using: {prev_frame.id} & {frame.id}...")
     pose = np.eye(4) # placeholder for displacement
     
     # Check if enough 3D points exist to estimate the camera pose using the Direct Linear Transformation (DLT) algorithm
     if len(prev_frame.get_valid_points()) < 6:
-        print(f"Warning: Not enough points for pose estimation. Got {len(prev_frame.points)}, expected at least 6.")
+        print(f"Warning: Not enough points for pose estimation. Got {len(prev_frame.landmark_points)}, expected at least 6.")
         return None, None
     
     # Use solvePnP to estimate the pose
-    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.landmark_points, curr_frame.landmark_pixels, K, dist_coeffs,
-                                                      reprojectionError=0.2, confidence=0.999, iterationsCount=5000)
+    success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.landmark_points, frame.landmark_pixels, K, dist_coeffs,
+                                                      reprojectionError=1.0, confidence=0.999, iterationsCount=5000)
 
     # Compute reprojection error and print it
-    error = compute_reprojection_error(prev_frame.points[inliers], curr_frame.landmark_pixels[inliers], rvec, tvec, K, dist_coeffs)
+    error = compute_reprojection_error(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], rvec, tvec, K, dist_coeffs)
     if debug:
-        print(f"Reprojection error: {error:.2f} pixels")
+        print(f"\t\tReprojection error: {error:.2f} pixels")
 
     if success:
         # Refine pose using inliers by calling solvePnP again without RANSAC
-        success_refine, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.points[inliers], curr_frame.landmark_pixels[inliers], 
+        success_refined, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], 
                                                                   K, dist_coeffs, rvec, tvec, useExtrinsicGuess=True)
 
-        if success_refine:
+        if success_refined:
             # Compute the refined reprojection error
-            error_refined = compute_reprojection_error(prev_frame.points[inliers], curr_frame.landmark_pixels[inliers], rvec_refined, tvec_refined, K, dist_coeffs)
+            error_refined = compute_reprojection_error(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], rvec_refined, tvec_refined, K, dist_coeffs)
             if debug:
-                print(f"Refined reprojection error: {error_refined:.2f} pixels")
+                print(f"\t\tRefined reprojection error: {error_refined:.2f} pixels")
 
             # Convert the refined rotation vector to a rotation matrix
             R_refined, _ = cv2.Rodrigues(rvec_refined)
@@ -495,6 +502,12 @@ def estimate_relative_pose(prev_frame: Frame, curr_frame: Frame, K: np.ndarray, 
             # Construct the refined pose matrix
             pose[:3, :3] = R_refined
             pose[:3, 3] = tvec_refined.flatten()
+
+            # Set as 3D points in the new frame the 3D points of the previous frame, transformed
+            frame_3d_points = np.full((len(frame.keypoints), 3), np.nan, dtype=np.float32)
+            prev_frame_3d_points = prev_frame.landmark_points[inliers].reshape(-1,3)
+            frame_3d_points[inliers.flatten(), :] = transform_points(prev_frame_3d_points, pose)
+            frame.set_points(frame_3d_points)
 
             return np.linalg.inv(pose), error_refined
         else:
@@ -523,10 +536,10 @@ def is_significant_motion(P, t_threshold=0.3, yaw_threshold=1, debug=False):
 
     is_keyframe = dx > t_threshold or dy > t_threshold or yaw > yaw_threshold
     if debug:
-        print(f"Displacement: t: {dx:.3f}, {dy:.3f}, yaw: {yaw:.3f}")
+        print(f"\tDisplacement: dx: {dx:.3f}, dy:{dy:.3f}, yaw: {yaw:.3f}")
         if is_keyframe:
-            print("Keyframe!")
+            print("\t\tKeyframe!")
         else:
-            print("Not a keyframe!")
+            print("\t\tNot a keyframe!")
 
     return is_keyframe

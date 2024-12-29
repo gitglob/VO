@@ -37,6 +37,9 @@ class Frame():
 
         self.keypoints: Tuple = keypoints           # The extracted ORB keypoints
         self.descriptors: np.ndarray = descriptors  # The extracted ORB descriptors
+
+        self.landmarks_inditialized: bool = False   # Placeholder for whether landmarks have been initialized at this frame
+                                                    # Landmarks are simply features that are chosen to be tracked across multiple consecutive frames
         
         self.points: np.ndarray = None              # Placeholder for the triangulated 3D points that correspond to some matched keypoints between 2 frames
         self.matches: Dict[List[DMatch]] = {}       # Placeholder for the matches between this frame's keypoints and others'
@@ -67,6 +70,7 @@ class Frame():
         self.pose = pose.copy()   # The robot pose at that frame
 
     def set_points(self, points: np.ndarray):
+        print(f"\t\tSetting 3D points in frame #{self.id}")
         self.points = points
 
     def get_valid_points(self):
@@ -76,23 +80,35 @@ class Frame():
 
     def set_landmark_indices(self, indices: List):
         """Sets the indices of the keypoints that are tracked over time (found in consecutive frames)"""
+        print(f"\t\tSetting landmarks in frame #{self.id}")
         self.landmark_indices = indices
+        self.landmarks_initialized = True
         
-        self.landmark_keypoints = [self.keypoints[i] for i in indices]
-        self.landmark_descriptors = self.descriptors[indices]
-        self.landmark_pixels = np.float64([self.keypoints[i].pt for i in indices])
-
-        # Only the initialization frames contain triangulated points  
-        if self.points is not None:
-            self.landmark_points = self.points[indices]
-
     def update_landmark_indices(self, indices: List):
         """Sets the indices of the keypoints that are tracked over time (found in consecutive frames)"""
-        self.landmark_indices = [self.landmark_indices[i] for i in indices]
+        print(f"\t\tUpdating landmarks in frame #{self.id}")
+        self.landmark_indices = indices
         
-        self.landmark_keypoints = [self.landmark_keypoints[i] for i in indices]
-        self.landmark_descriptors = self.landmark_descriptors[indices]
-        self.landmark_pixels = self.landmark_pixels[indices]
+    @property
+    def landmark_points(self):
+        if not self.landmarks_initialized:
+            raise("No landmarks found!!")
+        return self.points[self.landmark_indices]
 
-        # Only the initialization frames contain triangulated points  
-        self.landmark_points = self.landmark_points[indices]
+    @property
+    def landmark_keypoints(self):
+        if not self.landmarks_initialized:
+            raise("No landmarks found!!")
+        return [self.keypoints[i] for i in self.landmark_indices]
+
+    @property
+    def landmark_descriptors(self):
+        if not self.landmarks_initialized:
+            raise("No landmarks found!!")
+        return self.descriptors[self.landmark_indices]
+
+    @property
+    def landmark_pixels(self):
+        if not self.landmarks_initialized:
+            raise("No landmarks found!!")
+        return np.float64([self.keypoints[i].pt for i in self.landmark_indices])

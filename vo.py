@@ -43,7 +43,7 @@ def main():
 
     # Run the main VO loop
     i = -1
-    scale_computed = False
+    is_scale_estimated = False
     while not data.finished():
         # Advance the iteration
         i+=1
@@ -51,7 +51,7 @@ def main():
             print(f"\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
-        ts, img, gt_pose = data.get()
+        _, img, gt_pose = data.get()
         if debug:
             rgb_save_path = results_dir / "img" / f"{i}_rgb.png"
             save_image(img, rgb_save_path)
@@ -64,15 +64,16 @@ def main():
 
         # Create a frame 
         frame = Frame(i, img, keypoints, descriptors)
+        if debug:
+            print(f"\nframe #{frame.id}")
         frames.append(frame)
 
         # The very first frame is the reference frame
         if frame.id == 0:
-            print(f"{i}: Taking reference frame...")
+            print(f"Taking reference frame...")
             prev_keyframe = frame
             pose = gt_pose
             error = 0
-            frame.set_pose(pose)
 
         # After the first frame, we perform feature matching
         else:
@@ -80,11 +81,11 @@ def main():
             prev_keyframe = keyframes[-1]
 
             # Feature matching
-            matches = match_features(prev_keyframe, frame, scale_computed, debug) # (N) : N < M
+            matches = match_features(prev_keyframe, frame, is_scale_estimated, debug) # (N) : N < M
 
             # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
-            if not scale_computed:
-                print(f"{i}: Initializing pose...")
+            if not is_scale_estimated:
+                print(f"Initializing pose...")
                 # Etract the initial pose using the Essential or Homography matrix (2d-2d)
                 pose, success = initialize(prev_keyframe, frame, K)
                 if not success:
@@ -93,27 +94,26 @@ def main():
 
                 # If this is not the 2nd frame, we also compute the relative scale
                 if len(keyframes) > 1:              
-                    print(f"{i}: Computing scale...")
+                    print(f"Computing scale...")
                     # Use the previous and current matches and frames to compute the relative scale
                     pre_prev_keyframe = keyframes[-2]
-                    scale_factor, scale_computed = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)
-                    if not scale_computed:
+                    scale_factor, is_scale_estimated = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)
+                    if not is_scale_estimated:
                         print("Scale computation failed! There are less than 2 common point pairs!")
                         continue
 
                     # Scale the pose
                     pose[:3, 3] = pose[:3, 3]*scale_factor
                 
-                frame.set_pose(pose)
                 error = 0
 
             # If scale has been initialized, we can calculate VO using PnP
-            else:
+            if is_scale_estimated:
                 # Estimate the relative pose using PnP (3d-2d)
                 displacement, error = estimate_relative_pose(prev_keyframe, frame, K, debug) # (4, 4)
                 if displacement is None:
                     print(f"Warning: solvePnP failed!")
-                    scale_computed = False
+                    is_scale_estimated = False
                     continue
             
                 # Check if this frame is a keyframe (significant motion or lack of feature matches)
@@ -122,7 +122,6 @@ def main():
                     
                 # Calculate the new pose
                 pose = prev_keyframe.pose @ displacement # (4, 4)
-                frame.set_pose(pose)
             
             # Save the matches
             if debug:
@@ -137,6 +136,7 @@ def main():
             save_image(frame.img, keyframe_save_dir / f"{i}_rgb.png")
                 
         # Keep the poses, ground truth, and keyframes
+        frame.set_pose(pose)
         poses.append(pose)
         gt_poses.append(gt_pose)
         keyframes.append(frame)
