@@ -43,25 +43,24 @@ class Frame():
         
         self.points: np.ndarray = None              # Placeholder for the triangulated 3D points that correspond to some matched keypoints between 2 frames
         self.matches: Dict[List[DMatch]] = {}       # Placeholder for the matches between this frame's keypoints and others'
-        self.valid_kpt_indices: Dict[List[int]] = {}# Placeholder for the valid keypoint indices of the matches between this frame's keypoints and others'
-        self.landmarks: np.ndarray = None           # Placeholder for the pixel coordinates of the tracked features (aka landmarks)
+        self.triangulation_indices: Dict[List[int]] = {} # Placeholder for the triangulated keypoint indices between this frame and others
 
     def set_matches(self, with_frame_id: int, matches: List[DMatch]):
         """Sets matches with a specfic frame"""
         self.matches[with_frame_id] = np.array(matches, dtype=object)
 
-    def set_valid_kpt_indices(self, with_frame_id: int, indices: List[int]):
+    def set_triangulation_indices(self, with_frame_id: int, indices: List[int]):
         """Sets the indices of the keypoints that are kept during triangulation (and correspond to actual 3D points)"""
-        self.valid_kpt_indices[with_frame_id] = indices
+        self.triangulation_indices[with_frame_id] = indices
 
-    def get_valid_matches(self, with_frame_id: int):
+    def get_triangulation_matches(self, with_frame_id: int):
         """Get the valid indices. Valid indices are the ones that were actually used to generate 3D points during triangulation."""
         matches = self.matches[with_frame_id]
-        valid_kpt_indices = self.valid_kpt_indices[with_frame_id]
+        triangulation_indices = self.triangulation_indices[with_frame_id]
 
         valid_matches = []
         for m in matches:
-            if m.queryIdx in valid_kpt_indices:
+            if m.queryIdx in triangulation_indices:
                 valid_matches.append(m)
 
         return valid_matches
@@ -83,11 +82,6 @@ class Frame():
         print(f"\t\tSetting landmarks in frame #{self.id}")
         self.landmark_indices = indices
         self.landmarks_initialized = True
-        
-    def update_landmark_indices(self, indices: List):
-        """Sets the indices of the keypoints that are tracked over time (found in consecutive frames)"""
-        print(f"\t\tUpdating landmarks in frame #{self.id}")
-        self.landmark_indices = indices
         
     @property
     def landmark_points(self):
@@ -112,3 +106,13 @@ class Frame():
         if not self.landmarks_initialized:
             raise("No landmarks found!!")
         return np.float64([self.keypoints[i].pt for i in self.landmark_indices])
+        
+    def landmark_matches(self, with_frame_id: int):
+        """Returns the matches that correspond to landmarks"""
+        if not self.landmarks_initialized:
+            raise("No landmarks found!!")
+        matches = []
+        for m in self.matches[with_frame_id]:
+            if m.queryIdx in self.landmark_indices:
+                matches.append(m)
+        return matches

@@ -85,7 +85,6 @@ def main():
 
             # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
             if not is_scale_estimated:
-                print(f"Initializing pose...")
                 # Etract the initial pose using the Essential or Homography matrix (2d-2d)
                 pose, success = initialize(prev_keyframe, frame, K)
                 if not success:
@@ -93,8 +92,7 @@ def main():
                     continue
 
                 # If this is not the 2nd frame, we also compute the relative scale
-                if len(keyframes) > 1:              
-                    print(f"Computing scale...")
+                if len(keyframes) > 1:
                     # Use the previous and current matches and frames to compute the relative scale
                     pre_prev_keyframe = keyframes[-2]
                     scale_factor, is_scale_estimated = compute_relative_scale(pre_prev_keyframe, prev_keyframe, frame)
@@ -102,13 +100,29 @@ def main():
                         print("Scale computation failed! There are less than 2 common point pairs!")
                         continue
 
+                    # Save the tracked features
+                    if debug:     
+                        match_save_path = main_dir / "results" / scene / "landmarks" / f"{prev_keyframe.id}_{frame.id}.png"
+                        plot_matches(prev_keyframe.img, prev_keyframe.keypoints,
+                                    frame.img, frame.keypoints,
+                                    prev_keyframe.landmark_matches(frame.id), 
+                                    match_save_path)
+
                     # Scale the pose
                     pose[:3, 3] = pose[:3, 3]*scale_factor
                 
                 error = 0
 
             # If scale has been initialized, we can calculate VO using PnP
-            if is_scale_estimated:
+            else:
+                # Save the tracked features
+                if debug:     
+                    match_save_path = main_dir / "results" / scene / "landmarks" / f"{prev_keyframe.id}_{frame.id}.png"
+                    plot_matches(prev_keyframe.img, prev_keyframe.keypoints,
+                                 frame.img, frame.keypoints,
+                                 prev_keyframe.landmark_matches(frame.id), 
+                                 match_save_path)
+    
                 # Estimate the relative pose using PnP (3d-2d)
                 displacement, error = estimate_relative_pose(prev_keyframe, frame, K, debug) # (4, 4)
                 if displacement is None:
@@ -125,7 +139,7 @@ def main():
             
             # Save the matches
             if debug:
-                match_save_path = main_dir / "results" / scene / "matches" / f"{frame.id}_{prev_keyframe.id}.png"
+                match_save_path = main_dir / "results" / scene / "matches" / f"{prev_keyframe.id}_{frame.id}.png"
                 plot_matches(prev_keyframe.img, prev_keyframe.keypoints,
                             frame.img, frame.keypoints,
                             matches, match_save_path)

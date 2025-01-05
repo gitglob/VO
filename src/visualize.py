@@ -204,11 +204,16 @@ def plot_keypoints(image, keypoints, save_path, show_plot=False):
         cv2.destroyAllWindows()
 
 # Function to visualize the found feature matches
-def plot_matches(frame1, keypoints1, frame2, keypoints2, matches, save_path, show_plot=False):
+def plot_matches(img1, keypoints1, img2, keypoints2, matches, save_path, show_plot=False):
+    if len(matches) > 20:
+        matches_to_draw = matches[:20]
+    else:
+        matches_to_draw = matches
+    
     # Draw the matches on the images
-    matched_image = cv2.drawMatches(frame1, keypoints1, 
-                                    frame2, keypoints2, 
-                                    matches[:20], 
+    matched_image = cv2.drawMatches(img1, keypoints1, 
+                                    img2, keypoints2, 
+                                    matches_to_draw, 
                                     None, 
                                     flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     

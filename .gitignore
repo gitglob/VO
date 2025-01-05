@@ -20,6 +20,9 @@ results
 # Model checkpoints
 checkpoints
 
+# Temporary dir
+tmp
+
 # Redirected terminal output
 *.txt
 
