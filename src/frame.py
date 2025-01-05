@@ -49,6 +49,10 @@ class Frame():
         """Sets matches with a specfic frame"""
         self.matches[with_frame_id] = np.array(matches, dtype=object)
 
+    def get_matches(self, with_frame_id: int, matches: List[DMatch]):
+        """Returns matches with a specfic frame"""
+        return self.matches[with_frame_id]
+
     def set_triangulation_indices(self, with_frame_id: int, indices: List[int]):
         """Sets the indices of the keypoints that are kept during triangulation (and correspond to actual 3D points)"""
         self.triangulation_indices[with_frame_id] = indices

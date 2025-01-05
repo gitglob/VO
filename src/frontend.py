@@ -82,7 +82,7 @@ def match_features(prev_frame: Frame, frame: Frame, scale_computed=False, debug=
         for m in matches:
             if m.queryIdx in prev_frame_landmark_indices:
                 frame_landmark_indices.append(m.trainIdx)
-                
+
         prev_frame.set_landmark_indices(prev_frame_landmark_indices)
         frame.set_landmark_indices(frame_landmark_indices)
 
@@ -239,12 +239,18 @@ def initialize(prev_frame: Frame, frame: Frame, K: np.ndarray):
     pose[:3, :3] = R
     pose[:3, 3] = t.flatten()
 
+    # Print the transformation
+    yaw = abs(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
+    print(f"\tTransformation: dx:{pose[0,2]:.3f}, dy:{pose[0,1]:.3f}, yaw: {yaw:.3f}")
+
     ## Compute relative Scale
     # Triangulate
     prev_points_3d = triangulate(inlier_prev_pixels, inlier_curr_pixels, R, t, K)
 
     # Filter points with small triangulation angles
     large_angles_mask, prev_points_3d = filter_small_triangulation_angles(prev_points_3d, R, t)
+    if large_angles_mask is None:
+        return None, False
 
     # Calculate the 3d positions of the triangulated points in the current frame
     curr_points_3d = transform_points(prev_points_3d, pose)
@@ -322,13 +328,23 @@ def triangulate(prev_pixels, curr_pixels, R, t, K):
 
     return points_3d.T # (N, 3)
 
-def filter_small_triangulation_angles(points_3d, R, t):
+def filter_small_triangulation_angles(points_3d, R, t, angle_threshold=.5, median_threshold=1.5):
     """
+    Filter out 3D points that have a small triangulation angle between two camera centers.
+
+    When points are triangulated from two views, points that lie almost directly on 
+    the line connecting the two camera centers have a very small triangulation angle. 
+    These points are often numerically unstable and can degrade the accuracy of the 
+    reconstruction. This function discards such points by thresholding the angle to 
+    at least 1 degree, and further checks that enough points remain and that the 
+    median angle is at least 2 degrees.
+
     points_3d : (N, 3)
     R, t      : the rotation and translation from camera1 to camera2
     Returns:   valid_angles_mask (bool array of shape (N,)),
                filtered_points_3d (N_filtered, 3) or (None, None)
     """
+    print("\t\tFiltering points with small triangulation angles...")
 
     # Camera centers in the coordinate system where camera1 is at the origin.
     # For convenience, flatten them to shape (3,).
@@ -358,18 +374,20 @@ def filter_small_triangulation_angles(points_3d, R, t):
     angles = np.degrees(np.arccos(cos_angles))  # shape: (N,)
 
     # Filter out points with triangulation angle < 1 degree
-    valid_angles_mask = angles >= 1.0
+    valid_angles_mask = angles >= angle_threshold
 
     # Filter points and angles
     filtered_points_3d = points_3d[valid_angles_mask, :]  # shape: (N_filtered, 3)
     filtered_angles = angles[valid_angles_mask]
+    print(f"\t\t{len(filtered_points_3d)} points left after filtering low triangulation angles.")
 
     # Check conditions to decide whether to discard
     num_remaining_points = filtered_points_3d.shape[0]
     median_angle = np.median(filtered_angles) if num_remaining_points > 0 else 0
+    print(f"\t\tThe median angle is {median_angle:.3f} deg.")
 
     # If too few points or too small median angle, return None
-    if num_remaining_points < 40 or median_angle < 2.0:
+    if num_remaining_points < 40 or median_angle < median_threshold:
         print("Discarding frame 2 due to insufficient triangulation quality.")
         return None, None
 
@@ -525,6 +543,10 @@ def estimate_relative_pose(prev_frame: Frame, frame: Frame, K: np.ndarray, debug
             pose[:3, :3] = R_refined
             pose[:3, 3] = tvec_refined.flatten()
 
+            # Print the transformation
+            yaw = abs(np.degrees(np.arctan2(R_refined[1, 0], R_refined[0, 0])))
+            print(f"\tTransformation: dx:{pose[0,1]:.3f}, dy:{pose[0,2]:.3f}, yaw: {yaw:.3f}")
+
             # Set as 3D points in the new frame the 3D points of the previous frame, transformed
             frame_3d_points = np.full((len(frame.keypoints), 3), np.nan, dtype=np.float32)
             prev_frame_3d_points = prev_frame.landmark_points[inliers].reshape(-1,3)
@@ -534,7 +556,7 @@ def estimate_relative_pose(prev_frame: Frame, frame: Frame, K: np.ndarray, debug
             frame_landmark_indices = [frame.landmark_indices[i] for i in inliers.flatten()]
             frame.set_landmark_indices(frame_landmark_indices)
 
-            return np.linalg.inv(pose), error_refined
+            return pose, error_refined
         else:
             return None, None
     else:
