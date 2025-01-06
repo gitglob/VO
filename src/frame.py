@@ -49,25 +49,9 @@ class Frame():
         """Sets matches with a specfic frame"""
         self.matches[with_frame_id] = np.array(matches, dtype=object)
 
-    def get_matches(self, with_frame_id: int, matches: List[DMatch]):
+    def get_matches(self, with_frame_id: int):
         """Returns matches with a specfic frame"""
         return self.matches[with_frame_id]
-
-    def set_triangulation_indices(self, with_frame_id: int, indices: List[int]):
-        """Sets the indices of the keypoints that are kept during triangulation (and correspond to actual 3D points)"""
-        self.triangulation_indices[with_frame_id] = indices
-
-    def get_triangulation_matches(self, with_frame_id: int):
-        """Get the valid indices. Valid indices are the ones that were actually used to generate 3D points during triangulation."""
-        matches = self.matches[with_frame_id]
-        triangulation_indices = self.triangulation_indices[with_frame_id]
-
-        valid_matches = []
-        for m in matches:
-            if m.queryIdx in triangulation_indices:
-                valid_matches.append(m)
-
-        return valid_matches
 
     def set_pose(self, pose):
         self.pose = pose.copy()   # The robot pose at that frame

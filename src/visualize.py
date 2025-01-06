@@ -102,7 +102,7 @@ def plot_trajectory_components(poses, gt_poses, reproj_error, save_path=None, sh
     else:
         plt.close(fig)
 
-def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_plot=False, limits=True):
+def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_plot=False, limits=False):
     poses = np.array(poses)
     gt_poses = np.array(gt_poses)
     

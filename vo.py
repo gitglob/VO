@@ -45,17 +45,21 @@ def main():
     i = -1
     is_scale_estimated = False
     while not data.finished():
+        # Capture new image frame (current_frame)
+        _, img, gt_pose, success = data.get()
+        if not success:
+            continue
+            
         # Advance the iteration
         i+=1
         if i%50 == 0:
             print(f"\tIteration: {i} / {data.length()}")
-
-        # Capture new image frame (current_frame)
-        _, img, gt_pose = data.get()
+        
+        # Save the image
         if debug:
             rgb_save_path = results_dir / "img" / f"{i}_rgb.png"
             save_image(img, rgb_save_path)
-        
+
         # Feature Extraction
         keypoints, descriptors = extract_features(img) # (M), (M, 32)
         if debug:
@@ -81,7 +85,7 @@ def main():
             prev_keyframe = keyframes[-1]
 
             # Feature matching
-            matches = match_features(prev_keyframe, frame, is_scale_estimated, debug) # (N) : N < M
+            matches = match_features(prev_keyframe, frame, K, is_scale_estimated, debug) # (N) : N < M
 
             # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
             if not is_scale_estimated:

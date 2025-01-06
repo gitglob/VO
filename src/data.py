@@ -70,7 +70,9 @@ class Dataset:
 
         self._current_index += 1
 
-        return timestamp, image, gt
+        success = False if np.any(np.isnan(gt)) else True
+
+        return timestamp, image, gt, success
 
     def ground_truth(self):
         return self._ground_truth
