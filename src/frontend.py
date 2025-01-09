@@ -567,48 +567,46 @@ def estimate_relative_pose(prev_frame: Frame, frame: Frame, K: np.ndarray, debug
     # Use solvePnP to estimate the pose
     success, rvec, tvec, inliers = cv2.solvePnPRansac(prev_frame.landmark_points, frame.landmark_pixels, K, dist_coeffs,
                                                       reprojectionError=3.0, confidence=0.99, iterationsCount=1000)
+    if not success:
+        return None, None
 
     # Compute reprojection error and print it
     error = compute_reprojection_error(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], rvec, tvec, K, dist_coeffs)
     if debug:
         print(f"\tReprojection error: {error:.2f} pixels")
 
-    if success:
-        # Refine pose using inliers by calling solvePnP again without RANSAC
-        success_refined, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], 
-                                                                  K, dist_coeffs, rvec, tvec, useExtrinsicGuess=True)
-
-        if success_refined:
-            # Compute the refined reprojection error
-            error_refined = compute_reprojection_error(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], rvec_refined, tvec_refined, K, dist_coeffs)
-            if debug:
-                print(f"\tRefined reprojection error: {error_refined:.2f} pixels")
-
-            # Convert the refined rotation vector to a rotation matrix
-            R_refined, _ = cv2.Rodrigues(rvec_refined)
-
-            # Construct the refined pose matrix
-            pose[:3, :3] = R_refined
-            pose[:3, 3] = tvec_refined.flatten()
-
-            # Print the transformation
-            yaw_deg = abs(np.degrees(np.arctan2(R_refined[1, 0], R_refined[0, 0])))
-            print(f"\tTransformation: dx:{pose[0,3]:.3f}, dy:{pose[1,3]:.3f}, yaw: {yaw_deg:.3f}")
-
-            # Set as 3D points in the new frame the 3D points of the previous frame, transformed
-            frame_3d_points = np.full((len(frame.keypoints), 3), np.nan, dtype=np.float32)
-            prev_frame_3d_points = prev_frame.landmark_points[inliers].reshape(-1,3)
-            frame_3d_points[inliers.flatten(), :] = transform_points(prev_frame_3d_points, pose)
-            frame.set_points(frame_3d_points)
-            # Also update the indices of the tracked features
-            frame_landmark_indices = [frame.landmark_indices[i] for i in inliers.flatten()]
-            frame.set_landmark_indices(frame_landmark_indices)
-
-            return pose, error_refined
-        else:
-            return None, None
-    else:
+    # Refine pose using inliers by calling solvePnP again without RANSAC
+    success_refined, rvec_refined, tvec_refined = cv2.solvePnP(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], 
+                                                                K, dist_coeffs, rvec, tvec, useExtrinsicGuess=True)
+    if not success_refined:
         return None, None
+
+    # Compute the refined reprojection error
+    error_refined = compute_reprojection_error(prev_frame.landmark_points[inliers], frame.landmark_pixels[inliers], rvec_refined, tvec_refined, K, dist_coeffs)
+    if debug:
+        print(f"\tRefined reprojection error: {error_refined:.2f} pixels")
+
+    # Convert the refined rotation vector to a rotation matrix
+    R_refined, _ = cv2.Rodrigues(rvec_refined)
+
+    # Construct the refined pose matrix
+    pose[:3, :3] = R_refined
+    pose[:3, 3] = tvec_refined.flatten()
+
+    # Print the transformation
+    yaw_deg = abs(np.degrees(np.arctan2(R_refined[1, 0], R_refined[0, 0])))
+    print(f"\tTransformation: dx:{pose[0,3]:.3f}, dy:{pose[1,3]:.3f}, yaw: {yaw_deg:.3f}")
+
+    # Set as 3D points in the new frame the 3D points of the previous frame, transformed
+    frame_3d_points = np.full((len(frame.keypoints), 3), np.nan, dtype=np.float32)
+    prev_frame_3d_points = prev_frame.landmark_points[inliers].reshape(-1,3)
+    frame_3d_points[inliers.flatten(), :] = transform_points(prev_frame_3d_points, pose)
+    frame.set_points(frame_3d_points)
+    # Also update the indices of the tracked features
+    frame_landmark_indices = [frame.landmark_indices[i] for i in inliers.flatten()]
+    frame.set_landmark_indices(frame_landmark_indices)
+
+    return pose, error_refined
     
 def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs):
     """Compute the reprojection error for the given 3D-2D point correspondences and pose."""

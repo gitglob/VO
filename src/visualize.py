@@ -232,9 +232,9 @@ def plot_matches(img1, keypoints1, img2, keypoints2, matches, save_path, show_pl
 def plot_ground_truth(ground_truth, save_path=None, show_plot=False, block=True):
     """ Reads the ground truth data from a file and plots the robot trajectory. """
     # Extract the positions (tx, ty, tz)
-    tx = ground_truth["tx"].values
-    ty = ground_truth["ty"].values
-    tz = ground_truth["tz"].values
+    tx = ground_truth.iloc[:, 3].values
+    ty = ground_truth.iloc[:, 7].values
+    tz = ground_truth.iloc[:, 11].values
 
     # Plot the trajectory
     fig = plt.figure()
@@ -267,9 +267,9 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     Plots the robot trajectory in 2D XY view and a separate Z plot. 
     """
     # Extract the positions (tx, ty, tz)
-    tx = ground_truth["tx"].values
-    ty = ground_truth["ty"].values
-    tz = ground_truth["tz"].values
+    tx = ground_truth.iloc[:, 3].values
+    ty = ground_truth.iloc[:, 7].values
+    tz = ground_truth.iloc[:, 11].values
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
@@ -279,8 +279,6 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     ax1.scatter(tx[-1], ty[-1], color='red', s=100, label='End')    # End point
     ax1.set_xlabel('X')
     ax1.set_ylabel('Y')
-    # ax1.set_xlim([-2, 5]) 
-    # ax1.set_ylim([-2, 4])
     ax1.set_title('XY Trajectory')
     ax1.legend()
     ax1.grid(True)
@@ -290,7 +288,6 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     ax2.plot(np.arange(len(tz)), tz, 'r-', label='Z Trajectory')
     ax2.scatter(0, tz[0], color='green', s=100, label='Start')  # Start point
     ax2.scatter(len(tz) - 1, tz[-1], color='red', s=100, label='End')  # End point
-    # ax2.set_ylim([-0.1, 0.1])
     ax2.set_xlabel('Time')
     ax2.set_ylabel('Z')
     ax2.set_title('Z Trajectory')

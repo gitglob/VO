@@ -6,14 +6,14 @@ from src.visualize import plot_matches, plot_vo_trajectory, plot_ground_truth
 from src.visualize import plot_keypoints, plot_2d_trajectory, plot_ground_truth_2d, plot_trajectory_components
 from src.utils import save_image, delete_subdirectories
 main_dir = Path(__file__).parent
-data_dir = Path.home() / "Documents" / "data" / "VO"
+data_dir = Path.home() / "Documents" / "data" / "kitti"
 
 
 def main():
     debug = True
     use_dist = False
     cleanup = True
-    scene = "sequence_37"
+    scene = "06"
     print(f"\t\tUsing dataset: `{scene}` ...")
     results_dir = main_dir / "results" / scene / "2d_2d"
 
@@ -22,8 +22,7 @@ def main():
         delete_subdirectories(results_dir)
 
     # Read the data
-    dataset_dir = data_dir / scene
-    data = Dataset(dataset_dir, use_dist)
+    data = Dataset(data_dir, scene, use_dist)
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
@@ -33,7 +32,7 @@ def main():
     plot_ground_truth_2d(gt, save_path=gt_save_path_2d)
 
     # Get the camera matrix
-    K, _ = data.get_intrinsics()
+    K = data.get_intrinsics()
 
     # Initialize the graph, the keyframes, and the bow list
     frames = []
@@ -46,9 +45,7 @@ def main():
     is_scale_estimated = False
     while not data.finished():
         # Capture new image frame (current_frame)
-        _, img, gt_pose, success = data.get()
-        if not success:
-            continue
+        _, img, gt_pose = data.get()
             
         # Advance the iteration
         i+=1
@@ -90,10 +87,11 @@ def main():
             # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
             if not is_scale_estimated:
                 # Etract the initial pose using the Essential or Homography matrix (2d-2d)
-                pose, success = initialize(prev_keyframe, frame, K)
+                init_pose, success = initialize(prev_keyframe, frame, K)
                 if not success:
                     print("Pose initialization failed!")
                     continue
+                pose = init_pose
 
                 # If this is not the 2nd frame, we also compute the relative scale
                 if len(keyframes) > 1:
