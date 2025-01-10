@@ -102,7 +102,7 @@ def plot_trajectory_components(poses, gt_poses, reproj_error, save_path=None, sh
     else:
         plt.close(fig)
 
-def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_plot=False, limits=False):
+def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_plot=False):
     poses = np.array(poses)
     gt_poses = np.array(gt_poses)
     
@@ -124,7 +124,7 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
     ax1.legend()
     ax1.grid(True)
 
-    # Second subplot: Z 1D plot
+    # Second subplot: yaw plot
     ax2 = fig.add_subplot(122)
     yaw = np.degrees(np.arctan2(poses[..., 1, 0], poses[..., 0, 0]))
     ax2.plot(np.arange(poses.shape[0]), yaw, 'b-', label='Yaw')
@@ -136,11 +136,6 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
     ax2.set_title('Yaw Trajectory')
     ax2.legend()
     ax2.grid(True)
-
-    if limits:
-        ax1.set_xlim([-2, 5]) 
-        ax1.set_ylim([-2, 4])
-        ax2.set_ylim([-0.1, 0.1])
 
     fig.suptitle('Map and Trajectory Views')
 

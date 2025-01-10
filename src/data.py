@@ -3,12 +3,6 @@ import glob
 import pandas as pd
 import cv2
 import numpy as np
-from src.utils import quat2rot_matrix
-
-
-# Function to find the closest, timewise, depth images to the rgb ones
-def find_closest(base_timestamps, timestamps):
-    return timestamps.iloc[(timestamps - base_timestamps).abs().argmin()]
 
 
 class Dataset:
@@ -17,19 +11,16 @@ class Dataset:
         self.use_dist = use_dist
         self.scene = scene
 
-        self._current_index = 0 # Image counter
-
-        # Placeholders
-        self._K = None
+        self._current_index = 0 
 
         self._read()
         self._init_calibration()
 
     def _read(self):
         images_dir = self.data_dir / self.scene / "image_2"  
-        calib_txt = self.data_dir / self.scene / "calib.txt"
         times_txt = self.data_dir / self.scene / "times.txt"
 
+        calib_txt = self.data_dir / "data_odometry_calib" / "dataset" / "sequences" / self.scene / "calib.txt"
         ground_truth_txt = self.data_dir / "data_odometry_poses" / "dataset" / "poses" / (self.scene + ".txt")
         
         self._image_paths = glob.glob(os.path.join(images_dir, "*.png"))
@@ -56,6 +47,8 @@ class Dataset:
 
         gt_pose = np.eye(4)
         gt_pose[:3, :4] = np.array(self._ground_truth.iloc[self._current_index]).reshape((3, 4))
+
+        self._current_index += 1
 
         return timestamp, image, gt_pose
 

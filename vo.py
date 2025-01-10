@@ -83,6 +83,13 @@ def main():
 
             # Feature matching
             matches = match_features(prev_keyframe, frame, K, is_scale_estimated, debug) # (N) : N < M
+            
+            # Save the matches
+            if debug:
+                match_save_path = results_dir / "matches" / f"{prev_keyframe.id}_{frame.id}.png"
+                plot_matches(prev_keyframe.img, prev_keyframe.keypoints,
+                            frame.img, frame.keypoints,
+                            matches, match_save_path)
 
             # If pose has not been initialized, we need to initialize the 3d points using the Essential Matrix and Triangulation
             if not is_scale_estimated:
@@ -138,13 +145,6 @@ def main():
                     
                 # Calculate the new pose
                 pose = prev_keyframe.pose @ displacement # (4, 4)
-            
-            # Save the matches
-            if debug:
-                match_save_path = main_dir / "results" / scene / "matches" / f"{prev_keyframe.id}_{frame.id}.png"
-                plot_matches(prev_keyframe.img, prev_keyframe.keypoints,
-                            frame.img, frame.keypoints,
-                            matches, match_save_path)
 
         # Save the keyframe
         if debug:
@@ -159,7 +159,7 @@ def main():
         
         # Visualize the current state of the map and trajectory
         traj2d_save_path = results_dir / "vo" / f"{i}.png"
-        plot_2d_trajectory(poses, gt_poses, save_path=traj2d_save_path, ground_truth=True, limits=False)
+        plot_2d_trajectory(poses, gt_poses, save_path=traj2d_save_path, ground_truth=True)
         traj_comp_save_path = results_dir / "vo_debug" / f"{i}.png"
         plot_trajectory_components(poses, gt_poses, error, save_path=traj_comp_save_path)
 

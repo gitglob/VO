@@ -112,6 +112,7 @@ def remove_outlier_matches(matches, prev_keypoints, keypoints, K, debug=False):
     # _, mask = cv2.findHomography(prev_pixels, curr_pixels, cv2.RANSAC,
     #                              ransacReprojThreshold=2.0, maxIters=5000, confidence=0.95)
     _, mask = cv2.findEssentialMat(prev_pixels, curr_pixels, K, cv2.RANSAC, prob=0.99, threshold=1.5)
+    mask = mask.ravel().astype(bool)
 
     # Use the mask to filter inlier matches
     inlier_matches = [matches[i] for i in range(len(matches)) if mask[i]]
@@ -374,7 +375,7 @@ def triangulate(prev_pixels, curr_pixels, R, t, K):
 
     return points_3d.T # (N, 3)
 
-def filter_small_triangulation_angles(points_3d, R, t, angle_threshold=.5, median_threshold=1.5):
+def filter_small_triangulation_angles(points_3d, R, t, angle_threshold=1.5, median_threshold=1.5):
     """
     Filter out 3D points that have a small triangulation angle between two camera centers.
 
@@ -587,14 +588,18 @@ def estimate_relative_pose(prev_frame: Frame, frame: Frame, K: np.ndarray, debug
         print(f"\tRefined reprojection error: {error_refined:.2f} pixels")
 
     # Convert the refined rotation vector to a rotation matrix
-    R_refined, _ = cv2.Rodrigues(rvec_refined)
+    R_wc, _ = cv2.Rodrigues(rvec_refined)
+    t_wc = tvec_refined
+    R_cw = R_wc.T
+    t_cw = -R_wc.T @ t_wc
 
     # Construct the refined pose matrix
-    pose[:3, :3] = R_refined
-    pose[:3, 3] = tvec_refined.flatten()
+    pose = np.eye(4, dtype=np.float32)
+    pose[:3, :3] = R_cw
+    pose[:3, 3]  = t_cw.flatten()
 
     # Print the transformation
-    yaw_deg = abs(np.degrees(np.arctan2(R_refined[1, 0], R_refined[0, 0])))
+    yaw_deg = abs(np.degrees(np.arctan2(R_cw[1, 0], R_cw[0, 0])))
     print(f"\tTransformation: dx:{pose[0,3]:.3f}, dy:{pose[1,3]:.3f}, yaw: {yaw_deg:.3f}")
 
     # Set as 3D points in the new frame the 3D points of the previous frame, transformed
