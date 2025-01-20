@@ -7,6 +7,38 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 
+def invert_transform(T: np.ndarray) -> np.ndarray:
+    """
+    Efficiently invert a 4x4 transformation matrix assuming it is composed of
+    a 3x3 orthonormal rotation part (R) and a 3x1 translation part (t).
+
+    Parameters
+    ----------
+    T : np.ndarray
+        A 4x4 homogeneous transformation matrix of the form:
+        [ R  t ]
+        [ 0  1 ]
+
+    Returns
+    -------
+    T_inv : np.ndarray
+        The inverse of T, also a 4x4 homogeneous transformation matrix.
+    """
+    # Extract rotation (R) and translation (t)
+    R = T[:3, :3]
+    t = T[:3, 3]
+
+    # Create an empty 4x4 identity matrix for the result
+    T_inv = np.eye(4)
+
+    # R^T goes in the top-left 3x3
+    T_inv[:3, :3] = R.T
+
+    # -R^T * t goes in the top-right 3x1
+    T_inv[:3, 3] = -R.T @ t
+
+    return T_inv
+
 def transform_points(points_3d: np.ndarray, T: np.ndarray):
     """
     Apply a 4x4 transformation matrix T to a Nx3 array of 3D points.

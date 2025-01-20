@@ -3,6 +3,8 @@ import glob
 import pandas as pd
 import cv2
 import numpy as np
+from src.utils import save_image
+from config import results_dir
 
 
 class Dataset:
@@ -39,15 +41,21 @@ class Dataset:
         cx = self._K[0, 2]
         cy = self._K[1, 2]
 
-    def get(self):
+    def get(self, debug=False):
         """ Returns the next RGB image in terms of timestamp """
         timestamp = self._times[self._current_index]
         image_path = self._image_paths[self._current_index]
         image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+        
+        # Save the image
+        if debug:
+            self.log_img(image)
 
+        # Construct pose
         gt_pose = np.eye(4)
         gt_pose[:3, :4] = np.array(self._ground_truth.iloc[self._current_index]).reshape((3, 4))
 
+        # Advance image counter
         self._current_index += 1
 
         return timestamp, image, gt_pose
@@ -63,3 +71,7 @@ class Dataset:
        
     def length(self):
         return len(self._image_paths)
+
+    def log_img(self, img):
+        rgb_save_path = results_dir / "img" / f"{self._current_index}_rgb.png"
+        save_image(img, rgb_save_path)
