@@ -8,6 +8,26 @@ from src.utils import invert_transform, transform_points
 
 
 def get_new_triangulated_points(frame: Frame, ref_frame: Frame, map: Map, K: np.ndarray):
+    """
+    Identifies and triangulates new 3D points from feature matches between two frames.
+
+    This function estimates the relative pose between the current and reference frames
+    using either the Essential or Homography matrix. It then triangulates 3D points
+    from feature correspondences, filters newly observed points, and updates the map.
+
+    Args:
+        frame (Frame): The current frame containing keypoints, descriptors, and matches.
+        ref_frame (Frame): The previous reference frame.
+        map (Map): The global map storing existing 3D points.
+        K (np.ndarray): The camera intrinsic matrix (3x3).
+
+    Returns:
+        Tuple[np.ndarray or None, np.ndarray or None, np.ndarray or None, bool]: 
+            - The inverse 4x4 transformation matrix (ref_frame -> frame) if successful, otherwise None.
+            - A (N,3) array of newly triangulated 3D points if successful, otherwise None.
+            - A (N,) array of associated point IDs if successful, otherwise None.
+            - A boolean indicating whether triangulation was successful.
+    """
     print(f"Performing tracking using keyframes {frame.id} & {ref_frame.id}...")
     
     # ------------------------------------------------------------------------
@@ -455,7 +475,7 @@ def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs):
     
     return error
 
-def is_significant_motion(P, t_threshold=0.3, yaw_threshold=1, debug=False):
+def is_keyframe(P, t_threshold=0.3, yaw_threshold=1, debug=False):
     """ Determine if motion expressed by t, R is significant by comparing to tresholds. """
     R = P[:3, :3]
     t = P[:3, 3]

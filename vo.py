@@ -4,7 +4,7 @@ from src.frame import Frame
 
 from src.frontend.feature_tracking import match_features
 from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import estimate_relative_pose, is_significant_motion, predict_pose_constant_velocity, guided_descriptor_search, get_new_triangulated_points
+from src.frontend.tracking import estimate_relative_pose, is_keyframe, predict_pose_constant_velocity, guided_descriptor_search, get_new_triangulated_points
 
 from src.backend.local_map import Map
 from src.backend import optimization
@@ -79,21 +79,21 @@ def main():
                 ref_frame = frames[-2]
 
                 # Feature matching
-                matches = match_features(frame, ref_frame, K, debug) # (N) : N < M
+                matches = match_features(frame, ref_frame, K, "raw", debug) # (N) : N < M
 
                 # Check if there are enough matches
                 if len(matches) < 20:
                     print("Not enough matches!")
                     continue
 
-                # Etract the initial pose using the Essential or Homography matrix (2d-2d)
-                init_pose, is_initialized = initialize_pose(frame, ref_frame, K)
+                # Extract the initial pose using the Essential or Homography matrix (2d-2d)
+                init_pose, is_initialized = initialize_pose(frame, ref_frame, K, debug)
                 if not is_initialized:
                     print("Pose initialization failed!")
                     continue
 
                 # Triangulate the 3D points using the initial pose
-                points_c, point_ids, is_initialized = triangulate_points(frame, ref_frame, K)
+                points_c, point_ids, is_initialized = triangulate_points(frame, ref_frame, K, debug)
                 if not is_initialized:
                     print("Triangulation failed!")
                     continue
@@ -137,7 +137,7 @@ def main():
                     continue
             
                 # Check if this frame is a keyframe     
-                if not is_significant_motion(displacement, debug=debug):
+                if not is_keyframe(displacement, debug=debug):
                     continue
 
                 # Save the keyframe
@@ -153,7 +153,7 @@ def main():
                     
                 # Do feature matching with the previous keyframe
                 ref_frame = keyframes[-2]
-                matches = match_features(frame, ref_frame, K, debug)
+                matches = match_features(frame, ref_frame, K, "tracking", debug)
 
                 # Get inliers by Epipolar constraint
                 triangulation_pose, points_c, point_ids, triangulation_success = get_new_triangulated_points(frame, ref_keyframe, map, K)

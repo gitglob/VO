@@ -9,7 +9,7 @@ from config import results_dir
 
 ############################### Feature Matching ##########################################
 
-def match_features(query_frame: Frame, train_frame: Frame, K: np.ndarray, debug=False):
+def match_features(query_frame: Frame, train_frame: Frame, K: np.ndarray, stage: str, debug=False):
     """
     Matches features between two frames.
     
@@ -48,9 +48,9 @@ def match_features(query_frame: Frame, train_frame: Frame, K: np.ndarray, debug=
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches" / f"{train_frame.id}_{query_frame.id}.png"
-        plot_matches(train_frame.img, train_frame.keypoints,
-                     query_frame.img, query_frame.keypoints,
+        match_save_path = results_dir / f"matches/{stage}" / f"{query_frame.id}_{train_frame.id}.png"
+        plot_matches(query_frame.img, query_frame.keypoints,
+                     train_frame.img, train_frame.keypoints,
                      filtered_matches, match_save_path)
 
     return matches

@@ -43,6 +43,8 @@ class Frame():
                 
                 "inlier_match_mask": List[int],       # Which matches were kept after Essential/Homography filtering in this match
                 "triangulation_match_mask": List[int] # Which matches were triangulated in this match
+
+                "stage": string              # The stage of the match (initialization, tracking)
             }
         }
         """

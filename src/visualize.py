@@ -110,7 +110,7 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
 
     # First subplot: XY 2D view
     ax1 = fig.add_subplot(121)
-    ax1.plot(poses[:, 0, 3], poses[:, 1, 3], 'b-', label='XY Trajectory')
+    ax1.plot(poses[:, 0, 3], poses[:, 1, 3], 'b-', label='XY')
     if ground_truth:
         ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 1, 3], 'r-', label='Ground Truth')
     
@@ -131,6 +131,11 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
     if ground_truth:
         gt_yaw = np.degrees(np.arctan2(gt_poses[..., 1, 0], gt_poses[..., 0, 0]))
         ax2.plot(np.arange(gt_poses.shape[0]), gt_yaw, 'r-', label='Ground Truth')
+    
+    # Mark the start and end points with bubbles
+    ax2.scatter(0, yaw[0], color='blue', s=100, alpha=0.7, label='Start')
+    ax2.scatter(0, gt_yaw[0], color='red', s=100, alpha=0.3, label='gt: Start')
+
     ax2.set_xlabel('Time')
     ax2.set_ylabel('Yaw')
     ax2.set_title('Yaw Trajectory')

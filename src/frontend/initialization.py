@@ -2,22 +2,34 @@ import numpy as np
 import cv2
 from src.frame import Frame
 from src.utils import invert_transform
+from src.visualize import plot_matches
+
+from config import results_dir
 
 
-def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray):
+def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
     """
-    Initialize camera pose by estimating relative rotation and translation between two frames.
+    Initializes the camera pose by estimating the relative rotation and translation 
+    between two consecutive frames using feature matches.
+
+    This function computes the Essential and Homography matrices to determine 
+    the best motion model. It then recovers the relative pose (rotation and 
+    translation) using the Essential matrix if the motion is mostly translational 
+    or the Homography matrix if the scene is planar. Finally, the pose is used 
+    to initialize the frames and triangulate 3D points.
 
     Args:
-        frame (Frame): The previous frame (contains keypoints, descriptors, etc.).
-        ref_frame (Frame): The current frame.
+        frame (Frame): The current frame containing keypoints, descriptors, and matches.
+        ref_frame (Frame): The previous reference frame.
         K (np.ndarray): The camera intrinsic matrix (3x3).
+        debug (bool, optional): If True, saves and visualizes matches used for initialization.
 
     Returns:
-        pose (np.ndarray or None): The inverted [4x4] pose matrix (ref_frame -> frame) if successful, otherwise None.
-        success (bool): True if initialization was successful, False otherwise.
+        Tuple[np.ndarray or None, bool]: 
+            - The inverse 4x4 transformation matrix (ref_frame -> frame) if successful, otherwise None.
+            - A boolean indicating whether the initialization was successful.
     """
-    print(f"Initializing pose by triangulating points between frames {frame.id} & {ref_frame.id}...")
+    print(f"Initializing the camera pose using frames {frame.id} & {ref_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
@@ -172,6 +184,13 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray):
     # Initialize the frames
     frame.triangulate(ref_frame.id, use_homography, final_match_mask, pose, "initialization")
     ref_frame.triangulate(frame.id, use_homography, final_match_mask, inv_pose, "initialization")
+            
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / "matches/initialization" / f"{frame.id}_{ref_frame.id}.png"
+        plot_matches(frame.img, frame.keypoints,
+                     ref_frame.img, ref_frame.keypoints,
+                     matches[final_match_mask], match_save_path)
 
     return inv_pose, True
 
@@ -244,7 +263,8 @@ def filter_by_reprojection(
     # Return the updated global mask
     return full_mask
 
-def triangulate_points(frame: Frame, ref_frame: Frame, K: np.ndarray):
+def triangulate_points(frame: Frame, ref_frame: Frame, K: np.ndarray, debug: bool = False):
+    print(f"Triangulating points between frames {frame.id} & {ref_frame.id}...")
     # Extract the Rotation and Translation arrays between the 2 frames
     pose = frame.match[ref_frame.id]["pose"]
     R = pose[:3, :3]
@@ -288,7 +308,7 @@ def triangulate_points(frame: Frame, ref_frame: Frame, K: np.ndarray):
         if is_inlier:
             frame_kp_idx = frame_kpt_indices[i]
             frame_triangulation_mask[frame_kp_idx] = True
-            ref_frame_kp_idx = frame_kpt_indices[i]
+            ref_frame_kp_idx = ref_frame_kpt_indices[i]
             ref_frame_triangulation_mask[ref_frame_kp_idx] = True
 
     # ------------------------------------------------------------------------
@@ -311,6 +331,13 @@ def triangulate_points(frame: Frame, ref_frame: Frame, K: np.ndarray):
     ref_frame_kpt_indices = np.array([m.trainIdx for m in matches])
     ref_frame_kpt_ids = np.float32([ref_frame.keypoints[idx].class_id for idx in ref_frame_kpt_indices])
     ref_frame.match[frame.id]["point_ids"] = ref_frame_kpt_ids[triangulation_match_mask]
+            
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / "matches/triangulation" / f"{frame.id}_{ref_frame.id}.png"
+        plot_matches(frame.img, frame.keypoints,
+                     ref_frame.img, ref_frame.keypoints,
+                     matches[triangulation_match_mask], match_save_path)
 
     # Return the initial pose and filtered points
     return frame_points_3d[triangulation_match_mask], frame_kpt_ids[triangulation_match_mask], True
@@ -382,6 +409,7 @@ def filter_triangulation_points(points_3d, R, t, angle_threshold=1, median_thres
     # -----------------------------------------------------
     # (1) Positive-depth check in both cameras
     # -----------------------------------------------------
+    num_points = len(points_3d)
 
     # points_3d is in the first camera coords => check Z > 0
     Z1 = points_3d[:, 2]
@@ -394,7 +422,7 @@ def filter_triangulation_points(points_3d, R, t, angle_threshold=1, median_thres
 
     # If no point remains, triangulation failed
     num_remaining_points = points_3d[cheirality_mask].shape[0]
-    print(f"\t\tAfter cheirality check, we have {num_remaining_points} points left.")
+    print(f"\t\tCheirality check removed {num_points - num_remaining_points} points left.")
     if num_remaining_points == 0:
         return None, None
 
@@ -438,14 +466,16 @@ def filter_triangulation_points(points_3d, R, t, angle_threshold=1, median_thres
     median_angle = np.median(filtered_angles) if num_remaining_points > 0 else 0
 
     # Check conditions to decide whether to discard
-    print(f"\t\tAfter low angles check, we have {len(points_3d[valid_angles_mask])} points left.")
+    print(f"\t\tLow angles check removed {num_points - num_remaining_points} points left.")
     print(f"\t\tThe median angle is {median_angle:.3f} deg.")
 
+    triang_mask = valid_angles_mask & cheirality_mask
+    print(f"\t\t{len(points_3d[triang_mask])} points left!")
+
     # If too few points or too small median angle, return None
+    num_remaining_points = points_3d[triang_mask].shape[0]
     if num_remaining_points < 40 or median_angle < median_threshold:
         print("Discarding frame due to insufficient triangulation quality.")
         return None, None
-
-    triang_mask = valid_angles_mask & cheirality_mask
 
     return triang_mask # (N,)
