@@ -72,6 +72,13 @@ def main():
             if debug:
                 save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
             RMSE = 0
+                
+            # Visualize the current state of the map and trajectory
+            plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")
+            plot_trajectory_components(poses, gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b.png")
+
+            # There is nothing left to do in the first iteration
+            continue
         else:                    
             # ########### Initialization ###########
             if not is_initialized:
@@ -79,7 +86,7 @@ def main():
                 ref_frame = frames[-2]
 
                 # Feature matching
-                matches = match_features(frame, ref_frame, K, "raw", debug) # (N) : N < M
+                matches = match_features(frame, ref_frame, K, "0-raw", debug) # (N) : N < M
 
                 # Check if there are enough matches
                 if len(matches) < 20:
@@ -92,16 +99,20 @@ def main():
                     print("Pose initialization failed!")
                     continue
 
+                # Save the initial pose
+                pose = poses[-1] @ init_pose
+                poses.append(pose)
+                frame.set_pose(pose)
+                
+                # Visualize the current state of the map and trajectory
+                plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")
+                plot_trajectory_components(poses, gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b.png")
+
                 # Triangulate the 3D points using the initial pose
                 points_c, point_ids, is_initialized = triangulate_points(frame, ref_frame, K, debug)
                 if not is_initialized:
                     print("Triangulation failed!")
                     continue
-
-                # Save the initial pose
-                pose = poses[-1] @ init_pose
-                poses.append(pose)
-                frame.set_pose(pose)
 
                 # Transfer the points to the world frame
                 points_w = transform_points(points_c, invert_transform(pose))
@@ -153,7 +164,7 @@ def main():
                     
                 # Do feature matching with the previous keyframe
                 ref_frame = keyframes[-2]
-                matches = match_features(frame, ref_frame, K, "tracking", debug)
+                matches = match_features(frame, ref_frame, K, "4-tracking", debug)
 
                 # Get inliers by Epipolar constraint
                 triangulation_pose, points_c, point_ids, triangulation_success = get_new_triangulated_points(frame, ref_keyframe, map, K)
@@ -170,9 +181,9 @@ def main():
                 # Clean up map points that are not seen anymore
                 map.cleanup(frame.pose, K)
                 
-        # Visualize the current state of the map and trajectory
-        plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")
-        plot_trajectory_components(poses, gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b.png")
+                # Visualize the current state of the map and trajectory
+                plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")
+                plot_trajectory_components(poses, gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b.png")
 
     # Save final map and trajectory
     final_traj_save_path = results_dir / "vo" / "final_trajectory.png"

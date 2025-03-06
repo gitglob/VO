@@ -52,11 +52,11 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
     # ------------------------------------------------------------------------
 
     # Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(frame_kpt_pixels, ref_frame_kpt_pixels, K, method=cv2.RANSAC, prob=0.99, threshold=1.5)
+    E, mask_E = cv2.findEssentialMat(ref_frame_kpt_pixels, frame_kpt_pixels, K, method=cv2.RANSAC, prob=0.99, threshold=1.5)
     mask_E = mask_E.ravel().astype(bool)
 
     # Compute the Homography Matrix
-    H, mask_H = cv2.findHomography(frame_kpt_pixels, ref_frame_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=3.0)
+    H, mask_H = cv2.findHomography(ref_frame_kpt_pixels, frame_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=3.0)
     mask_H = mask_H.ravel().astype(bool)
 
     # ------------------------------------------------------------------------
@@ -80,32 +80,37 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
 
     # Filter keypoints based on the chosen mask
     inlier_match_mask = mask_H if use_homography else mask_E
+    print(f"\tUsing {'Homography' if use_homography else 'Essential'} Matrix...")
     inlier_frame_pixels = frame_kpt_pixels[inlier_match_mask]
     inlier_ref_frame_pixels = ref_frame_kpt_pixels[inlier_match_mask]
+    print(f"\t\tE/H inliers filtered {len(matches) - np.sum(inlier_match_mask)}/{len(matches)} matches!")
 
     # Check if we will use homography
     R, t, final_match_mask = None, None, None
     if not use_homography:
         # Decompose Essential Matrix
-        points, R_est, t_est, mask_pose = cv2.recoverPose(E, inlier_frame_pixels, inlier_ref_frame_pixels, K)
+        points, R_est, t_est, mask_pose = cv2.recoverPose(E, inlier_ref_frame_pixels, inlier_frame_pixels, K)
 
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
+        print(f"\t\tPose Recovery filtered {np.sum(inlier_match_mask) - np.sum(mask_pose)}/{np.sum(inlier_match_mask)} matches!")
 
         if R_est is not None and t_est is not None and np.any(mask_pose):
             R, t = R_est, t_est
 
-            # Create a final_match_mask but combining the epipolar constraint and transformation fitting checks
+            # Create a final_match_mask by combining the epipolar constraint and transformation fitting checks
             final_match_mask = np.zeros_like(inlier_match_mask, dtype=bool)
             final_match_mask[inlier_match_mask] = mask_pose
 
         # Reprojection filter
         final_match_mask = filter_by_reprojection(
-            frame_kpt_pixels, ref_frame_kpt_pixels,
+            matches, frame, ref_frame,
             R, t, K,
             final_match_mask,
-            reproj_threshold=2.0
+            reproj_threshold=2.0,
+            debug=debug
         )
+        print(f"\t\tReprojection filtered {np.sum(mask_pose) - np.sum(final_match_mask)}/{np.sum(mask_pose)} matches!")
     else:
         # Decompose Homography Matrix
         num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(H, K)
@@ -161,13 +166,18 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
             frame_kpt_pixels, ref_frame_kpt_pixels,
             R, t, K,
             final_match_mask,
-            reproj_threshold=2.0
+            reproj_threshold=2.0,
+            debug=debug
         )
 
     # If we failed to recover R and t
     if R is None or t is None:
         print("[initialize] Failed to recover a valid pose from either E or H.")
         return None, False
+
+    num_removed_matches = len(matches) - np.sum(final_match_mask)
+    remaining_points = np.sum(final_match_mask)
+    print(f"\tTotal filtering: {num_removed_matches}/{len(matches)}. {remaining_points} matches left!")
 
     # ------------------------------------------------------------------------
     # 5. Build the 4x4 Pose matrix
@@ -187,80 +197,83 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/initialization" / f"{frame.id}_{ref_frame.id}.png"
+        match_save_path = results_dir / "matches/1-initialization" / f"{frame.id}_{ref_frame.id}.png"
         plot_matches(frame.img, frame.keypoints,
                      ref_frame.img, ref_frame.keypoints,
                      matches[final_match_mask], match_save_path)
 
-    return inv_pose, True
+    return pose, True
 
-def filter_by_reprojection(
-    frame_pixels, ref_frame_pixels,
-    R, t, K,
-    inlier_match_mask,
-    reproj_threshold=2.0
-):
+def filter_by_reprojection(matches, frame, ref_frame, R, t, K, inlier_match_mask, reproj_threshold=2.0, debug=False):
     """
-    Triangulate the 2D-2D correspondences (that are currently marked as inliers),
-    then reproject them into the second frame. 
-    Discard points/matches whose reprojection error exceeds reproj_threshold pixels.
+    Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
+
+    Args:
+        matches (list): list of cv2.DMatch objects.
+        frame, ref_frame: Frame objects.
+        R, t: relative pose from ref_frame to frame.
+        K: camera intrinsic matrix.
+        inlier_match_mask (np.array): initial boolean mask for inlier matches.
+        reproj_threshold (float): reprojection error threshold in pixels.
+        debug (bool): flag for visual debugging.
+        results_dir (Path): path to save debug visualizations.
+
+    Returns:
+        np.array: Updated boolean mask with matches having large reprojection errors filtered out.
     """
-    # ----------------------
-    # 1) Triangulate in one batch
-    #    We'll treat the first camera as identity, second as (R|t).
-    # ----------------------
-    M1 = K @ np.hstack((np.eye(3), np.zeros((3,1))))
-    M2 = K @ np.hstack((R, t))
+    print("\tReprojecting correspondances...")
+    # Extract matched keypoints
+    frame_pts = np.float32([frame.keypoints[m.queryIdx].pt for m in matches])
+    ref_frame_pts = np.float32([ref_frame.keypoints[m.trainIdx].pt for m in matches])
 
-    # Keep only current inlier subset
-    fpts_1 = frame_pixels[inlier_match_mask]        # shape: (N_in, 2)
-    fpts_2 = ref_frame_pixels[inlier_match_mask]    # shape: (N_in, 2)
+    # Select inlier matches
+    pts_ref = ref_frame_pts[inlier_match_mask]
+    pts_frame = frame_pts[inlier_match_mask]
 
-    points_4d = cv2.triangulatePoints(M1, M2, fpts_1.T, fpts_2.T)  # shape: (4,N_in)
-    points_3d = (points_4d[:3] / points_4d[3]).T                    # shape: (N_in,3)
+    # Projection matrices
+    M1 = K @ np.eye(3,4)        # Reference frame (identity)
+    M2 = K @ np.hstack((R, t))  # Current frame
 
-    # ----------------------
-    # 2) Reproject into second camera
-    #    X2 = (R * X1 + t), then project with K
-    # ----------------------
-    # (N_in,3)
-    points_cam2 = (R @ points_3d.T + t).T  # shape: (N_in,3)
+    # Triangulate points
+    points_4d = cv2.triangulatePoints(M1, M2, pts_ref.T, pts_frame.T)
+    points_3d = (points_4d[:3] / points_4d[3]).T
 
-    # Avoid dividing by zero
-    eps = 1e-12
-    proj_x = points_cam2[:, 0] / (points_cam2[:, 2] + eps)
-    proj_y = points_cam2[:, 1] / (points_cam2[:, 2] + eps)
+    # Reproject points into the second (current) camera
+    points_cam2 = (R @ points_3d.T + t).T
+    points_proj2, _ = cv2.projectPoints(points_cam2, np.zeros(3), np.zeros(3), K, None)
+    points_proj_px = points_proj2.reshape(-1, 2)
 
-    # Convert to pixel coords
-    fx, fy = K[0, 0], K[1, 1]
-    cx, cy = K[0, 2], K[1, 2]
-    reprojected_u = fx * proj_x + cx
-    reprojected_v = fy * proj_y + cy
+    # Compute reprojection errors
+    errors = np.linalg.norm(points_proj_px - pts_frame, axis=1)
+    print(f"\t\tPrior mean reprojection error: {np.mean(errors):.3f} px")
 
-    # ----------------------
-    # 3) Compute reprojection errors
-    # ----------------------
-    dx = reprojected_u - fpts_2[:, 0]
-    dy = reprojected_v - fpts_2[:, 1]
-    errors = np.sqrt(dx*dx + dy*dy)
-
-    # ----------------------
-    # 4) Keep inliers with small enough error
-    # ----------------------
-    new_mask_local = (errors < reproj_threshold)
-
-    # Combine with original mask
-    # We want final_mask[i] to remain True only if it was True before AND new_mask_local is True
+    # Update the inlier mask
+    new_mask_local = errors < reproj_threshold
     full_mask = inlier_match_mask.copy()
-    
-    # We'll iterate over the indices that were set inlier_match_mask=True
-    inlier_indices = np.flatnonzero(inlier_match_mask)  # positions in the full array
-    # Now refine them
-    for idx_local, idx_global in enumerate(inlier_indices):
-        if not new_mask_local[idx_local]:
-            full_mask[idx_global] = False
+    full_mask[np.flatnonzero(inlier_match_mask)[~new_mask_local]] = False
 
-    # Return the updated global mask
+    num_removed_matches = len(pts_ref) - np.sum(new_mask_local)
+    remaining_points = np.sum(full_mask)
+    print(f"\t\tReprojection filtered: {num_removed_matches}/{len(pts_ref)}")
+
+    # Compute reprojection errors
+    errors = np.linalg.norm(points_proj_px - pts_frame, axis=1)
+    print(f"\t\tFinal mean reprojection error: {np.mean(errors):.3f} px")
+
+    # Debugging visualization
+    if debug:
+        reproj_img = frame.img.copy()
+        for i in range(len(pts_frame)):
+            obs = tuple(np.int32(pts_frame[i]))
+            reproj = tuple(np.int32(points_proj_px[i]))
+            cv2.circle(reproj_img, obs, 3, (0, 0, 255), -1)      # Observed points (red)
+            cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
+            cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
+
+        debug_img_path = results_dir / f"matches/2-reprojection/{ref_frame.id}_{frame.id}.png"
+        debug_img_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(debug_img_path), reproj_img)
+
     return full_mask
 
 def triangulate_points(frame: Frame, ref_frame: Frame, K: np.ndarray, debug: bool = False):
@@ -334,7 +347,7 @@ def triangulate_points(frame: Frame, ref_frame: Frame, K: np.ndarray, debug: boo
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/triangulation" / f"{frame.id}_{ref_frame.id}.png"
+        match_save_path = results_dir / "matches/3-triangulation" / f"{frame.id}_{ref_frame.id}.png"
         plot_matches(frame.img, frame.keypoints,
                      ref_frame.img, ref_frame.keypoints,
                      matches[triangulation_match_mask], match_save_path)
@@ -382,7 +395,7 @@ def triangulate(frame_pixels, ref_frame_pixels, R, t, K):
     M2 = K @ np.hstack((R, t))  # Second camera at R, t
 
     # Triangulate points
-    frame_points_4d_hom = cv2.triangulatePoints(M1, M2, frame_pixels.T, ref_frame_pixels.T)
+    frame_points_4d_hom = cv2.triangulatePoints(M1, M2, ref_frame_pixels.T, frame_pixels.T)
 
     # Convert homogeneous coordinates to 3D
     frame_points_3d = frame_points_4d_hom[:3] / frame_points_4d_hom[3]
@@ -422,7 +435,7 @@ def filter_triangulation_points(points_3d, R, t, angle_threshold=1, median_thres
 
     # If no point remains, triangulation failed
     num_remaining_points = points_3d[cheirality_mask].shape[0]
-    print(f"\t\tCheirality check removed {num_points - num_remaining_points} points left.")
+    print(f"\t\tCheirality check filtered {num_points - num_remaining_points}/{num_points} points!")
     if num_remaining_points == 0:
         return None, None
 
@@ -466,14 +479,15 @@ def filter_triangulation_points(points_3d, R, t, angle_threshold=1, median_thres
     median_angle = np.median(filtered_angles) if num_remaining_points > 0 else 0
 
     # Check conditions to decide whether to discard
-    print(f"\t\tLow angles check removed {num_points - num_remaining_points} points left.")
+    print(f"\t\tLow Angles check filtered {num_points - num_remaining_points}/{num_points} points!")
     print(f"\t\tThe median angle is {median_angle:.3f} deg.")
 
-    triang_mask = valid_angles_mask & cheirality_mask
-    print(f"\t\t{len(points_3d[triang_mask])} points left!")
-
     # If too few points or too small median angle, return None
+    triang_mask = valid_angles_mask & cheirality_mask
     num_remaining_points = points_3d[triang_mask].shape[0]
+    print(f"\t\tTotal filtering: {num_points-num_remaining_points}/{num_points}")
+    print(f"\t\t{num_remaining_points} points left!")
+
     if num_remaining_points < 40 or median_angle < median_threshold:
         print("Discarding frame due to insufficient triangulation quality.")
         return None, None
