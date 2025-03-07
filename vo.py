@@ -6,6 +6,8 @@ from src.frontend.feature_tracking import match_features
 from src.frontend.initialization import initialize_pose, triangulate_points
 from src.frontend.tracking import estimate_relative_pose, is_keyframe, predict_pose_constant_velocity, guided_descriptor_search, get_new_triangulated_points
 
+from src.frontend.scale import estimate_depth_scale, validate_scale
+
 from src.backend.local_map import Map
 from src.backend import optimization
 
@@ -56,6 +58,7 @@ def main():
     # Run the main VO loop
     i = -1
     is_initialized = False
+    is_scale_initialized = False
     while not data.finished():
         # Advance the iteration
         i+=1
@@ -107,10 +110,26 @@ def main():
                     print("Pose initialization failed!")
                     continue
 
-                # Save the initial pose
+                # Calculate the next pose with scale ambiguity
+                pose = poses[-1] @ init_pose
+                
+                # Visualize the current state of the map and trajectory with scale ambiguity
+                plot_2d_trajectory([poses[-1], pose], gt_poses, save_path=results_dir / "vo" / f"{i}_a_noscale.png")
+                plot_trajectory_components([poses[-1], pose], gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b_noscale.png")
+
+                # Estimate the depth scale
+                if not is_scale_initialized:
+                    scale = estimate_depth_scale([poses[-1], pose], gt_poses)
+                    is_scale_initialized = True
+
+                # Remove scale ambiguaity
+                init_pose[:3, 3] *= scale
                 pose = poses[-1] @ init_pose
                 poses.append(pose)
                 frame.set_pose(pose)
+
+                # Verify that the ground truth and estimated poses are in the same scale
+                validate_scale(poses, gt_poses)
                 
                 # Visualize the current state of the map and trajectory
                 plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")

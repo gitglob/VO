@@ -135,7 +135,7 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
 
     ax1.set_xlabel('X')
     ax1.set_ylabel('Y')
-    ax1.set_title('XY Trajectory')
+    ax1.set_title('XY')
     ax1.legend()
     ax1.grid(True)
    
@@ -168,11 +168,11 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
 
     ax2.set_xlabel('Time')
     ax2.set_ylabel('-Pitch (degrees)')
-    ax2.set_title('2D Trajectory')
+    ax2.set_title('Angle')
     ax2.legend()
     ax2.grid(True)
 
-    fig.suptitle('Map and Trajectory Views')
+    fig.suptitle('2D Trajectory')
 
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
