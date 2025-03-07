@@ -188,7 +188,7 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
     inv_pose = invert_transform(pose)
 
     # Print the transformation
-    yaw_deg = abs(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
+    yaw_deg = np.degrees(np.arctan2(R[1, 0], R[0, 0]))
     print(f"\tTransformation: dx:{pose[0,3]:.3f}, dy:{pose[1,3]:.3f}, yaw: {yaw_deg:.3f}")
     
     # Initialize the frames

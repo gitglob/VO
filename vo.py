@@ -10,7 +10,7 @@ from src.backend.local_map import Map
 from src.backend import optimization
 
 from src.visualize import plot_vo_trajectory, plot_ground_truth
-from src.visualize import plot_2d_trajectory, plot_ground_truth_2d, plot_trajectory_components
+from src.visualize import plot_2d_trajectory, plot_ground_truth_2d, plot_ground_truth_6dof, plot_trajectory_components
 from src.utils import save_image, delete_subdirectories, transform_points, invert_transform
 
 from config import main_dir, data_dir, scene, results_dir
@@ -31,10 +31,9 @@ def main():
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
-    gt_save_path = results_dir / "ground_truth.png"
-    gt_save_path_2d = results_dir / "ground_truth_2d.png"
-    plot_ground_truth(gt, save_path=gt_save_path)
-    plot_ground_truth_2d(gt, save_path=gt_save_path_2d)
+    plot_ground_truth(gt, save_path=results_dir / "ground_truth/3d.png")
+    plot_ground_truth_2d(gt, save_path=results_dir / "ground_truth/2d.png")
+    plot_ground_truth_6dof(gt, save_path=results_dir / "ground_truth/6dof.png")
 
     # Get the camera matrix
     K = data.get_intrinsics()

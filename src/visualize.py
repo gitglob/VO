@@ -3,6 +3,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
+from src.utils import rotation_matrix_to_euler_angles
 matplotlib.use('TkAgg')
 
 
@@ -264,12 +265,28 @@ def plot_ground_truth(ground_truth, save_path=None, show_plot=False, block=True)
 
 def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=True):
     """ 
-    Plots the robot trajectory in 2D XY view and a separate Z plot. 
+    Plots the robot trajectory in XY coordinates and the yaw angle over time.
+
+    Args:
+        ground_truth_df (pd.DataFrame): DataFrame of shape (N, 12) containing rows of flattened 3x4 pose matrices.
+        save_path (str, optional): Path to save the plot.
+        show_plot (bool, optional): Whether to display the plot.
+        block (bool, optional): Whether the plot display blocks execution.
     """
-    # Extract the positions (tx, ty, tz)
+    # Extract translations (tx, ty)
     tx = ground_truth.iloc[:, 3].values
     ty = ground_truth.iloc[:, 7].values
-    tz = ground_truth.iloc[:, 11].values
+
+    # Extract yaw angles from rotation matrices
+    yaw_angles = []
+    for i in range(len(ground_truth)):
+        pose = ground_truth.iloc[i].values.reshape(3, 4)
+        R = pose[:3, :3]
+        yaw_rad = np.arctan2(R[1, 0], R[0, 0])
+        yaw_deg = np.degrees(yaw_rad)
+        yaw_angles.append(yaw_deg)
+
+    yaw_angles = np.array(yaw_angles)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
@@ -284,17 +301,15 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     ax1.grid(True)
     ax1.set_aspect('equal', 'box')
 
-    # Plot the Z trajectory
-    ax2.plot(np.arange(len(tz)), tz, 'r-', label='Z Trajectory')
-    ax2.scatter(0, tz[0], color='green', s=100, label='Start')  # Start point
-    ax2.scatter(len(tz) - 1, tz[-1], color='red', s=100, label='End')  # End point
-    ax2.set_xlabel('Time')
-    ax2.set_ylabel('Z')
-    ax2.set_title('Z Trajectory')
+    # Plot the yaw trajectory
+    ax2.plot(np.arange(len(yaw_angles)), yaw_angles, 'm-', label='Yaw Angle')
+    ax2.set_xlabel('Frame Index')
+    ax2.set_ylabel('Yaw (degrees)')
+    ax2.set_title('Yaw Angle over Time')
     ax2.legend()
     ax2.grid(True)
 
-    fig.suptitle('2D XY and Z Trajectory')
+    fig.suptitle('2D XY and Yaw Trajectory')
 
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -306,3 +321,63 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     else:
         plt.close(fig)
         
+def plot_ground_truth_6dof(ground_truth_df, save_path=None, show_plot=False, block=True):
+    """
+    Plots the robot's 6DoF trajectory components (x, y, z, roll, pitch, yaw) over time.
+
+    Args:
+        ground_truth_df (pd.DataFrame): DataFrame of shape (N, 12) containing rows of flattened 3x4 pose matrices.
+        save_path (str, optional): Path to save the plot.
+        show_plot (bool, optional): Whether to display the plot.
+        block (bool, optional): Whether the plotting should block execution.
+
+    Returns:
+        None
+    """
+    num_poses = ground_truth_df.shape[0]
+
+    # Extract translations
+    tx = ground_truth_df.iloc[:, 3].values
+    ty = ground_truth_df.iloc[:, 7].values
+    tz = ground_truth_df.iloc[:, 11].values
+
+    # Extract Euler angles (roll, pitch, yaw)
+    euler_angles = np.zeros((num_poses, 3))
+    for i in range(num_poses):
+        pose = ground_truth_df.iloc[i].values.reshape(3, 4)
+        R = pose[:, :3]
+        euler_angles[i] = rotation_matrix_to_euler_angles(R)
+
+    rolls, pitches, yaws = euler_angles[:, 0], euler_angles[:, 1], euler_angles[:, 2]
+
+    # Create plots
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+
+    components = [
+        (tx, 'X Position (m)'),
+        (ty, 'Y Position (m)'),
+        (tz, 'Z Position (m)'),
+        (rolls, 'Roll (deg)'),
+        (pitches, 'Pitch (deg)'),
+        (yaws, 'Yaw (deg)')
+    ]
+
+    for ax, (data_y, label) in zip(axes.flatten(), components):
+        ax.plot(np.arange(num_poses), data_y)
+        ax.set_xlabel('Frame Index')
+        ax.set_ylabel(label)
+        ax.set_title(label)
+        ax.grid(True)
+
+    fig.suptitle('Ground Truth: 6DoF Trajectory Components over Time')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path)
+
+    if show_plot:
+        plt.show(block=block)
+
+    plt.close(fig)

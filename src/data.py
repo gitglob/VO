@@ -53,7 +53,8 @@ class Dataset:
 
         # Construct pose
         gt_pose = np.eye(4)
-        gt_pose[:3, :4] = np.array(self._ground_truth.iloc[self._current_index]).reshape((3, 4))
+        gt_line = self._ground_truth.iloc[self._current_index]
+        gt_pose[:3, :4] = np.array(gt_line).reshape((3, 4))
 
         # Advance image counter
         self._current_index += 1
