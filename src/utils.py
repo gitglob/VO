@@ -311,17 +311,11 @@ def keypoints_depth_to_3d_points(kpts, depth_image, cx, cy, fx, fy, factor=5000)
     return points_3d, valid_points_indices
 
 def rotation_matrix_to_euler_angles(R):
-    """Convert rotation matrix to Euler angles (roll, pitch, yaw) in degrees."""
-    sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
-    singular = sy < 1e-6
+    """Convert rotation matrix to Euler angles (roll, pitch, yaw) in radians."""
 
-    if not singular:
-        roll = np.arctan2(R[2, 1], R[2, 2])
-        pitch = np.arctan2(-R[2, 0], sy)
-        yaw = np.arctan2(R[1, 0], R[0, 0])
-    else:
-        roll = np.arctan2(-R[1, 2], R[1, 1])
-        pitch = np.arctan2(-R[2, 0], sy)
-        yaw = 0
+    roll = np.arctan2(R[2, 0], R[2, 1])
+    # pitch = np.arccos(R[2, 2])
+    pitch = np.arctan2(R[0, 2], R[2, 2])
+    yaw = -np.arctan2(R[0, 2], R[1, 2])
 
-    return np.degrees([roll, pitch, yaw])
+    return [roll, pitch, yaw]

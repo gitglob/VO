@@ -17,6 +17,15 @@ from config import main_dir, data_dir, scene, results_dir
 print(f"\t\tUsing dataset: `{scene}` ...")
 
 
+"""
+Important notes:
+- Both the Kitti and OpenCV camera frames follow the same convention:
+    - x: right
+    - y: down
+    - z: forward
+"""
+
+
 def main():
     debug = True
     use_dist = False
