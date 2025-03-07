@@ -30,7 +30,9 @@ class Dataset:
         self._times = np.loadtxt(times_txt)
         self._calib = pd.read_csv(calib_txt, delimiter=' ', header=None, index_col=0)
         self._ground_truth = pd.read_csv(ground_truth_txt, delimiter=' ', header=None)
-        
+
+        assert(len(self._image_paths) == len(self._times) == len(self._ground_truth))
+
     def _init_calibration(self):
         """Intrinsics matrix """
         P2 = np.array(self._calib.loc['P2:']).reshape((3,4))

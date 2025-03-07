@@ -1,17 +1,18 @@
 import numpy as np
 
+from src.utils import rotation_matrix_to_euler_angles
 
-def validate_scale(scaled_poses, gt_poses):
+def validate_scale(scaled_poses: list[np.ndarray], gt_poses: list[np.ndarray]):
     """
     Validate that the estimated scaled poses are in the same scale as the ground truth poses.
     """
     pose_diff = np.linalg.norm(scaled_poses[-1][:3, 3] - scaled_poses[-2][:3, 3])
     gt_pose_diff = np.linalg.norm(gt_poses[-1][:3, 3] - gt_poses[-2][:3, 3])
-
+    
     if np.diff([pose_diff, gt_pose_diff]) > 1e-3:
         raise ValueError("Estimated and ground truth poses are not in the same scale.")
 
-def estimate_depth_scale(estimated_poses, gt_poses):
+def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.ndarray]):
     """
     Estimate the depth scale factor from two estimated poses using their ground truth counterparts.
 

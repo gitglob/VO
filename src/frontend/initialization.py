@@ -3,6 +3,7 @@ import cv2
 from src.frame import Frame
 from src.utils import invert_transform
 from src.visualize import plot_matches
+from src.utils import rotation_matrix_to_euler_angles
 
 from config import results_dir
 
@@ -186,10 +187,6 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
     pose[:3, :3] = R
     pose[:3, 3] = t.flatten()
     inv_pose = invert_transform(pose)
-
-    # Print the transformation
-    yaw_deg = np.degrees(np.arctan2(R[1, 0], R[0, 0]))
-    print(f"\tTransformation: dx:{pose[0,3]:.3f}, dy:{pose[1,3]:.3f}, yaw: {yaw_deg:.3f}")
     
     # Initialize the frames
     frame.triangulate(ref_frame.id, use_homography, final_match_mask, pose, "initialization")
@@ -227,8 +224,8 @@ def filter_by_reprojection(matches, frame, ref_frame, R, t, K, inlier_match_mask
     ref_frame_pts = np.float32([ref_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Select inlier matches
-    pts_ref = ref_frame_pts[inlier_match_mask]
     pts_frame = frame_pts[inlier_match_mask]
+    pts_ref = ref_frame_pts[inlier_match_mask]
 
     # Projection matrices
     M1 = K @ np.eye(3,4)        # Reference frame (identity)
@@ -270,7 +267,7 @@ def filter_by_reprojection(matches, frame, ref_frame, R, t, K, inlier_match_mask
             cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
             cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
 
-        debug_img_path = results_dir / f"matches/2-reprojection/{ref_frame.id}_{frame.id}.png"
+        debug_img_path = results_dir / f"matches/2-reprojection/{frame.id}_{ref_frame.id}.png"
         debug_img_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(debug_img_path), reproj_img)
 

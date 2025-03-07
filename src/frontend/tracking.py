@@ -4,7 +4,7 @@ import cv2
 from src.frame import Frame
 from src.backend.local_map import Map
 from src.frontend.initialization import compute_symmetric_transfer_error, triangulate, filter_triangulation_points
-from src.utils import invert_transform, transform_points
+from src.utils import invert_transform, transform_points, rotation_matrix_to_euler_angles
 
 
 def get_new_triangulated_points(frame: Frame, ref_frame: Frame, map: Map, K: np.ndarray):
@@ -475,20 +475,30 @@ def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs):
     
     return error
 
-def is_keyframe(P, t_threshold=0.3, yaw_threshold=1, debug=False):
+def is_keyframe(P, t_threshold=0.3, angle_threshold=1, debug=False):
     """ Determine if motion expressed by t, R is significant by comparing to tresholds. """
     R = P[:3, :3]
     t = P[:3, 3]
 
     dx = abs(t[0])
     dy = abs(t[1])
-    yaw_deg = abs(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
+    dist = np.sqrt(dx**2 + dy**2)
+    _, dpitch, _ = rotation_matrix_to_euler_angles(R)
+    pitch_deg = abs(np.degrees(dpitch))
 
-    is_keyframe = dx > t_threshold or dy > t_threshold or yaw_deg > yaw_threshold
-    if debug:
-        if is_keyframe:
-            print("\t\tKeyframe!")
-        else:
-            print("\t\tNot a keyframe!")
+    if dist < t_threshold and pitch_deg < angle_threshold:
+        is_keyframe = False
+        print("\tNot a keyframe!")
+        if dist < t_threshold:
+            print(f"\t\tdist: {dist:.2f} < {t_threshold}")
+        if dist < angle_threshold:
+            print(f"\t\tangle: {pitch_deg:.2f} < {angle_threshold}")
+    else:
+        is_keyframe = True
+        print("\tKeyframe!")
+        if dist >= t_threshold:
+            print(f"\t\tdist: {dist:.2f} >= {t_threshold}")
+        if pitch_deg >= angle_threshold:
+            print(f"\t\tangle: {pitch_deg:.2f} >= {angle_threshold}")
 
     return is_keyframe

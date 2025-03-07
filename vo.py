@@ -1,3 +1,5 @@
+import numpy as np
+
 from src.data import Dataset
 
 from src.frame import Frame
@@ -13,7 +15,7 @@ from src.backend import optimization
 
 from src.visualize import plot_vo_trajectory, plot_ground_truth
 from src.visualize import plot_2d_trajectory, plot_ground_truth_2d, plot_ground_truth_6dof, plot_trajectory_components
-from src.utils import save_image, delete_subdirectories, transform_points, invert_transform
+from src.utils import save_image, delete_subdirectories, transform_points, invert_transform, rotation_matrix_to_euler_angles
 
 from config import main_dir, data_dir, scene, results_dir
 print(f"\t\tUsing dataset: `{scene}` ...")
@@ -67,7 +69,6 @@ def main():
 
         # Capture new image frame (current_frame)
         t, img, gt_pose = data.get(debug)
-        gt_poses.append(gt_pose)
 
         # Create a frame and extract its ORB features
         frame = Frame(i, img, debug)
@@ -75,6 +76,7 @@ def main():
 
         # Iteration #0
         if frame.id == 0:
+            gt_poses.append(gt_pose)
             pose = gt_pose
             poses.append(pose)
             frame.set_pose(pose)
@@ -94,7 +96,7 @@ def main():
             # ########### Initialization ###########
             if not is_initialized:
                 # Extract the last frame, keyframe
-                ref_frame = frames[-2]
+                ref_frame = keyframes[-1]
 
                 # Feature matching
                 matches = match_features(frame, ref_frame, K, "0-raw", debug) # (N) : N < M
@@ -114,19 +116,47 @@ def main():
                 pose = poses[-1] @ init_pose
                 
                 # Visualize the current state of the map and trajectory with scale ambiguity
-                plot_2d_trajectory([poses[-1], pose], gt_poses, save_path=results_dir / "vo" / f"{i}_a_noscale.png")
-                plot_trajectory_components([poses[-1], pose], gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b_noscale.png")
+                plot_2d_trajectory([poses[-1], pose], [gt_poses[-1], gt_pose], save_path=results_dir / "vo" / f"{i}_a_noscale.png")
+                plot_trajectory_components([poses[-1], pose], [gt_poses[-1], gt_pose], RMSE, save_path=results_dir / "vo" / f"{i}_b_noscale.png")
+
+                # Print the unscaled transformation
+                _, pitch, _ = rotation_matrix_to_euler_angles(init_pose[:3, :3])
+                pitch_deg = -np.degrees(pitch)
+                dist = np.sqrt(init_pose[0,3]**2 + init_pose[1,3]**2)
+                print(f"\tUnscaled Transformation: dist:{dist:.2f}, -ψ: {pitch_deg:.2f}")
 
                 # Estimate the depth scale
                 if not is_scale_initialized:
-                    scale = estimate_depth_scale([poses[-1], pose], gt_poses)
+                    scale = estimate_depth_scale([poses[-1], pose], [gt_poses[-1], gt_pose])
                     is_scale_initialized = True
 
                 # Remove scale ambiguaity
                 init_pose[:3, 3] *= scale
+
+                # Print the scaled transformation
+                _, pitch, _ = rotation_matrix_to_euler_angles(init_pose[:3, :3])
+                pitch_deg = -np.degrees(pitch)
+                dist = np.sqrt(init_pose[0,3]**2 + init_pose[1,3]**2)
+                print(f"\tScaled Transformation: dist:{dist:.2f}, -ψ: {pitch_deg:.2f}")
+
+                # Check if this is a keyframe
+                if not is_keyframe(init_pose, debug=debug):
+                    is_initialized = False
+                    is_scale_initialized = False
+                    breakpoint()
+                    continue
+
+                # Save the pose and frame information
+                gt_poses.append(gt_pose)
                 pose = poses[-1] @ init_pose
                 poses.append(pose)
                 frame.set_pose(pose)
+                frame.set_keyframe(True)
+
+                # Save the keyframe
+                keyframes.append(frame)
+                if debug:
+                    save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
 
                 # Verify that the ground truth and estimated poses are in the same scale
                 validate_scale(poses, gt_poses)
@@ -178,16 +208,19 @@ def main():
                 if not is_keyframe(displacement, debug=debug):
                     continue
 
-                # Save the keyframe
+                # Calculate the new pose
+                pose = poses[-1] @ displacement 
+
+                # Save the pose and frame information
+                gt_poses.append(gt_pose)
+                poses.append(pose)
+                frame.set_pose(pose)
                 frame.set_keyframe(True)
+
+                # Save the keyframe
                 keyframes.append(frame)
                 if debug:
                     save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
-
-                # Calculate the new pose
-                pose = poses[-1] @ displacement 
-                poses.append(pose)
-                frame.set_pose(pose)
                     
                 # Do feature matching with the previous keyframe
                 ref_frame = keyframes[-2]
