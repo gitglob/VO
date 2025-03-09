@@ -65,7 +65,7 @@ def main():
         # Advance the iteration
         i+=1
         # if i%50 == 0:
-        print(f"\tIteration: {i} / {data.length()}")
+        print(f"\n\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
         t, img, gt_pose = data.get(debug)
@@ -84,11 +84,10 @@ def main():
             keyframes.append(frame)
             if debug:
                 save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
-            RMSE = 0
                 
             # Visualize the current state of the map and trajectory
             plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")
-            plot_trajectory_components(poses, gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b.png")
+            plot_trajectory_components(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_b.png")
 
             # There is nothing left to do in the first iteration
             continue
@@ -107,63 +106,63 @@ def main():
                     continue
 
                 # Extract the initial pose using the Essential or Homography matrix (2d-2d)
-                init_pose, is_initialized = initialize_pose(frame, ref_frame, K, debug)
+                T, is_initialized = initialize_pose(frame, ref_frame, K, debug)
                 if not is_initialized:
                     print("Pose initialization failed!")
                     continue
+                assert np.linalg.norm(T[:3, 3]) - 1 < 1e-6
 
                 # Calculate the next pose with scale ambiguity
-                pose = poses[-1] @ init_pose
+                pose = T @ poses[-1]
                 
                 # Visualize the current state of the map and trajectory with scale ambiguity
                 plot_2d_trajectory([poses[-1], pose], [gt_poses[-1], gt_pose], save_path=results_dir / "vo" / f"{i}_a_noscale.png")
-                plot_trajectory_components([poses[-1], pose], [gt_poses[-1], gt_pose], RMSE, save_path=results_dir / "vo" / f"{i}_b_noscale.png")
+                plot_trajectory_components([poses[-1], pose], [gt_poses[-1], gt_pose], save_path=results_dir / "vo" / f"{i}_b_noscale.png")
 
                 # Print the unscaled transformation
-                _, pitch, _ = rotation_matrix_to_euler_angles(init_pose[:3, :3])
+                _, pitch, _ = rotation_matrix_to_euler_angles(T[:3, :3])
                 pitch_deg = -np.degrees(pitch)
-                dist = np.sqrt(init_pose[0,3]**2 + init_pose[1,3]**2)
+                dist = np.sqrt(T[0,3]**2 + T[1,3]**2)
                 print(f"\tUnscaled Transformation: dist:{dist:.2f}, -ψ: {pitch_deg:.2f}")
 
                 # Estimate the depth scale
                 if not is_scale_initialized:
                     scale = estimate_depth_scale([poses[-1], pose], [gt_poses[-1], gt_pose])
-                    is_scale_initialized = True
+                    T[:3, 3] *= scale
 
-                # Remove scale ambiguaity
-                init_pose[:3, 3] *= scale
+                    # Apply the scale to the pose and validate it
+                    scaled_pose = T @ poses[-1]
+                    validate_scale([poses[-1], scaled_pose], [gt_poses[-1], gt_pose])
+                    is_scale_initialized = True
+                # If scale was already estimated, apply it to the pose
+                else:
+                    # Remove scale ambiguaity
+                    T[:3, 3] *= scale
+                    scaled_pose = T @ poses[-1]
 
                 # Print the scaled transformation
-                _, pitch, _ = rotation_matrix_to_euler_angles(init_pose[:3, :3])
+                _, pitch, _ = rotation_matrix_to_euler_angles(T[:3, :3])
                 pitch_deg = -np.degrees(pitch)
-                dist = np.sqrt(init_pose[0,3]**2 + init_pose[1,3]**2)
+                dist = np.sqrt(T[0,3]**2 + T[1,3]**2)
                 print(f"\tScaled Transformation: dist:{dist:.2f}, -ψ: {pitch_deg:.2f}")
-
-                # Check if this is a keyframe
-                if not is_keyframe(init_pose, debug=debug):
-                    is_initialized = False
-                    is_scale_initialized = False
-                    breakpoint()
-                    continue
 
                 # Save the pose and frame information
                 gt_poses.append(gt_pose)
-                pose = poses[-1] @ init_pose
-                poses.append(pose)
-                frame.set_pose(pose)
+                poses.append(scaled_pose)
+                # print(np.round(gt_pose, 3))
+                # print(np.round(pose, 3))
+                # print(np.round(scaled_pose, 3))
+                frame.set_pose(scaled_pose)
                 frame.set_keyframe(True)
 
                 # Save the keyframe
                 keyframes.append(frame)
                 if debug:
                     save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
-
-                # Verify that the ground truth and estimated poses are in the same scale
-                validate_scale(poses, gt_poses)
-                
+               
                 # Visualize the current state of the map and trajectory
                 plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")
-                plot_trajectory_components(poses, gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b.png")
+                plot_trajectory_components(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_b.png")
 
                 # Triangulate the 3D points using the initial pose
                 points_c, point_ids, is_initialized = triangulate_points(frame, ref_frame, K, debug)
@@ -172,7 +171,7 @@ def main():
                     continue
 
                 # Transfer the points to the world frame
-                points_w = transform_points(points_c, invert_transform(pose))
+                points_w = transform_points(points_c, scaled_pose)
 
                 # Create a local map and push the triangulated points
                 map = Map(ref_frame.id)
@@ -243,7 +242,7 @@ def main():
                 
                 # Visualize the current state of the map and trajectory
                 plot_2d_trajectory(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_a.png")
-                plot_trajectory_components(poses, gt_poses, RMSE, save_path=results_dir / "vo" / f"{i}_b.png")
+                plot_trajectory_components(poses, gt_poses, save_path=results_dir / "vo" / f"{i}_b.png")
 
     # Save final map and trajectory
     final_traj_save_path = results_dir / "vo" / "final_trajectory.png"

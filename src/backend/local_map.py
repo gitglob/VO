@@ -12,8 +12,10 @@ class Map():
         entry {
             "points": np.ndarray,                       # Map 3D points in world coordinates
             "point_ids": np.ndarray,                    # Map 3D point unique IDs
+
             "keyframe": Frame,                          # Keyframe that was used to triangulate the 3d points
             "ref_keyframe": Frame,                      # Reference keyframe that was used to triangulate the 3d points
+
             "type": String [initialization, tracking]   # Whether the points were computed in the initialization (2d-2d) or the tracking stage (3d-2d)
         }
         """
@@ -109,7 +111,6 @@ class Map():
         image_width: int = 1226,
         image_height: int = 370
     ):
-        print("[Map] Getting points in the current view...")
         """
         Returns the points and descriptors that are in the current view.
 
@@ -123,6 +124,7 @@ class Map():
                 descriptors_in_view: (M, 32) array of the associated descriptors
                                      from the keyframe(s) that created them.
         """
+        print("[Map] Getting points in the current view...")
 
         # 0) Collect ALL points and descriptors from the map
         #    We'll do this by concatenating the data from all entries
@@ -135,37 +137,41 @@ class Map():
             match = keyframe.match[ref_keyframe.id]
 
             # Extract the points
-            all_points_list.append(match["points"])          # shape: (N, 3)
+            match_points = match["points"]           # shape: (M, 3)
+            all_points_list.append(match_points)
 
-            # Extract the keyframe descriptors of the match
-            descriptors = keyframe.descriptors                                        # shape: (M, 32)
-            match_indices = np.array([m.queryIdx for m in match["matches"]])          # shape: (N,)
-            match_descriptors = np.array([descriptors[idx] for idx in match_indices]) # shape: (N, 32)
+            # Extract all the keyframe descriptors
+            descriptors = keyframe.descriptors       # shape: (N, 32)
 
-            # Extract the inlier mask
-            triangulation_mask = match["triangulation_match_mask"] # shape: (N, 3)
+            # Extract the keyframe descriptors that correspond to the match
+            match_indices = np.array([m.queryIdx for m in match["matches"]])          # shape: (M,)
+            match_descriptors = np.array([descriptors[idx] for idx in match_indices]) # shape: (M, 32)
+
+            # Extract the triangulation mask of the match
+            triangulation_mask = match["triangulation_match_mask"] # shape: (M, )
 
             # Only keep the descriptors that correspond to the triangulated points
-            all_desc_list.append(match_descriptors[triangulation_mask])  # shape: (N, 32)
+            match_triang_descriptors = match_descriptors[triangulation_mask]  # shape: (T, 32)
+            all_desc_list.append(match_triang_descriptors)
 
-            assert(len(match_descriptors[triangulation_mask]) == len(match["points"]))
+            assert(len(match_triang_descriptors) == len(match["points"]))
 
+        # No map points at all
         if len(all_points_list) == 0:
-            # No map points at all
             return (np.zeros((0,3)), np.zeros((0,2)), np.zeros((0,32)))
 
-        all_points = np.vstack(all_points_list)        # shape: (sumN, 3)
-        all_descriptors = np.vstack(all_desc_list)     # shape: (sumN, 32)
+        # Concatenate all points and descriptors
+        all_points = np.vstack(all_points_list)        # shape: (L, 3)
+        all_descriptors = np.vstack(all_desc_list)     # shape: (L, 32)
 
         # 1) Convert map points to homogeneous: (X, Y, Z, 1).
-        N = all_points.shape[0]
-        ones = np.ones((N, 1))
-        points_world_hom = np.hstack([all_points, ones])  # (N, 4)
+        ones = np.ones((len(all_points), 1))
+        points_world_hom = np.hstack([all_points, ones])  # (L, 4)
 
         # 2) Transform points to camera coords:
         #       X_cam = T_cam_world @ X_world
-        points_cam_hom = (T_cam_world @ points_world_hom.T).T  # (N, 4)
-        points_cam = points_cam_hom[:, :3]
+        points_cam_hom = (T_cam_world @ points_world_hom.T).T # (L, 4)
+        points_cam = points_cam_hom[:, :3]                    # (L, 3)
 
         # 3) Keep only points in front of the camera (z > 0).
         z_positive_mask = points_cam[:, 2] > 0
@@ -191,6 +197,7 @@ class Map():
             (v >= 0) & (v < image_height)
         )
 
+        # Keep only the points that are in view
         points_in_view_3d = points_cam[in_view_mask]
         u_in_view = u[in_view_mask]
         v_in_view = v[in_view_mask]

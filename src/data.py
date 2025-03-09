@@ -19,7 +19,7 @@ class Dataset:
         self._init_calibration()
 
     def _read(self):
-        images_dir = self.data_dir / self.scene / "image_2"  
+        images_dir = self.data_dir / self.scene / "image_0"  
         times_txt = self.data_dir / self.scene / "times.txt"
 
         calib_txt = self.data_dir / "data_odometry_calib" / "dataset" / "sequences" / self.scene / "calib.txt"
@@ -35,8 +35,8 @@ class Dataset:
 
     def _init_calibration(self):
         """Intrinsics matrix """
-        P2 = np.array(self._calib.loc['P2:']).reshape((3,4))
-        self._K, self._R, self._t, _, _, _, _ = cv2.decomposeProjectionMatrix(P2)
+        P = np.array(self._calib.loc['P0:']).reshape((3,4))
+        self._K, self._R, self._t, _, _, _, _ = cv2.decomposeProjectionMatrix(P)
 
         fx = self._K[0, 0]
         fy = self._K[1, 1]

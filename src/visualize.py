@@ -7,7 +7,7 @@ from src.utils import rotation_matrix_to_euler_angles
 matplotlib.use('TkAgg')
 
 
-def plot_trajectory_components(poses, gt_poses, reproj_error, save_path=None, show_plot=False):
+def plot_trajectory_components(poses, gt_poses, reproj_error=None, save_path=None, show_plot=False):
     num_poses = len(poses)
     poses = np.array(poses)
     gt_poses = np.array(gt_poses)
@@ -94,7 +94,12 @@ def plot_trajectory_components(poses, gt_poses, reproj_error, save_path=None, sh
     for i in range(num_poses):
         last_RMSE = np.sqrt(np.mean((poses[i, :3, 3] - gt_poses[i, :3, 3])**2)).item()
         total_RMSE += last_RMSE
-    suptitle = 'Translation and Rotation vs Ground Truth' + f'\nReprojection Error: {reproj_error:.2f} pixels' + f'\nRMSE (last): {total_RMSE:.2f} ({last_RMSE:.2f})'
+
+    suptitle = 'Translation and Rotation vs Ground Truth'
+    if reproj_error:
+        suptitle += f'\nReprojection Error: {reproj_error:.2f} pixels' 
+    suptitle += f'\nRMSE (last): {total_RMSE:.2f} ({last_RMSE:.2f})'
+    
     if len(poses) > 1:
         dx = tx[-1] - tx[-2]
         dx_gt = gt_tx[-1] - gt_tx[-2]
@@ -329,7 +334,6 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     ax1.set_title('XY Trajectory')
     ax1.legend()
     ax1.grid(True)
-    ax1.set_aspect('equal', 'box')
 
     # Plot the yaw trajectory
     ax2.plot(np.arange(len(neg_pitch)), neg_pitch, 'm-', label='-Pitch')
