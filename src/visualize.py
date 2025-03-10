@@ -4,10 +4,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
 from src.utils import rotation_matrix_to_euler_angles
+from config import results_dir
 matplotlib.use('TkAgg')
 
 
-def plot_trajectory_components(poses, gt_poses, reproj_error=None, save_path=None, show_plot=False):
+############################### Pose Visualization ###############################
+
+def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory"):
+    plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
+    plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
+
+def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     num_poses = len(poses)
     poses = np.array(poses)
     gt_poses = np.array(gt_poses)
@@ -96,8 +103,6 @@ def plot_trajectory_components(poses, gt_poses, reproj_error=None, save_path=Non
         total_RMSE += last_RMSE
 
     suptitle = 'Translation and Rotation vs Ground Truth'
-    if reproj_error:
-        suptitle += f'\nReprojection Error: {reproj_error:.2f} pixels' 
     suptitle += f'\nRMSE (last): {total_RMSE:.2f} ({last_RMSE:.2f})'
     
     if len(poses) > 1:
@@ -116,31 +121,27 @@ def plot_trajectory_components(poses, gt_poses, reproj_error=None, save_path=Non
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
     
-    if show_plot:
-        plt.show()
-    else:
-        plt.close(fig)
+    plt.close(fig)
 
-def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_plot=False):
+def plot_trajectory_2d(poses, gt_poses, save_path=None):
     num_poses = len(poses)
     poses = np.array(poses)
     gt_poses = np.array(gt_poses)
 
     fig = plt.figure(figsize=(12, 6))
 
-    # First subplot: XY 2D view
+    # First subplot: XZ 2D view
     ax1 = fig.add_subplot(121)
-    ax1.plot(poses[:, 0, 3], poses[:, 1, 3], 'b-', label='XY')
-    if ground_truth:
-        ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 1, 3], 'r-', label='Ground Truth')
+    ax1.plot(poses[:, 0, 3], poses[:, 2, 3], 'b-', label='XZ')
+    ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r-', label='Ground Truth')
     
     # Mark the start and end points with bubbles
-    ax1.scatter(poses[0,0,3], poses[0,1,3], color='blue', s=100, alpha=0.7, label='Start')
-    ax1.scatter(gt_poses[0,0,3], gt_poses[0,1,3], color='red', s=100, alpha=0.3, label='gt: Start')
+    ax1.scatter(poses[0,0,3], poses[0,2,3], color='blue', s=100, alpha=0.7, label='Start')
+    ax1.scatter(gt_poses[0,0,3], gt_poses[0,2,3], color='red', s=100, alpha=0.3, label='gt: Start')
 
     ax1.set_xlabel('X')
-    ax1.set_ylabel('Y')
-    ax1.set_title('XY')
+    ax1.set_ylabel('Z')
+    ax1.set_title('XZ')
     ax1.legend()
     ax1.grid(True)
    
@@ -164,8 +165,7 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
     ax2 = fig.add_subplot(122)
 
     ax2.plot(np.arange(poses.shape[0]), angle, 'b-', label='-Pitch')
-    if ground_truth:
-        ax2.plot(np.arange(gt_poses.shape[0]), gt_angle, 'r-', label='Ground Truth')
+    ax2.plot(np.arange(gt_poses.shape[0]), gt_angle, 'r-', label='Ground Truth')
     
     # Mark the start and end points with bubbles
     ax2.scatter(0, angle[0], color='blue', s=100, alpha=0.7, label='Start')
@@ -183,88 +183,38 @@ def plot_2d_trajectory(poses, gt_poses, ground_truth=True, save_path=None, show_
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
 
-    if show_plot:
-        plt.show(block=False)
-        plt.pause(0.2)
-        plt.close()
-    else:
-        plt.close(fig)
+    plt.close(fig)
 
-# Function to visualize the 3D map and trajectory
-def plot_vo_trajectory(poses, save_path=None, show_plot=False):
+def plot_trajectory_3d(poses, save_path=results_dir / "vo" / "final_trajectory.png"):
     poses = np.array(poses)
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     
     # Plot the trajectory
-    ax.plot(poses[:, 0, 3], poses[:, 1, 3], poses[:, 2, 3], 'b-', label='Trajectory')
+    ax.plot(poses[:, 0, 3], poses[:, 2, 3], -poses[:, 1, 3], 'b-', label='Trajectory')
     
     # Set labels and title
     ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
+    ax.set_ylabel('Z')
+    ax.set_zlabel('-Y')
     ax.set_title('Map and Trajectory')
     ax.legend()
     
-    ax.set_xlim([-2, 5]) 
-    ax.set_ylim([-1, 6])
-    ax.set_zlim([-0.1, 0.1])
-
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
 
-    if show_plot:
-        plt.show(block=False)
-        plt.pause(0.2)
-        plt.close()
-    else:
-        plt.close(fig)
+    plt.show()
+    plt.close(fig)
 
-# Function to plot keypoints
-def plot_keypoints(image, keypoints, save_path, show_plot=False):
-    # Draw keypoints on the image
-    img_with_keypoints = cv2.drawKeypoints(image, keypoints, None, color=(0, 255, 0), flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    
-    # Create the directory if it doesn't exist
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+############################### Ground Truth Visualization ###############################
 
-    # Save the image with matched features
-    cv2.imwrite(save_path, img_with_keypoints)
-    
-    # Display the image if show_plot is True
-    if show_plot:
-        cv2.imshow('Keypoints', img_with_keypoints)
-        cv2.waitKey(200)
-        cv2.destroyAllWindows()
+def plot_ground_truth(ground_truth):
+    plot_ground_truth_2d(ground_truth)
+    plot_ground_truth_3d(ground_truth)
+    plot_ground_truth_6dof(ground_truth)
 
-# Function to visualize the found feature matches
-def plot_matches(img1, keypoints1, img2, keypoints2, matches, save_path, show_plot=False):
-    if len(matches) > 20:
-        matches_to_draw = matches[:20]
-    else:
-        matches_to_draw = matches
-    
-    # Draw the matches on the images
-    matched_image = cv2.drawMatches(img1, keypoints1, 
-                                    img2, keypoints2, 
-                                    matches_to_draw, 
-                                    None, 
-                                    flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    
-    # Create the directory if it doesn't exist
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    # Save the image with matched features
-    cv2.imwrite(save_path, matched_image)
-    
-    # Display the image if show_plot is True
-    if show_plot:
-        cv2.imshow('Feature Matches', matched_image)
-        cv2.waitKey(200)
-        cv2.destroyAllWindows()
-        
-def plot_ground_truth(ground_truth, save_path=None, show_plot=False, block=True):
+def plot_ground_truth_3d(ground_truth, save_path=results_dir / "ground_truth/3d.png"):
     """ Reads the ground truth data from a file and plots the robot trajectory. """
     # Extract the positions (tx, ty, tz)
     tx = ground_truth.iloc[:, 3].values
@@ -275,41 +225,36 @@ def plot_ground_truth(ground_truth, save_path=None, show_plot=False, block=True)
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    ax.plot(tx, ty, tz, label='Robot Trajectory')
+    ax.plot(tx, tz, -ty, label='Robot Trajectory')
     
     # Mark the start and end points with bubbles
-    ax.scatter(tx[0], ty[0], tz[0], color='green', s=100, label='Start')
-    ax.scatter(tx[-1], ty[-1], tz[-1], color='red', s=100, label='End')
+    ax.scatter(tx[0], tz[0], -ty[0], color='green', s=100, label='Start')
+    ax.scatter(tx[-1], tz[-1], -ty[-1], color='red', s=100, label='End')
 
     ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
+    ax.set_ylabel('Z')
+    ax.set_zlabel('-Y')
     ax.set_title('Robot Trajectory')
     ax.legend()
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
+    
+    plt.close(fig)
 
-    if show_plot:
-        plt.show(block=block)
-        plt.close()
-    else:
-        plt.close(fig)
-
-def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=True):
+def plot_ground_truth_2d(ground_truth, save_path=results_dir / "ground_truth/2d.png"):
     """ 
     Plots the robot trajectory in XY coordinates and the yaw angle over time.
 
     Args:
         ground_truth_df (pd.DataFrame): DataFrame of shape (N, 12) containing rows of flattened 3x4 pose matrices.
         save_path (str, optional): Path to save the plot.
-        show_plot (bool, optional): Whether to display the plot.
-        block (bool, optional): Whether the plot display blocks execution.
     """
     # Extract translations (tx, ty)
     tx = ground_truth.iloc[:, 3].values
-    ty = ground_truth.iloc[:, 7].values
+    # ty = ground_truth.iloc[:, 7].values
+    tz = ground_truth.iloc[:, 11].values
 
     # Extract rotation around -Y (road-plane rotation)
     neg_pitch = []
@@ -326,12 +271,12 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
     # Plot the XY trajectory
-    ax1.plot(tx, ty, 'b-', label='XY Trajectory')
-    ax1.scatter(tx[0], ty[0], color='green', s=100, label='Start')  # Start point
-    ax1.scatter(tx[-1], ty[-1], color='red', s=100, label='End')    # End point
+    ax1.plot(tx, tz, 'b-', label='XY Trajectory')
+    ax1.scatter(tx[0], tz[0], color='green', s=100, label='Start')  # Start point
+    ax1.scatter(tx[-1], tz[-1], color='red', s=100, label='End')    # End point
     ax1.set_xlabel('X')
-    ax1.set_ylabel('Y')
-    ax1.set_title('XY Trajectory')
+    ax1.set_ylabel('Z')
+    ax1.set_title('Road Trajectory')
     ax1.legend()
     ax1.grid(True)
 
@@ -349,21 +294,15 @@ def plot_ground_truth_2d(ground_truth, save_path=None, show_plot=False, block=Tr
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
 
-    if show_plot:
-        plt.show(block=block)
-        plt.close()
-    else:
-        plt.close(fig)
+    plt.close(fig)
         
-def plot_ground_truth_6dof(ground_truth_df, save_path=None, show_plot=False, block=True):
+def plot_ground_truth_6dof(ground_truth_df, save_path=results_dir / "ground_truth/6dof.png"):
     """
     Plots the robot's 6DoF trajectory components (x, y, z, roll, pitch, yaw) over time.
 
     Args:
         ground_truth_df (pd.DataFrame): DataFrame of shape (N, 12) containing rows of flattened 3x4 pose matrices.
         save_path (str, optional): Path to save the plot.
-        show_plot (bool, optional): Whether to display the plot.
-        block (bool, optional): Whether the plotting should block execution.
 
     Returns:
         None
@@ -412,8 +351,38 @@ def plot_ground_truth_6dof(ground_truth_df, save_path=None, show_plot=False, blo
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
-
-    if show_plot:
-        plt.show(block=block)
-
+    
     plt.close(fig)
+
+############################### Feature Visualization ###############################
+
+# Function to plot keypoints
+def plot_keypoints(image, keypoints, save_path):
+    # Draw keypoints on the image
+    img_with_keypoints = cv2.drawKeypoints(image, keypoints, None, color=(0, 255, 0), flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    
+    # Create the directory if it doesn't exist
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Save the image with matched features
+    cv2.imwrite(save_path, img_with_keypoints)
+
+# Function to visualize the found feature matches
+def plot_matches(img1, keypoints1, img2, keypoints2, matches, save_path):
+    if len(matches) > 20:
+        matches_to_draw = matches[:20]
+    else:
+        matches_to_draw = matches
+    
+    # Draw the matches on the images
+    matched_image = cv2.drawMatches(img1, keypoints1, 
+                                    img2, keypoints2, 
+                                    matches_to_draw, 
+                                    None, 
+                                    flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    
+    # Create the directory if it doesn't exist
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Save the image with matched features
+    cv2.imwrite(save_path, matched_image)

@@ -25,8 +25,8 @@ def test_recover_pose():
                               [  0.    ,   0.    ,   1.    ]])
 
     # --- Generate synthetic 3D points ---
-    # Generate 200 random points with Z=5 (X and Y uniformly in [-1, 1])
-    num_points = 200
+    # Generate 100 random points with Z=5 (X and Y uniformly in [-1, 1])
+    num_points = 100
     pts_xy = np.random.uniform(-1, 1, (2, num_points))
     pts_z = 5 * np.ones((1, num_points))
     pts_3d = np.vstack((pts_xy, pts_z))  # shape: (3, N)

@@ -8,7 +8,7 @@ from src.utils import rotation_matrix_to_euler_angles
 from config import results_dir
 
 
-def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
+def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
     """
     Initializes the camera pose by estimating the relative rotation and translation 
     between two consecutive frames using feature matches.
@@ -20,42 +20,43 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
     to initialize the frames and triangulate 3D points.
 
     Args:
-        frame (Frame): The current frame containing keypoints, descriptors, and matches.
-        ref_frame (Frame): The previous reference frame.
+        q_frame (Frame): The previous frame.
+        t_frame (Frame): The current frame.
         K (np.ndarray): The camera intrinsic matrix (3x3).
-        debug (bool, optional): If True, saves and visualizes matches used for initialization.
+        debug (bool, optional): If True, saves and visualizes matches.
 
     Returns:
         Tuple[np.ndarray or None, bool]: 
-            - The inverse 4x4 transformation matrix (ref_frame -> frame) if successful, otherwise None.
+            - The inverse 4x4 transformation matrix (q_frame -> frame) if successful, otherwise None.
             - A boolean indicating whether the initialization was successful.
     """
-    print(f"Initializing the camera pose using frames {frame.id} & {ref_frame.id}...")
+    if debug:
+        print(f"Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
     # ------------------------------------------------------------------------
 
     # Extract the matches between the previous and current frame
-    matches = frame.get_matches(ref_frame.id)
+    matches = q_frame.get_matches(t_frame.id)
     if len(matches) < 5:
         print("Not enough matches to compute the Essential Matrix!")
-        return frame.pose, False
+        return None, False
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    frame_kpt_pixels = np.float32([frame.keypoints[m.queryIdx].pt for m in matches])
-    ref_frame_kpt_pixels = np.float32([ref_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_frame_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # ------------------------------------------------------------------------
     # 2. Compute Essential & Homography matrices
     # ------------------------------------------------------------------------
 
     # Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(ref_frame_kpt_pixels, frame_kpt_pixels, K, method=cv2.RANSAC, prob=0.99, threshold=1.5)
+    E, mask_E = cv2.findEssentialMat(q_frame_kpt_pixels, t_kpt_pixels, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
     mask_E = mask_E.ravel().astype(bool)
 
     # Compute the Homography Matrix
-    H, mask_H = cv2.findHomography(ref_frame_kpt_pixels, frame_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=3.0)
+    H, mask_H = cv2.findHomography(q_frame_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=1.0)
     mask_H = mask_H.ravel().astype(bool)
 
     # ------------------------------------------------------------------------
@@ -63,14 +64,20 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
     # ------------------------------------------------------------------------
 
     # Compute symmetric transfer error for Essential Matrix
-    error_E, num_inliers_E = compute_symmetric_transfer_error(E, frame_kpt_pixels, ref_frame_kpt_pixels, 'E', K=K)
+    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_frame_kpt_pixels, t_kpt_pixels, 'E', K=K)
 
     # Compute symmetric transfer error for Homography Matrix
-    error_H, num_inliers_H = compute_symmetric_transfer_error(H, frame_kpt_pixels, ref_frame_kpt_pixels, 'H', K=K)
+    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_frame_kpt_pixels, t_kpt_pixels, 'H', K=K)
 
     # Decide which matrix to use based on the ratio of inliers
+    if debug:
+        print(f"\tInliers E: {num_inliers_E}, Inliers H: {num_inliers_H}")
+    if num_inliers_E == 0 and num_inliers_H == 0:
+        print("[initialize] All keypoint pairs yield errors > threshold..")
+        return None, False
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
-    print(f"\tInliers E: {num_inliers_E}, Inliers H: {num_inliers_H}, Ratio H/(E+H): {ratio}")
+    if debug:
+        print(f"\tRatio H/(E+H): {ratio}")
     use_homography = (ratio > 0.45)
 
     # ------------------------------------------------------------------------
@@ -79,20 +86,22 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
 
     # Filter keypoints based on the chosen mask
     inlier_match_mask = mask_H if use_homography else mask_E
-    print(f"\tUsing {'Homography' if use_homography else 'Essential'} Matrix...")
-    inlier_frame_pixels = frame_kpt_pixels[inlier_match_mask]
-    inlier_ref_frame_pixels = ref_frame_kpt_pixels[inlier_match_mask]
-    print(f"\t\tE/H inliers filtered {len(matches) - np.sum(inlier_match_mask)}/{len(matches)} matches!")
+    inlier_q_frame_pixels = q_frame_kpt_pixels[inlier_match_mask]
+    inlier_t_frame_pixels = t_kpt_pixels[inlier_match_mask]
+    if debug:
+        print(f"\tUsing {'Homography' if use_homography else 'Essential'} Matrix...")
+        print(f"\t\tE/H inliers filtered {len(matches) - np.sum(inlier_match_mask)}/{len(matches)} matches!")
 
     # Check if we will use homography
     R, t, final_match_mask = None, None, None
     if not use_homography:
         # Decompose Essential Matrix
-        points, R_est, t_est, mask_pose = cv2.recoverPose(E, inlier_ref_frame_pixels, inlier_frame_pixels, K)
+        _, R_est, t_est, mask_pose = cv2.recoverPose(E, inlier_q_frame_pixels, inlier_t_frame_pixels, K)
 
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
-        print(f"\t\tPose Recovery filtered {np.sum(inlier_match_mask) - np.sum(mask_pose)}/{np.sum(inlier_match_mask)} matches!")
+        if debug:
+            print(f"\t\tPose Recovery filtered {np.sum(inlier_match_mask) - np.sum(mask_pose)}/{np.sum(inlier_match_mask)} matches!")
 
         if R_est is not None and t_est is not None and np.any(mask_pose):
             R, t = R_est, t_est
@@ -103,13 +112,13 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
 
         # Reprojection filter
         final_match_mask = filter_by_reprojection(
-            matches, frame, ref_frame,
+            matches, q_frame, t_frame,
             R, t, K,
             final_match_mask,
-            reproj_threshold=2.0,
             debug=debug
         )
-        print(f"\t\tReprojection filtered {np.sum(mask_pose) - np.sum(final_match_mask)}/{np.sum(mask_pose)} matches!")
+        if debug:
+            print(f"\t\tReprojection filtered {np.sum(mask_pose) - np.sum(final_match_mask)}/{np.sum(mask_pose)} matches!")
     else:
         # Decompose Homography Matrix
         num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(H, K)
@@ -131,11 +140,11 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
             # Check if points are in front of camera
             front_points = 0
             invK = np.linalg.inv(K)
-            for j in range(len(inlier_ref_frame_pixels)):
+            for j in range(len(inlier_q_frame_pixels)):
                 # Current frame pixel in camera coords
-                p_curr_cam = invK @ np.array([*inlier_ref_frame_pixels[j], 1.0])  
+                p_curr_cam = invK @ np.array([*inlier_q_frame_pixels[j], 1.0])  
                 # Previous frame pixel in camera coords
-                p_prev_cam = invK @ np.array([*inlier_frame_pixels[j], 1.0])
+                p_prev_cam = invK @ np.array([*inlier_t_frame_pixels[j], 1.0])
 
                 # Depth for current pixel after transformation
                 denom = np.dot(n_candidate, R_candidate @ p_curr_cam + t_candidate)
@@ -162,7 +171,7 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
 
         # Reprojection filter
         final_match_mask = filter_by_reprojection(
-            frame_kpt_pixels, ref_frame_kpt_pixels,
+            q_frame_kpt_pixels, t_kpt_pixels,
             R, t, K,
             final_match_mask,
             reproj_threshold=2.0,
@@ -174,9 +183,10 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
         print("[initialize] Failed to recover a valid pose from either E or H.")
         return None, False
 
-    num_removed_matches = len(matches) - np.sum(final_match_mask)
     remaining_points = np.sum(final_match_mask)
-    print(f"\tTotal filtering: {num_removed_matches}/{len(matches)}. {remaining_points} matches left!")
+    num_removed_matches = len(matches) - remaining_points
+    if debug:
+        print(f"\tTotal filtering: {num_removed_matches}/{len(matches)}. {remaining_points} matches left!")
 
     # ------------------------------------------------------------------------
     # 5. Build the 4x4 Pose matrix
@@ -189,26 +199,26 @@ def initialize_pose(frame: Frame, ref_frame: Frame, K: np.ndarray, debug=False):
     inv_pose = invert_transform(pose)
     
     # Initialize the frames
-    frame.triangulate(ref_frame.id, use_homography, final_match_mask, pose, "initialization")
-    ref_frame.triangulate(frame.id, use_homography, final_match_mask, inv_pose, "initialization")
+    t_frame.triangulate(q_frame.id, use_homography, final_match_mask, pose, "initialization")
+    q_frame.triangulate(t_frame.id, use_homography, final_match_mask, inv_pose, "initialization")
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/1-initialization" / f"{frame.id}_{ref_frame.id}.png"
-        plot_matches(frame.img, frame.keypoints,
-                     ref_frame.img, ref_frame.keypoints,
+        match_save_path = results_dir / "matches/1-initialization" / f"{q_frame.id}_{t_frame.id}.png"
+        plot_matches(q_frame.img, q_frame.keypoints,
+                     t_frame.img, t_frame.keypoints,
                      matches[final_match_mask], match_save_path)
 
-    return pose, True
+    return inv_pose, True
 
-def filter_by_reprojection(matches, frame, ref_frame, R, t, K, inlier_match_mask, reproj_threshold=1.0, debug=False):
+def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, inlier_match_mask, reproj_threshold=1.0, debug=False):
     """
     Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
 
     Args:
         matches (list): list of cv2.DMatch objects.
-        frame, ref_frame: Frame objects.
-        R, t: relative pose from ref_frame to frame.
+        frame, q_frame: Frame objects.
+        R, t: relative pose from q_frame to frame.
         K: camera intrinsic matrix.
         inlier_match_mask (np.array): initial boolean mask for inlier matches.
         reproj_threshold (float): reprojection error threshold in pixels.
@@ -218,31 +228,31 @@ def filter_by_reprojection(matches, frame, ref_frame, R, t, K, inlier_match_mask
     Returns:
         np.array: Updated boolean mask with matches having large reprojection errors filtered out.
     """
-    print("\tReprojecting correspondances...")
+    if debug:
+        print("\tReprojecting correspondances...")
     # Extract matched keypoints
-    frame_pts = np.float32([frame.keypoints[m.queryIdx].pt for m in matches])
-    ref_frame_pts = np.float32([ref_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_frame_pts = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_frame_pts = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Select inlier matches
-    pts_frame = frame_pts[inlier_match_mask]
-    pts_ref = ref_frame_pts[inlier_match_mask]
+    q_pts = q_frame_pts[inlier_match_mask]
+    t_pts = t_frame_pts[inlier_match_mask]
 
     # Projection matrices
-    M1 = K @ np.eye(3,4)        # Reference frame (identity)
-    M2 = K @ np.hstack((R, t))  # Current frame
+    q_M = K @ np.eye(3,4)        # Reference frame (identity)
+    t_M = K @ np.hstack((R, t))  # Current frame
 
     # Triangulate points
-    points_4d = cv2.triangulatePoints(M1, M2, pts_ref.T, pts_frame.T)
-    points_3d = (points_4d[:3] / points_4d[3]).T
+    q_points_4d = cv2.triangulatePoints(q_M, t_M, q_pts.T, t_pts.T)
+    q_points_3d = (q_points_4d[:3] / q_points_4d[3]).T
 
     # Reproject points into the second (current) camera
-    points_cam2 = (R @ points_3d.T + t).T
-    points_proj2, _ = cv2.projectPoints(points_cam2, np.zeros(3), np.zeros(3), K, None)
+    t_points_3d = (R @ q_points_3d.T + t).T
+    points_proj2, _ = cv2.projectPoints(t_points_3d, np.zeros(3), np.zeros(3), K, None)
     points_proj_px = points_proj2.reshape(-1, 2)
 
     # Compute reprojection errors
-    errors = np.linalg.norm(points_proj_px - pts_frame, axis=1)
-    print(f"\t\tPrior mean reprojection error: {np.mean(errors):.3f} px")
+    errors = np.linalg.norm(points_proj_px - t_pts, axis=1)
 
     # Update the inlier mask
     valid_mask = errors < reproj_threshold
@@ -250,105 +260,50 @@ def filter_by_reprojection(matches, frame, ref_frame, R, t, K, inlier_match_mask
     original_indices = np.flatnonzero(inlier_match_mask)
     updated_mask[original_indices[~valid_mask]] = False
 
-    num_removed_matches = len(pts_ref) - np.sum(valid_mask)
-    print(f"\t\tReprojection filtered: {num_removed_matches}/{len(pts_ref)}")
-
-    # Compute reprojection errors
-    print(f"\t\tFinal mean reprojection error: {np.mean(errors[valid_mask]):.3f} px")
+    num_removed_matches = len(q_pts) - np.sum(valid_mask)
+    if debug:
+        print(f"\t\tPrior mean reprojection error: {np.mean(errors):.3f} px")
+        print(f"\t\tReprojection filtered: {num_removed_matches}/{len(q_pts)}")
+        print(f"\t\tFinal mean reprojection error: {np.mean(errors[valid_mask]):.3f} px")
 
     # Debugging visualization
     if debug:
-        reproj_img = frame.img.copy()
-        for i in range(len(pts_frame)):
-            obs = tuple(np.int32(pts_frame[i]))
+        reproj_img = t_frame.img.copy()
+        for i in range(len(t_pts)):
+            obs = tuple(np.int32(t_pts[i]))
             reproj = tuple(np.int32(points_proj_px[i]))
             cv2.circle(reproj_img, obs, 3, (0, 0, 255), -1)      # Observed points (red)
             cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
             cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
 
-        debug_img_path = results_dir / f"matches/2-reprojection/{frame.id}_{ref_frame.id}.png"
+        debug_img_path = results_dir / f"matches/2-reprojection/{q_frame.id}_{t_frame.id}.png"
         debug_img_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(debug_img_path), reproj_img)
 
     return updated_mask
-
-def triangulate_points(frame: Frame, ref_frame: Frame, K: np.ndarray, debug: bool = False):
-    print(f"Triangulating points between frames {frame.id} & {ref_frame.id}...")
-    # Extract the Rotation and Translation arrays between the 2 frames
-    pose = frame.match[ref_frame.id]["pose"]
-    R = pose[:3, :3]
-    t = pose[:3, 3].reshape(3,1)
-
-    # ------------------------------------------------------------------------
-    # 6. Triangulate 3D points
-    # ------------------------------------------------------------------------
-
-    # Extract inlier matches
-    matches = frame.match[ref_frame.id]["matches"]
-    inlier_match_mask = frame.match[ref_frame.id]["inlier_match_mask"]
-
-    # Initialize the triangulation match mask
-    triangulation_match_mask = inlier_match_mask
-
-    # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    frame_kpt_pixels = np.float32([frame.keypoints[m.queryIdx].pt for m in matches[inlier_match_mask]])
-    ref_frame_kpt_pixels = np.float32([ref_frame.keypoints[m.trainIdx].pt for m in matches[inlier_match_mask]])
-
-    # Triangulate
-    frame_points_3d = triangulate(frame_kpt_pixels, ref_frame_kpt_pixels, R, t, K)
-    if frame_points_3d is None or len(frame_points_3d) == 0:
-        print("[initialize] Triangulation returned no 3D points.")
-        return None, None, False
-
-    # ------------------------------------------------------------------------
-    # 7. Filter out points with small triangulation angles (cheirality check)
-    # ------------------------------------------------------------------------
-
-    valid_angles_mask = filter_triangulation_points(frame_points_3d, R, t)
-    if valid_angles_mask is None:
-        return None, None, False
-    frame_points_3d = frame_points_3d[valid_angles_mask]
-
-    # Combine the Homography/Essential Matrix mask with the valid angles mask
-    triangulation_match_mask[triangulation_match_mask==True] = valid_angles_mask
-
-    # Create keypoint triangulation masks
-    frame_triangulation_kpt_mask = frame.match[ref_frame.id]["match_mask"]
-    ref_frame_triangulation_kpt_mask = ref_frame.match[frame.id]["match_mask"]
-    for m in matches[triangulation_match_mask]:
-        frame_triangulation_kpt_mask[m.queryIdx] = True
-        ref_frame_triangulation_kpt_mask[m.trainIdx] = True
-
-    # ------------------------------------------------------------------------
-    # 8. Save the triangulated points and masks to the frame
-    # ------------------------------------------------------------------------
-
-    frame.match[ref_frame.id]["triangulation_mask"] = frame_triangulation_kpt_mask
-    frame.match[ref_frame.id]["triangulation_match_mask"] = triangulation_match_mask
-    frame.match[ref_frame.id]["points"] = frame_points_3d
-
-    ref_frame.match[frame.id]["triangulation_mask"] = ref_frame_triangulation_kpt_mask
-    ref_frame.match[frame.id]["triangulation_match_mask"] = triangulation_match_mask
-    ref_frame.match[frame.id]["points"] = frame_points_3d
-
-    # Also save the triangulated points keypoint identifiers
-    frame_kpt_ids = np.float32([frame.keypoints[m.queryIdx].class_id for m in matches[triangulation_match_mask]])
-    frame.match[ref_frame.id]["point_ids"] = frame_kpt_ids
-
-    ref_frame_kpt_ids = np.float32([ref_frame.keypoints[m.trainIdx].class_id for m in matches[triangulation_match_mask]])
-    ref_frame.match[frame.id]["point_ids"] = ref_frame_kpt_ids
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/3-triangulation" / f"{frame.id}_{ref_frame.id}.png"
-        plot_matches(frame.img, frame.keypoints,
-                     ref_frame.img, ref_frame.keypoints,
-                     matches[triangulation_match_mask], match_save_path)
-
-    # Return the initial pose and filtered points
-    return frame_points_3d, frame_kpt_ids, True
       
-def compute_symmetric_transfer_error(E_or_H, frame_kpt_pixels, ref_frame_kpt_pixels, matrix_type='E', K=None):
+def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', K=None, threshold=4.0):
+    """
+    Computes the symmetric transfer error for a set of corresponding keypoints using
+    either an Essential matrix or a Homography matrix. This function is used to evaluate 
+    how well the estimated transformation aligns the corresponding keypoints between two images.
+
+    For each keypoint pair (one from the target image and one from the query image), 
+    the function performs the following steps:
+      - Computes the Fundamental matrix F from the provided Essential/Homography matrix and
+        the camera intrinsic matrix K. For an Essential matrix, F is computed as:
+            F = inv(K.T) @ E_or_H @ inv(K)
+        For a Homography, it is computed as:
+            F = inv(K) @ E_or_H @ K
+      - Converts the keypoints to homogeneous coordinates.
+      - Computes the corresponding epipolar lines (l1 in the target image and l2 in the query image).
+      - Normalizes these lines using the Euclidean norm of their first two coefficients.
+      - Calculates the perpendicular distances from each keypoint to its respective epipolar line.
+      - Sums these distances to obtain a symmetric transfer error for the correspondence.
+
+    The function then returns the mean error across all valid keypoint pairs and counts how many
+    of these pairs have an error below the specified threshold (i.e., inliers).
+    """
     errors = []
     num_inliers = 0
 
@@ -357,134 +312,32 @@ def compute_symmetric_transfer_error(E_or_H, frame_kpt_pixels, ref_frame_kpt_pix
     else:
         F = np.linalg.inv(K) @ E_or_H @ K
 
-    for i in range(len(frame_kpt_pixels)):
-        p1 = np.array([frame_kpt_pixels[i][0], frame_kpt_pixels[i][1], 1])
-        p2 = np.array([ref_frame_kpt_pixels[i][0], ref_frame_kpt_pixels[i][1], 1])
+    # Loop over paired keypoints
+    for pt_target, pt_query in zip(t_kpt_pixels, q_kpt_pixels):
+        # Convert to homogeneous coordinates
+        p1 = np.array([pt_target[0], pt_target[1], 1.0])
+        p2 = np.array([pt_query[0], pt_query[1], 1.0])
 
-        # Epipolar lines
-        l2 = F @ p1
-        l1 = F.T @ p2
+        # Compute the corresponding epipolar lines
+        l2 = F @ p1    # Epipolar line in the query image corresponding to p1
+        l1 = F.T @ p2  # Epipolar line in the target image corresponding to p2
 
-        # Normalize the lines
-        l1 /= np.sqrt(l1[0]**2 + l1[1]**2)
-        l2 /= np.sqrt(l2[0]**2 + l2[1]**2)
+        # Normalize the lines using the Euclidean norm of the first two coefficients
+        norm_l1 = np.hypot(l1[0], l1[1])
+        norm_l2 = np.hypot(l2[0], l2[1])
+        if norm_l1 == 0 or norm_l2 == 0:
+            continue
+        l1_normalized = l1 / norm_l1
+        l2_normalized = l2 / norm_l2
 
-        # Distances
-        d1 = abs(p1 @ l1)
-        d2 = abs(p2 @ l2)
-
+        # Compute perpendicular distances (absolute value of point-line dot product)
+        d1 = abs(np.dot(p1, l1_normalized))
+        d2 = abs(np.dot(p2, l2_normalized))
         error = d1 + d2
-        errors.append(error)
 
-        if error < 4.0:  # Threshold for inliers (you may adjust this value)
+        errors.append(error)
+        if error < threshold:
             num_inliers += 1
 
-    mean_error = np.mean(errors)
+    mean_error = np.mean(errors) if errors else float('inf')
     return mean_error, num_inliers
-
-def triangulate(frame_pixels, ref_frame_pixels, R, t, K):
-    # Compute projection matrices for triangulation
-    M1 = K @ np.eye(3,4)  # First camera at origin
-    M2 = K @ np.hstack((R, t))  # Second camera at R, t
-
-    # Triangulate points
-    frame_points_4d_hom = cv2.triangulatePoints(M1, M2, ref_frame_pixels.T, frame_pixels.T)
-
-    # Convert homogeneous coordinates to 3D
-    frame_points_3d = frame_points_4d_hom[:3] / frame_points_4d_hom[3]
-
-    return frame_points_3d.T # (N, 3)
-
-def filter_triangulation_points(points_3d: np.ndarray, R: np.ndarray, t: np.ndarray, angle_threshold: float=2, median_threshold: float=2):
-    """
-    Filter out 3D points that have a small triangulation angle between two camera centers.
-
-    When points are triangulated from two views, points that lie almost directly on 
-    the line connecting the two camera centers have a very small triangulation angle. 
-    These points are often numerically unstable and can degrade the accuracy of the 
-    reconstruction. This function discards such points by thresholding the angle to 
-    at least 1 degree, and further checks that enough points remain and that the 
-    median angle is at least 2 degrees.
-
-    points_3d : (N, 3)
-    R, t      : the rotation and translation from camera1 to camera2
-    Returns:   valid_angles_mask (bool array of shape (N,)),
-               filtered_points_3d (N_filtered, 3) or (None, None)
-    """
-    print("\t\tFiltering points with small triangulation angles...")
-    # -----------------------------------------------------
-    # (1) Positive-depth check in both cameras
-    # -----------------------------------------------------
-    num_points = len(points_3d)
-
-    # points_3d is in the first camera coords => check Z > 0
-    Z1 = points_3d[:, 2]
-    # Transform into the second camera frame
-    points_cam2 = (R @ points_3d.T + t).T  # shape: (N,3)
-    Z2 = points_cam2[:, 2]
-
-    # We'll mark True if both Z1, Z2 > 0
-    cheirality_mask = (Z1 > 0) & (Z2 > 0)
-    triang_mask = cheirality_mask
-
-    # If no point remains, triangulation failed
-    points_3d = points_3d[cheirality_mask]
-    num_remaining_points = len(points_3d)
-    print(f"\t\tCheirality check filtered {num_points - num_remaining_points}/{num_points} points!")
-    if num_remaining_points == 0:
-        return None, None
-
-    # -----------------------------------------------------
-    # (2) Triangulation angle check
-    # -----------------------------------------------------
-
-    # Camera centers in the coordinate system where camera1 is at the origin.
-    # For convenience, flatten them to shape (3,).
-    C1 = np.zeros(3)                 # First camera at origin
-    C2 = (-R.T @ t).reshape(3)       # Second camera center in the same coords
-
-    # Vectors from camera centers to each 3D point
-    # points_3d is (N, 3), so the result is (N, 3)
-    vec1 = points_3d - C1[None, :]   # shape: (N, 3)
-    vec2 = points_3d - C2[None, :]   # shape: (N, 3)
-
-    # Compute norms along axis=1 (per row)
-    norms1 = np.linalg.norm(vec1, axis=1)  # shape: (N,)
-    norms2 = np.linalg.norm(vec2, axis=1)  # shape: (N,)
-
-    # Normalize vectors (element-wise division)
-    vec1_norm = vec1 / norms1[:, None] + 1e-8 # shape: (N, 3)
-    vec2_norm = vec2 / norms2[:, None] + 1e-8 # shape: (N, 3)
-
-    # Compute dot product along axis=1 to get cos(theta)
-    cos_angles = np.sum(vec1_norm * vec2_norm, axis=1)  # shape: (N,)
-
-    # Clip to avoid numerical issues slightly outside [-1, 1]
-    cos_angles = np.clip(cos_angles, -1.0, 1.0)
-
-    # Convert to angles in degrees
-    angles = np.degrees(np.arccos(cos_angles))  # shape: (N,)
-
-    # Filter out points with triangulation too small triangulation angle
-    valid_angles_mask = angles >= angle_threshold
-
-    # Check conditions to decide whether to discard
-    print(f"\t\tLow Angles check filtered {sum(~valid_angles_mask)}/{sum(cheirality_mask)} points!")
-
-    # Filter points and angles
-    num_remaining_points = sum(valid_angles_mask)
-
-    filtered_angles = angles[valid_angles_mask]
-    median_angle = np.median(filtered_angles) if num_remaining_points > 0 else np.nan
-    print(f"\t\tThe median angle is {median_angle:.3f} deg.")
-    
-    print(f"\t\tTotal filtering: {num_points-num_remaining_points}/{num_points}")
-    print(f"\t\t{num_remaining_points} points left!")
-
-    # If too few points or too small median angle, return None
-    if num_remaining_points < 40 or median_angle < median_threshold:
-        print("Discarding frame due to insufficient triangulation quality.")
-        return None, None
-
-    triang_mask[triang_mask==True] = valid_angles_mask
-    return triang_mask # (N,)
