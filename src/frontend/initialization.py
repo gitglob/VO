@@ -341,3 +341,22 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
 
     mean_error = np.mean(errors) if errors else float('inf')
     return mean_error, num_inliers
+
+def is_keyframe(P, t_threshold=3, yaw_threshold=3, debug=False):
+    """ Determine if motion expressed by t, R is significant by comparing to tresholds. """
+    R = P[:3, :3]
+    t = P[:3, 3]
+
+    trans = np.sqrt(t[0]**2 + t[2]**2)
+    rpy = rotation_matrix_to_euler_angles(R)
+    pitch = abs(rpy[1])
+
+    is_keyframe = trans > t_threshold or pitch > yaw_threshold
+    if debug:
+        print(f"\tDisplacement: dist: {trans:.3f}, angle: {pitch:.3f}")
+        if is_keyframe:
+            print("\t\tKeyframe!")
+        else:
+            print("\t\tNot a keyframe!")
+
+    return is_keyframe

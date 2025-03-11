@@ -5,9 +5,10 @@ from src.data import Dataset
 from src.frame import Frame
 
 from src.frontend.feature_tracking import match_features
-from src.frontend.initialization import estimate_pose
-
+from src.frontend.initialization import estimate_pose, is_keyframe
 from src.frontend.scale_estimation import estimate_depth_scale, validate_scale
+
+from src.backend import optimization as ba
 
 from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
 from src.utils import save_image, delete_subdirectories
@@ -29,6 +30,8 @@ def main():
     debug = False
     use_dist = False
     cleanup = True
+    bundle_adjustment = False
+    use_keyframes = True
     log_period = 100
 
     # Clean previous results
@@ -54,7 +57,6 @@ def main():
     # Run the main VO loop
     i = -1
     is_initialized = False
-    is_scale_initialized = False
     while not data.finished():
         # Advance the iteration
         i+=1
@@ -81,11 +83,8 @@ def main():
 
             plot_trajectory(poses, gt_poses, i)
         else:                    
-            # Extract the last frame, keyframe
-            prev_frame = keyframes[-1]
-
             # Feature matching
-            matches = match_features(prev_frame, frame, "0-raw", debug) # (N) : N < M
+            matches = match_features(keyframes[-1], frame, "0-raw", debug) # (N) : N < M
 
             # Check if there are enough matches
             if len(matches) < 20:
@@ -93,48 +92,50 @@ def main():
                 continue
 
             # Extract the initial pose using the Essential or Homography matrix (2d-2d)
-            T, is_initialized = estimate_pose(prev_frame, frame, K, debug)
+            T, is_initialized = estimate_pose(keyframes[-1], frame, K, debug)
             if not is_initialized:
                 print("Pose initialization failed!")
                 continue
             assert np.linalg.norm(T[:3, 3]) - 1 < 1e-6
 
-            if not is_scale_initialized:
-                # Calculate the next pose with scale ambiguity
-                unscaled_pose = poses[-1] @ T
+            # Calculate the next pose with scale ambiguity
+            unscaled_pose = poses[-1] @ T
 
-                # Estimate the depth scale
-                scale = estimate_depth_scale([poses[-1], unscaled_pose], [gt_poses[-1], gt_pose], debug=debug)
-                T[:3, 3] *= scale
+            # Estimate the depth scale
+            scale = estimate_depth_scale([poses[-1], unscaled_pose], [gt_poses[-1], gt_pose], debug=debug)
+        
+            # Remove scale ambiguity
+            T[:3, 3] *= scale
 
-                # Apply the scale to the pose and validate it
-                scaled_pose = poses[-1] @ T
-                validate_scale([poses[-1], scaled_pose], [gt_poses[-1], gt_pose])
-                is_scale_initialized = True
-            # If scale was already estimated, apply it to the pose
-            else:
-                # Remove scale ambiguaity
-                T[:3, 3] *= scale
-                scaled_pose = poses[-1] @ T
+            # Apply the scale to the pose and validate it
+            scaled_pose = poses[-1] @ T
+            validate_scale([poses[-1], scaled_pose], [gt_poses[-1], gt_pose])
 
-            # Save the poses
-            gt_poses.append(gt_pose)
-            poses.append(scaled_pose)
-            
-            # Save the frame info
-            frame.set_pose(scaled_pose)
-            frame.set_keyframe(True)
+            # Check if the frame is a keyframe
+            if use_keyframes and is_keyframe(T):
+                # Save the poses
+                gt_poses.append(gt_pose)
+                poses.append(scaled_pose)
+                
+                # Save the frame info
+                frame.set_pose(scaled_pose)
+                frame.set_keyframe(True)
 
-            # Save the keyframe
-            keyframes.append(frame)
-            if debug:
-                save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
-            
+                # Save the keyframe
+                keyframes.append(frame)
+                if debug:
+                    save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
+
+                # Integrate Bundle Adjustment after adding the new pose.
+                if bundle_adjustment:
+                    poses = ba.optimize_poses(poses)
+
             # Visualize the current state of the map and trajectory
             if i%log_period == 0:
                 plot_trajectory(poses, gt_poses, i)
 
     # Save final map and trajectory
+    plot_trajectory(poses, gt_poses, i)
     plot_trajectory_3d(poses)
 
 if __name__ == "__main__":
