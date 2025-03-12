@@ -1,21 +1,19 @@
 from pathlib import Path
 from src.data import Dataset
 from src.frame import Frame
-from src.frontend import extract_features, match_features, estimate_relative_pose, is_significant_motion
-from src.visualize import plot_matches, plot_vo_trajectory, plot_ground_truth
-from src.visualize import plot_keypoints, plot_2d_trajectory, plot_ground_truth_2d, plot_trajectory_components
+from src.frontend.feature_tracking import match_features
+from src.frontend.pose_estimation import estimate_relative_pose, is_keyframe
+from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
 from src.utils import save_depth, save_image, delete_subdirectories
-main_dir = Path(__file__).parent
-data_dir = Path.home() / "Documents" / "data" / "vSLAM"
+from config import data_dir, main_dir, scene, results_dir
 
 
 def main():
-    debug = True
+    print(f"\t\tUsing dataset: `{scene}` ...")
+    debug = False
     use_dist = False
     cleanup = True
-    scene = "rgbd_dataset_freiburg2_pioneer_360"
-    print(f"\t\tUsing dataset: `{scene}` ...")
-    results_dir = main_dir / "results" / scene / "3d_2d"
+    log_period = 20
 
     # Clean previous results
     if cleanup:
@@ -27,14 +25,10 @@ def main():
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
-    gt_save_path = results_dir / "ground_truth.png"
-    gt_save_path_2d = results_dir / "ground_truth_2d.png"
-    plot_ground_truth(gt, save_path=gt_save_path)
-    plot_ground_truth_2d(gt, save_path=gt_save_path_2d)
+    plot_ground_truth(gt)
 
     # Get the camera matrix
     K, dist_coeffs = data.get_intrinsics()
-
     # Initialize the graph, the keyframes, and the bow list
     frames = []
     keyframes = []
@@ -46,8 +40,8 @@ def main():
     while not data.finished():
         # Advance the iteration
         i+=1
-        if i%50 == 0:
-            print(f"\tIteration: {i} / {data.length()}")
+        if i%log_period == 0:
+            print(f"\n\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
         type, ts, img, depth, gt_pose = data.get()
@@ -56,83 +50,59 @@ def main():
             save_depth(depth, depth_save_path)
             rgb_save_path = results_dir / "img" / f"{i}_rgb.png"
             save_image(img, rgb_save_path)
-        
-        # Feature Extraction
-        keypoints, descriptors = extract_features(img) # (M), (M, 32)
-        if debug:
-            kpts_save_path = results_dir / "keypoints" / f"{i}_kpts.png"
-            plot_keypoints(img, keypoints, kpts_save_path)
 
         # Create a frame 
-        frame = Frame(i, img, depth, keypoints, descriptors)
+        frame = Frame(i, img, depth)
         frames.append(frame)
 
         # The first frame is de facto a keyframe
         if i == 0:
-            pose = gt_pose
-            error = 0
-            frame.set_pose(pose)
-            poses.append(pose)
+            poses.append(gt_pose)
             gt_poses.append(gt_pose)
+            frame.set_pose(gt_pose)
             keyframes.append(frame)
-            keyframe_save_path = results_dir / "keyframes" / f"{i}_rgb.png"
             if debug:
-                save_image(img, keyframe_save_path)
+                save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
 
-        # Check if this is the very first image, so that we can perform VO
-        if i != 0:
-            # Extract the last keyframe
-            prev_keyframe = keyframes[-1]
-
+            plot_trajectory(poses, gt_poses, i)
+        else:
             # Feature matching
-            matches = match_features(prev_keyframe, frame, debug) # (N) : N < M
-            if debug:
-                match_save_path = results_dir / "matches" / f"{frame.id}_{prev_keyframe.id}.png"
-                plot_matches(prev_keyframe.img, prev_keyframe.keypoints, 
-                             frame.img, frame.keypoints, 
-                             matches, match_save_path)
+            matches = match_features(keyframes[-1], frame, K, debug=debug) # (N) : N < M
+
+            # Check if there are enough matches
+            if len(matches) < 20:
+                print("Not enough matches!")
+                continue
 
             # Estimate the relative pose (odometry) between the current frame and the last keyframe
-            displacement, error = estimate_relative_pose(matches, 
-                                                  prev_keyframe.keypoints,  
-                                                  prev_keyframe.depth, 
-                                                  frame.keypoints, 
-                                                  K, dist_coeffs,
-                                                  debug) # (4, 4)
-            if displacement is None:
+            T, error = estimate_relative_pose(keyframes[-1], frame, K, debug=True) # (4, 4)
+            if T is None:
                 print(f"Warning: solvePnP failed!")
                 continue
            
             # Check if this frame is a keyframe (significant motion or lack of feature matches)
-            if not is_significant_motion(displacement, debug=debug):
-                continue
+            if is_keyframe(T, debug=debug):
+                # Calculate the new pose
+                pose = poses[-1] @ T # (4, 4)
 
-            # Save keyframe
-            if debug:
-                keyframe_save_dir = results_dir / "keyframes"
-                save_image(frame.img, keyframe_save_dir / f"{i}_rgb.png")
-                plot_matches(prev_keyframe.img, prev_keyframe.keypoints, 
-                             frame.img, frame.keypoints, 
-                             matches, keyframe_save_dir / f"{frame.id}_{prev_keyframe.id}.png")
-                
-            # Calculate the new pose
-            pose = prev_keyframe.pose @ displacement # (4, 4)
-            frame.set_pose(pose)
-            
-            # Make the current pose, depth, img, descriptors and keypoints the previous ones
-            poses.append(pose)
-            gt_poses.append(gt_pose)
-            keyframes.append(frame)
+                # Save info
+                poses.append(pose)
+                gt_poses.append(gt_pose)
+                frame.set_pose(pose)
+                frame.set_keyframe(True)
+                keyframes.append(frame)
+
+                # Save keyframe
+                if debug:
+                    save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
         
-        # Visualize the current state of the map and trajectory
-        traj2d_save_path = results_dir / "vo" / f"{i}.png"
-        plot_2d_trajectory(poses, gt_poses, save_path=traj2d_save_path, ground_truth=True, limits=False)
-        traj_comp_save_path = results_dir / "vo_debug" / f"{i}.png"
-        plot_trajectory_components(poses, gt_poses, error, save_path=traj_comp_save_path)
+            # Visualize the current state of the map and trajectory
+            if i%log_period == 0:
+                plot_trajectory(poses, gt_poses, i)
 
     # Save final map and trajectory
-    final_traj_save_path = results_dir / "vo" / "final_trajectory.png"
-    plot_vo_trajectory(poses, final_traj_save_path, show_plot=True)
+    plot_trajectory(poses, gt_poses, i)
+    plot_trajectory_3d(poses)
 
 if __name__ == "__main__":
     main()

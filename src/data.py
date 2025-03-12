@@ -1,7 +1,7 @@
 import pandas as pd
 import cv2
 import numpy as np
-from src.utils import quat2rot_matrix
+from scipy.spatial.transform import Rotation as R
 
 
 # Function to find the closest, timewise, depth images to the rgb ones
@@ -33,7 +33,7 @@ class Dataset:
         self._depth = pd.read_csv(depth_txt, comment='#', sep='\s+', header=None, names=["timestamp", "filename"])
         self._depth['type'] = 'depth'
         
-        groundtruth_txt = data_dir / "groundtruth_norm.txt"
+        groundtruth_txt = data_dir / "groundtruth.txt"
         self._ground_truth = pd.read_csv(groundtruth_txt, comment='#', sep='\s+', header=None, names=["timestamp", "tx", "ty", "tz", "qx", "qy", "qz", "qw"])
         
     def _init_calibration(self):
@@ -63,22 +63,31 @@ class Dataset:
 
     def _combine_data(self):
         # Match the RGB data with the Depth data and Ground Truth
-        rgb_copy = self._rgb
+        rgb_copy = self._rgb.copy()
         
-        rgb_copy["closest_depth"] = self._rgb["timestamp"].apply(find_closest, timestamps=self._depth["timestamp"])
-        rgb_copy = pd.merge(self._rgb, self._depth, left_on="closest_depth", right_on="timestamp", suffixes=("_rgb", "_depth"))
+        rgb_copy["closest_depth"] = rgb_copy["timestamp"].apply(find_closest, timestamps=self._depth["timestamp"])
+        rgb_copy = pd.merge(rgb_copy, self._depth, left_on="closest_depth", right_on="timestamp", suffixes=("_rgb", "_depth"))
         
-        rgb_copy["closest_gt"] = self._rgb["timestamp"].apply(find_closest, timestamps=self._ground_truth["timestamp"])
+        rgb_copy["closest_gt"] = rgb_copy["timestamp_rgb"].apply(find_closest, timestamps=self._ground_truth["timestamp"])
         rgb_copy = pd.merge(rgb_copy, self._ground_truth, left_on="closest_gt", right_on="timestamp", suffixes=("_rgb", "_gt"))
         
+        # Instead of normalizing all poses now, we store the raw data.
+        # Also, compute and store the first ground truth pose for normalization.
+        t0 = np.array([rgb_copy.iloc[0]["tx"], rgb_copy.iloc[0]["ty"], rgb_copy.iloc[0]["tz"]])
+        q0 = np.array([rgb_copy.iloc[0]["qx"], rgb_copy.iloc[0]["qy"], rgb_copy.iloc[0]["qz"], rgb_copy.iloc[0]["qw"]])
+        r0 = R.from_quat(q0)  # initial rotation
+        
+        # Store the initial pose for later normalization in get()
+        self._gt_offset = (t0, r0)
+        
+        # Save the combined dataframe without performing normalization now.
         self._data = rgb_copy.drop(columns=["closest_depth", "closest_gt", "type_rgb", "type_depth"])
+
 
     def get(self):
         """ Returns the next RGB image in terms of timestamp """
         row = self._data.iloc[self._current_index]
         timestamp = row["timestamp_rgb"]
-        
-        self._current_index += 1
 
         image_path = self.data_dir / row["filename_rgb"]
         image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
@@ -86,11 +95,26 @@ class Dataset:
         depth_path = self.data_dir / row["filename_depth"]
         depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
 
-        t = [row["tx"], row["ty"], row["tz"]]
-        R = quat2rot_matrix(row["qx"], row["qy"], row["qz"], row["qw"])
+        # Get the raw ground truth pose from the row
+        t = np.array([row["tx"], row["ty"], row["tz"]])
+        q = np.array([row["qx"], row["qy"], row["qz"], row["qw"]])
+        r_current = R.from_quat(q)
+
+        # Retrieve the initial pose (t0, r0) stored earlier
+        t0, r0 = self._gt_offset
+        
+        # Compute the relative (normalized) translation and rotation:
+        # The new translation is the difference, rotated into the initial frame.
+        t_rel = r0.inv().apply(t - t0)
+        # The relative rotation is computed as the inverse of the initial rotation times the current rotation.
+        r_rel = r0.inv() * r_current
+
+        # Build the 4x4 ground truth transformation matrix.
         gt = np.eye(4)
-        gt[:3, :3] = R
-        gt[:3, 3] = t
+        gt[:3, :3] = r_rel.as_matrix()
+        gt[:3, 3] = t_rel
+
+        self._current_index += 1
 
         return "rgbd", timestamp, image, depth, gt
         

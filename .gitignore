@@ -23,4 +23,7 @@ checkpoints
 # Redirected terminal output
 *.txt
 
+# GTSAM
+gtsam
+
 **/.gitkeep
