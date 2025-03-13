@@ -1,3 +1,4 @@
+from typing import List, Tuple
 import os
 import cv2
 import matplotlib.pyplot as plt
@@ -32,11 +33,11 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     for i in range(num_poses):
         # Extract the estimation
         pose = poses[i, :3, :3]
-        euler_angles[i] = R.from_matrix(pose[:, :3]).as_euler('xyz', degrees=True)
+        euler_angles[i] = R.from_matrix(pose[:, :3]).as_euler('zyz', degrees=True)
 
         # Extract the ground truth
         gt_pose = gt_poses[i, :3, :3]
-        gt_euler_angles[i] = R.from_matrix(gt_pose[:, :3]).as_euler('xyz', degrees=True)
+        gt_euler_angles[i] = R.from_matrix(gt_pose[:, :3]).as_euler('zyz', degrees=True)
 
     rolls = np.degrees(np.unwrap(euler_angles[:, 0]))
     pitches = np.degrees(np.unwrap(euler_angles[:, 1]))
@@ -47,24 +48,24 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     gt_yaws = np.degrees(np.unwrap(gt_euler_angles[:, 2]))
 
     # Plot translations
-    axs[0, 0].plot(np.arange(poses.shape[0]), tx, 'b-', label='X Pose')
-    axs[0, 0].plot(np.arange(gt_poses.shape[0]), gt_tx, 'r-', label='Ground Truth X')
+    axs[0, 0].plot(np.arange(num_poses), tx, 'b-', label='X Pose')
+    axs[0, 0].plot(np.arange(num_poses), gt_tx, 'r-', label='Ground Truth X')
     axs[0, 0].set_title('X')
     axs[0, 0].set_xlabel('Time')
     axs[0, 0].set_ylabel('m')
     axs[0, 0].legend()
     axs[0, 0].grid(True)
     
-    axs[0, 1].plot(np.arange(poses.shape[0]), ty, 'b-', label='Y Pose')
-    axs[0, 1].plot(np.arange(gt_poses.shape[0]), gt_ty, 'r-', label='Ground Truth Y')
+    axs[0, 1].plot(np.arange(num_poses), ty, 'b-', label='Y Pose')
+    axs[0, 1].plot(np.arange(num_poses), gt_ty, 'r-', label='Ground Truth Y')
     axs[0, 1].set_title('Y')
     axs[0, 1].set_xlabel('Time')
     axs[0, 1].set_ylabel('m')
     axs[0, 1].legend()
     axs[0, 1].grid(True)
     
-    axs[0, 2].plot(np.arange(poses.shape[0]), tz, 'b-', label='Z Pose')
-    axs[0, 2].plot(np.arange(gt_poses.shape[0]), gt_tz, 'r-', label='Ground Truth Z')
+    axs[0, 2].plot(np.arange(num_poses), tz, 'b-', label='Z Pose')
+    axs[0, 2].plot(np.arange(num_poses), gt_tz, 'r-', label='Ground Truth Z')
     axs[0, 2].set_title('Z')
     axs[0, 2].set_xlabel('Time')
     axs[0, 2].set_ylabel('m')
@@ -72,24 +73,24 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     axs[0, 2].grid(True)
     
     # Plot rotations (yaw, pitch, roll in degrees)
-    axs[1, 0].plot(np.arange(poses.shape[0]), rolls, 'b-', label='Roll')
-    axs[1, 0].plot(np.arange(gt_poses.shape[0]), gt_rolls, 'r-', label='Ground Truth Roll')
+    axs[1, 0].plot(np.arange(num_poses), rolls, 'b-', label='Roll')
+    axs[1, 0].plot(np.arange(num_poses), gt_rolls, 'r-', label='Ground Truth Roll')
     axs[1, 0].set_title('Roll')
     axs[1, 0].set_xlabel('Time')
     axs[1, 0].set_ylabel('deg')
     axs[1, 0].legend()
     axs[1, 0].grid(True)
 
-    axs[1, 1].plot(np.arange(poses.shape[0]), pitches, 'b-', label='Pitch')
-    axs[1, 1].plot(np.arange(gt_poses.shape[0]), gt_pitches, 'r-', label='Ground Truth Pitch')
+    axs[1, 1].plot(np.arange(num_poses), pitches, 'b-', label='Pitch')
+    axs[1, 1].plot(np.arange(num_poses), gt_pitches, 'r-', label='Ground Truth Pitch')
     axs[1, 1].set_title('Pitch')
     axs[1, 1].set_xlabel('Time')
     axs[1, 1].set_ylabel('deg')
     axs[1, 1].legend()
     axs[1, 1].grid(True)
 
-    axs[1, 2].plot(np.arange(poses.shape[0]), yaws, 'b-', label='Yaw')
-    axs[1, 2].plot(np.arange(gt_poses.shape[0]), gt_yaws, 'r-', label='Ground Truth Yaw')
+    axs[1, 2].plot(np.arange(num_poses), yaws, 'b-', label='Yaw')
+    axs[1, 2].plot(np.arange(num_poses), gt_yaws, 'r-', label='Ground Truth Yaw')
     axs[1, 2].set_title('Yaw')
     axs[1, 2].set_xlabel('Time')
     axs[1, 2].set_ylabel('deg')
@@ -113,6 +114,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
         dpitch = pitches[-1] - gt_pitches[-2]
         dpitch_gt = gt_pitches[-1] - gt_pitches[-2]
         suptitle += f'\nDisplacement (gt): dx: {dx:.3f} ({dx_gt:.3f}), dy: {dy:.3f} ({dy_gt:.3f}), dpitch: {dpitch:.3f} ({dpitch_gt:.3f})'
+
     fig.suptitle(suptitle)
     fig.tight_layout(rect=[0, 0, 1, 0.95])
 
@@ -133,11 +135,11 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     # First subplot: XZ 2D view
     ax1 = fig.add_subplot(121)
     ax1.plot(poses[:, 0, 3], poses[:, 2, 3], 'b-', label='XZ')
-    ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 1, 3], 'r-', label='Ground Truth')
+    ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r-', label='Ground Truth')
     
     # Mark the start and end points with bubbles
     ax1.scatter(poses[0,0,3], poses[0,2,3], color='blue', s=100, alpha=0.7, label='Start')
-    ax1.scatter(gt_poses[0,0,3], gt_poses[0,1,3], color='red', s=100, alpha=0.3, label='gt: Start')
+    ax1.scatter(gt_poses[0,0,3], gt_poses[0,2,3], color='red', s=100, alpha=0.3, label='gt: Start')
 
     ax1.set_xlabel('X')
     ax1.set_ylabel('Z')
@@ -151,27 +153,32 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     for i in range(num_poses):
         # Extract the estimation
         pose = poses[i, :3, :3]
-        euler_angles[i] = R.from_matrix(pose[:, :3]).as_euler('xyz', degrees=True)
+        euler_angles[i] = R.from_matrix(pose[:, :3]).as_euler('zyz', degrees=True)
 
         # Extract the ground truth
         gt_pose = gt_poses[i, :3, :3]
-        gt_euler_angles[i] = R.from_matrix(gt_pose[:, :3]).as_euler('xyz', degrees=True)
+        gt_euler_angles[i] = R.from_matrix(gt_pose[:, :3]).as_euler('zyz', degrees=True)
 
-    angle = np.degrees(np.unwrap(-euler_angles[:, 1]))
-    gt_angle = np.degrees(np.unwrap(gt_euler_angles[:, 2]))
+    roll = np.degrees(np.unwrap(euler_angles[:, 0]))
+    pitch = np.degrees(np.unwrap(euler_angles[:, 1]))
+    yaw = np.degrees(np.unwrap(euler_angles[:, 2]))
+
+    gt_roll = np.degrees(np.unwrap(gt_euler_angles[:, 0]))
+    gt_pitch = np.degrees(np.unwrap(gt_euler_angles[:, 1]))
+    gt_yaw = np.degrees(np.unwrap(gt_euler_angles[:, 2]))
 
     # Second subplot: angle plot
     ax2 = fig.add_subplot(122)
 
-    ax2.plot(np.arange(num_poses), angle, 'b-', label='-Pitch')
-    ax2.plot(np.arange(num_poses), gt_angle, 'r-', label='Ground Truth')
-    
-    # Mark the start and end points with bubbles
-    ax2.scatter(0, angle[0], color='blue', s=100, alpha=0.7, label='Start')
-    ax2.scatter(0, gt_angle[0], color='red', s=100, alpha=0.3, label='gt: Start')
+    ax2.plot(np.arange(num_poses), roll, 'r-', label='Roll')
+    ax2.plot(np.arange(num_poses), pitch, 'g-', label='Pitch')
+    ax2.plot(np.arange(num_poses), yaw, 'b-', label='Yaw')
+    ax2.plot(np.arange(num_poses), gt_roll, 'c--', label='g.t. Roll')
+    ax2.plot(np.arange(num_poses), gt_pitch, 'y--', label='g.t. Pitch')
+    ax2.plot(np.arange(num_poses), gt_yaw, 'm--', label='g.t. Yaw')
 
     ax2.set_xlabel('Time')
-    ax2.set_ylabel('-Pitch (degrees)')
+    ax2.set_ylabel('Degrees')
     ax2.set_title('Angle')
     ax2.legend()
     ax2.grid(True)
@@ -203,7 +210,6 @@ def plot_trajectory_3d(poses, save_path=results_dir / "vo" / "final_trajectory.p
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path)
 
-    plt.show()
     plt.close(fig)
 
 ############################### Ground Truth Visualization ###############################
@@ -252,15 +258,15 @@ def plot_ground_truth_2d(ground_truth, save_path=results_dir / "ground_truth/2d.
     """
     # Extract translations (tx, ty)
     tx = ground_truth.iloc[:, 1].values
-    # ty = ground_truth.iloc[:, 1].values
-    tz = ground_truth.iloc[:, 3].values
+    ty = ground_truth.iloc[:, 3].values
+    # tz = ground_truth.iloc[:, 3].values
 
     # Extract rotation
     rpy = np.empty((len(ground_truth), 3))
     for i in range(len(ground_truth)):
         qx, qy, qz, qw = ground_truth.iloc[i, 4:8].values
         r = R.from_quat([qx, qy, qz, qw])
-        rpy[i] = r.as_euler('xyz', degrees=True)
+        rpy[i] = r.as_euler('zyz', degrees=True)
 
     roll = np.unwrap(rpy[:,0])
     pitch = np.unwrap(rpy[:,1])
@@ -269,19 +275,21 @@ def plot_ground_truth_2d(ground_truth, save_path=results_dir / "ground_truth/2d.
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
     # Plot the XY trajectory
-    ax1.plot(tx, tz, 'b-', label='XY Trajectory')
-    ax1.scatter(tx[0], tz[0], color='green', s=100, label='Start')  # Start point
-    ax1.scatter(tx[-1], tz[-1], color='red', s=100, label='End')    # End point
+    ax1.plot(tx, ty, 'b-', label='XY Trajectory')
+    ax1.scatter(tx[0], ty[0], color='green', s=100, label='Start')  # Start point
+    ax1.scatter(tx[-1], ty[-1], color='red', s=100, label='End')    # End point
     ax1.set_xlabel('X')
-    ax1.set_ylabel('Z')
+    ax1.set_ylabel('Y')
     ax1.set_title('Road Trajectory')
     ax1.legend()
     ax1.grid(True)
 
     # Plot the yaw trajectory
-    ax2.plot(np.arange(len(ground_truth)), yaw, 'm-', label='Angle')
+    ax2.plot(np.arange(len(ground_truth)), roll, 'r-', label='roll')
+    ax2.plot(np.arange(len(ground_truth)), pitch, 'g-', label='pitch')
+    ax2.plot(np.arange(len(ground_truth)), yaw, 'b-', label='yaw')
     ax2.set_xlabel('Frame Index')
-    ax2.set_ylabel('-Pitch (degrees)')
+    ax2.set_ylabel('Degrees')
     ax2.set_title('Vehicle Orientation over Time')
     ax2.legend()
     ax2.grid(True)
@@ -317,7 +325,7 @@ def plot_ground_truth_6dof(ground_truth, save_path=results_dir / "ground_truth/6
     for i in range(num_poses):
         qx, qy, qz, qw = ground_truth.iloc[i, 4:8].values
         r = R.from_quat([qx, qy, qz, qw])
-        rpy[i] = r.as_euler('xyz', degrees=True)
+        rpy[i] = r.as_euler('zyz', degrees=True)
 
     rolls = np.unwrap(rpy[:, 0])
     pitches = np.unwrap(rpy[:, 1])
@@ -366,21 +374,21 @@ def plot_keypoints(image, keypoints, save_path):
     cv2.imwrite(save_path, img_with_keypoints)
 
 # Function to visualize the found feature matches
-def plot_matches(img1, keypoints1, img2, keypoints2, matches, save_path):
-    if len(matches) > 20:
-        matches_to_draw = matches[:20]
-    else:
-        matches_to_draw = matches
-    
-    # Draw the matches on the images
-    matched_image = cv2.drawMatches(img1, keypoints1, 
-                                    img2, keypoints2, 
-                                    matches_to_draw, 
-                                    None, 
-                                    flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    
-    # Create the directory if it doesn't exist
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+def plot_matches(q_frame, t_frame, save_path: str = None):
+    img1 = q_frame.img
+    kpts1 = q_frame.keypoints
+    img2 = t_frame.img
+    kpts2 = t_frame.keypoints
+    matches = q_frame.get_matches(t_frame.id)
 
+    if len(matches) > 50:
+        matches = matches[:50]
+
+    # Draw the matches on the images
+    matched_image = cv2.drawMatches(img1, kpts1, img2, kpts2, matches, outImg=None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    
     # Save the image with matched features
+    if not save_path:
+        save_path = results_dir / f"matches/" / f"{q_frame.id}_{t_frame.id}.png"
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     cv2.imwrite(save_path, matched_image)

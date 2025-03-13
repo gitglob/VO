@@ -1,16 +1,15 @@
-from pathlib import Path
 from src.data import Dataset
 from src.frame import Frame
 from src.frontend.feature_tracking import match_features
 from src.frontend.pose_estimation import estimate_relative_pose, is_keyframe
-from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
+from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d, plot_matches
 from src.utils import save_depth, save_image, delete_subdirectories
 from config import data_dir, main_dir, scene, results_dir
 
 
 def main():
     print(f"\t\tUsing dataset: `{scene}` ...")
-    debug = False
+    debug = True
     use_dist = False
     cleanup = True
     log_period = 20
@@ -45,11 +44,6 @@ def main():
 
         # Capture new image frame (current_frame)
         type, ts, img, depth, gt_pose = data.get()
-        if debug:
-            depth_save_path = results_dir / "depth" / f"{i}_d"
-            save_depth(depth, depth_save_path)
-            rgb_save_path = results_dir / "img" / f"{i}_rgb.png"
-            save_image(img, rgb_save_path)
 
         # Create a frame 
         frame = Frame(i, img, depth)
@@ -61,9 +55,9 @@ def main():
             gt_poses.append(gt_pose)
             frame.set_pose(gt_pose)
             keyframes.append(frame)
-            if debug:
-                save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
 
+            save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
+            save_depth(depth, results_dir / "depth" / f"{i}_d")
             plot_trajectory(poses, gt_poses, i)
         else:
             # Feature matching
@@ -75,7 +69,8 @@ def main():
                 continue
 
             # Estimate the relative pose (odometry) between the current frame and the last keyframe
-            T, error = estimate_relative_pose(keyframes[-1], frame, K, debug=True) # (4, 4)
+            T, _ = estimate_relative_pose(matches, keyframes[-1], frame, K, 
+                                          dist_coeffs=dist_coeffs, debug=True) # (4, 4)
             if T is None:
                 print(f"Warning: solvePnP failed!")
                 continue
@@ -92,13 +87,12 @@ def main():
                 frame.set_keyframe(True)
                 keyframes.append(frame)
 
-                # Save keyframe
+                # Save plots
                 if debug:
-                    save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
-        
-            # Visualize the current state of the map and trajectory
-            if i%log_period == 0:
-                plot_trajectory(poses, gt_poses, i)
+                    save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
+                    save_depth(depth, results_dir / "depth" / f"{i}_d")
+                    plot_matches(keyframes[-2], frame)
+                    plot_trajectory(poses, gt_poses, i)
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)

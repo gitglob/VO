@@ -2,9 +2,6 @@ from typing import List
 import cv2
 import numpy as np
 from src.frame import Frame
-from src.visualize import plot_matches
-
-from config import results_dir
 
 
 ############################### Feature Matching ##########################################
@@ -30,33 +27,22 @@ def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
 
     # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
     filtered_matches = filter_matches(matches, debug)
-    # filtered_matches = remove_outlier_matches(filtered_matches, q_frame.keypoints, t_frame.keypoints, K, debug)
+    filtered_matches = remove_outlier_matches(filtered_matches, q_frame.keypoints, t_frame.keypoints, K, debug)
 
-    # 3) Create masks indicating whether each keypoint is used in a match
-    q_mask = np.zeros(len(q_frame.keypoints), dtype=bool)
-    t_mask = np.zeros(len(t_frame.keypoints), dtype=bool)
+    if debug:
+        print(f"\t{len(filtered_matches)} matches left!")
 
-    for m in filtered_matches:
-        q_mask[m.queryIdx] = True
-        t_mask[m.trainIdx] = True
+    if not filtered_matches:
+        return []
 
     # 4) **Propagate keypoint IDs**  
     propagate_keypoints(t_frame, q_frame, filtered_matches)
 
     # 5) Store the matches in each t_frame
-    q_frame.set_matches(t_frame.id, filtered_matches, q_mask, "query")
-    t_frame.set_matches(q_frame.id, filtered_matches, t_mask, "train")
-    if debug:
-        print(f"\t{len(filtered_matches)} matches left!")
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / f"matches/" / f"{q_frame.id}_{t_frame.id}.png"
-        plot_matches(q_frame.img, q_frame.keypoints,
-                     t_frame.img, t_frame.keypoints,
-                     filtered_matches, match_save_path)
+    q_frame.set_matches(t_frame.id, filtered_matches, "query")
+    t_frame.set_matches(q_frame.id, filtered_matches, "train")
 
-    return matches
+    return filtered_matches
 
 def propagate_keypoints(t_frame: Frame, q_frame: Frame, matches: List[cv2.DMatch]):
     """Merges the keypoint identifiers for the matches features between query and train frames."""
@@ -114,7 +100,7 @@ def remove_outlier_matches(matches, q_kpts, t_kpts, K, debug=False):
         print(f"\tInliers E: {num_inliers_E}, Inliers H: {num_inliers_H}")
     if num_inliers_E == 0 and num_inliers_H == 0:
         print("\tAll keypoint pairs yield errors > threshold..")
-        return None
+        return []
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
     if debug:
         print(f"\tRatio H/(E+H): {ratio}")

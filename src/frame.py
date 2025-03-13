@@ -83,12 +83,11 @@ class Frame():
     def set_pose(self, pose):
         self.pose = pose.copy()   # The robot pose at that frame
 
-    def set_matches(self, with_frame_id: int, matches: List[DMatch], match_mask: np.ndarray, match_type: str):
+    def set_matches(self, with_frame_id: int, matches: List[DMatch], match_type: str):
         """Sets matches with another frame"""
         self.match[with_frame_id] = {}
         self.match[with_frame_id]["matches"] = np.array(matches, dtype=object)
         self.match[with_frame_id]["match_type"] = match_type
-        self.match[with_frame_id]["match_mask"] = match_mask
 
         # Default values for the rest
         self.match[with_frame_id]["initialization"] = None

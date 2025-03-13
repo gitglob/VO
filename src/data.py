@@ -2,6 +2,7 @@ import pandas as pd
 import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from src.utils import invert_transform
 
 
 # Function to find the closest, timewise, depth images to the rgb ones
@@ -36,6 +37,29 @@ class Dataset:
         groundtruth_txt = data_dir / "groundtruth.txt"
         self._ground_truth = pd.read_csv(groundtruth_txt, comment='#', sep='\s+', header=None, names=["timestamp", "tx", "ty", "tz", "qx", "qy", "qz", "qw"])
         
+        # Helper to convert a row into a 4x4 transformation matrix.
+        def row_to_mat(row):
+            T = np.eye(4)
+            T[:3, :3] = R.from_quat([row.qx, row.qy, row.qz, row.qw]).as_matrix()
+            T[:3, 3] = [row.tx, row.ty, row.tz]
+            return T
+
+        # Get the transformation for the first pose and compute its inverse.
+        T0_inv = invert_transform(row_to_mat(self._ground_truth.iloc[0]))
+        
+        norm_poses = []
+        for _, row in self._ground_truth.iterrows():
+            T_rel = T0_inv @ row_to_mat(row)
+            t = T_rel[:3, 3]
+            q = R.from_matrix(T_rel[:3, :3]).as_quat()  # [qx, qy, qz, qw]
+            norm_poses.append({
+                "timestamp": row.timestamp,
+                "tx": t[0], "ty": t[1], "tz": t[2],
+                "qx": q[0], "qy": q[1], "qz": q[2], "qw": q[3]
+            })
+        
+        self._ground_truth_norm = pd.DataFrame(norm_poses)
+
     def _init_calibration(self):
         """Intrinsics matrix, source: https://cvg.cit.tum.de/data/datasets/rgbd-dataset/file_formats#intrinsic_camera_calibration_of_the_kinect """
         if self.use_dist:
@@ -135,8 +159,11 @@ class Dataset:
 
         return images
 
-    def ground_truth(self):
-        return self._ground_truth
+    def ground_truth(self, norm=True):
+        if norm:
+            return self._ground_truth_norm
+        else:
+            return self._ground_truth
 
     def finished(self):
         return self._current_index >= len(self._data)

@@ -204,7 +204,7 @@ def keypoints_depth_to_3d_points(kpts, depth_image, cx, cy, fx, fy, factor=5000)
         np.ndarray: An array of 3D points.
     """
     points_3d = []
-    valid_points_indices = []
+    valid_mask = np.zeros(len(kpts), dtype=bool)
     j = 0
     for i, pt in enumerate(kpts):
         # Extract pixel coordinates
@@ -226,13 +226,12 @@ def keypoints_depth_to_3d_points(kpts, depth_image, cx, cy, fx, fy, factor=5000)
         Y = (v - cy) * Z / fy
 
         points_3d.append((X, Y, Z))
-        valid_points_indices.append(i)
+        valid_mask[i] = True
     # print(f"Removed {j}/{len(kpts)} points that are too far away!")
 
     points_3d = np.array(points_3d, dtype=np.float64)
-    valid_points_indices = np.array(valid_points_indices, dtype=np.uint64)
     
-    return points_3d, valid_points_indices
+    return points_3d, valid_mask
 
 ############################### Others ###############################
 
