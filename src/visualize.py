@@ -1,4 +1,3 @@
-from typing import List, Tuple
 import os
 import cv2
 import matplotlib.pyplot as plt
@@ -7,6 +6,7 @@ import matplotlib
 from scipy.spatial.transform import Rotation as R
 
 from config import results_dir
+from src.utils import get_yaw
 matplotlib.use('TkAgg')
 
 
@@ -148,34 +148,25 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     ax1.grid(True)
    
     # Extract Euler angles (roll, pitch, yaw)
-    euler_angles = np.zeros((num_poses, 3))
-    gt_euler_angles = np.zeros((num_poses, 3))
+    pitch = np.zeros((num_poses, 1))
+    gt_pitch = np.zeros((num_poses, 1))
     for i in range(num_poses):
         # Extract the estimation
-        pose = poses[i, :3, :3]
-        euler_angles[i] = R.from_matrix(pose[:, :3]).as_euler('zyz', degrees=True)
+        Rot = poses[i, :3, :3]
+        pitch[i] = get_yaw(Rot)
 
         # Extract the ground truth
-        gt_pose = gt_poses[i, :3, :3]
-        gt_euler_angles[i] = R.from_matrix(gt_pose[:, :3]).as_euler('zyz', degrees=True)
+        gt_Rot = gt_poses[i, :3, :3]
+        gt_pitch[i] = get_yaw(gt_Rot)
 
-    roll = np.degrees(np.unwrap(euler_angles[:, 0]))
-    pitch = np.degrees(np.unwrap(euler_angles[:, 1]))
-    yaw = np.degrees(np.unwrap(euler_angles[:, 2]))
-
-    gt_roll = np.degrees(np.unwrap(gt_euler_angles[:, 0]))
-    gt_pitch = np.degrees(np.unwrap(gt_euler_angles[:, 1]))
-    gt_yaw = np.degrees(np.unwrap(gt_euler_angles[:, 2]))
+    pitch = np.unwrap(pitch)
+    gt_pitch = np.unwrap(gt_pitch)
 
     # Second subplot: angle plot
     ax2 = fig.add_subplot(122)
 
-    ax2.plot(np.arange(num_poses), roll, 'r-', label='Roll')
-    ax2.plot(np.arange(num_poses), pitch, 'g-', label='Pitch')
-    ax2.plot(np.arange(num_poses), yaw, 'b-', label='Yaw')
-    ax2.plot(np.arange(num_poses), gt_roll, 'c--', label='g.t. Roll')
-    ax2.plot(np.arange(num_poses), gt_pitch, 'y--', label='g.t. Pitch')
-    ax2.plot(np.arange(num_poses), gt_yaw, 'm--', label='g.t. Yaw')
+    ax2.plot(np.arange(num_poses), -pitch, 'b-', label='-Pitch')
+    ax2.plot(np.arange(num_poses), -gt_pitch, 'm--', label='g.t. -Pitch')
 
     ax2.set_xlabel('Time')
     ax2.set_ylabel('Degrees')
@@ -262,15 +253,13 @@ def plot_ground_truth_2d(ground_truth, save_path=results_dir / "ground_truth/2d.
     # tz = ground_truth.iloc[:, 3].values
 
     # Extract rotation
-    rpy = np.empty((len(ground_truth), 3))
+    pitch = np.empty((len(ground_truth), 3))
     for i in range(len(ground_truth)):
         qx, qy, qz, qw = ground_truth.iloc[i, 4:8].values
-        r = R.from_quat([qx, qy, qz, qw])
-        rpy[i] = r.as_euler('zyz', degrees=True)
+        Rot = R.from_quat([qx, qy, qz, qw]).as_matrix()
+        pitch[i] = get_yaw(Rot)
 
-    roll = np.unwrap(rpy[:,0])
-    pitch = np.unwrap(rpy[:,1])
-    yaw = np.unwrap(rpy[:,2])
+    pitch = np.unwrap(pitch[:,1])
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
@@ -285,9 +274,7 @@ def plot_ground_truth_2d(ground_truth, save_path=results_dir / "ground_truth/2d.
     ax1.grid(True)
 
     # Plot the yaw trajectory
-    ax2.plot(np.arange(len(ground_truth)), roll, 'r-', label='roll')
-    ax2.plot(np.arange(len(ground_truth)), pitch, 'g-', label='pitch')
-    ax2.plot(np.arange(len(ground_truth)), yaw, 'b-', label='yaw')
+    ax2.plot(np.arange(len(ground_truth)), -pitch, 'g-', label='-pitch')
     ax2.set_xlabel('Frame Index')
     ax2.set_ylabel('Degrees')
     ax2.set_title('Vehicle Orientation over Time')

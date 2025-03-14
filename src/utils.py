@@ -158,6 +158,10 @@ def transform_points(points_3d: np.ndarray, T: np.ndarray):
 
     return transformed_3d
 
+def get_yaw(R: np.ndarray):
+    # return np.degrees(np.arctan2(R[1,0],R[0,0]))
+    return np.degrees(np.arctan2(R[0, 2], R[2, 2]))
+
 ############################### Depth ###############################
 
 def depth_to_3d_points(depth_image, cx = 319.5, cy = 239.5, fx=525.0, fy=525.0, factor=5000):

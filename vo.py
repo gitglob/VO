@@ -1,7 +1,7 @@
 from src.data import Dataset
 from src.frame import Frame
 from src.frontend.feature_tracking import match_features
-from src.frontend.pose_estimation import estimate_relative_pose, is_keyframe
+from src.frontend.pose_estimation import estimate_relative_pose, check_velocity, is_keyframe
 from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d, plot_matches
 from src.utils import save_depth, save_image, delete_subdirectories
 from config import data_dir, main_dir, scene, results_dir
@@ -9,10 +9,9 @@ from config import data_dir, main_dir, scene, results_dir
 
 def main():
     print(f"\t\tUsing dataset: `{scene}` ...")
-    debug = True
+    debug = False
     use_dist = False
     cleanup = True
-    log_period = 20
 
     # Clean previous results
     if cleanup:
@@ -28,18 +27,20 @@ def main():
 
     # Get the camera matrix
     K, dist_coeffs = data.get_intrinsics()
+
     # Initialize the graph, the keyframes, and the bow list
     frames = []
     keyframes = []
     poses = []
     gt_poses = []
+    times = []
 
     # Run the main VO loop
     i = -1
     while not data.finished():
         # Advance the iteration
         i+=1
-        if i%log_period == 0:
+        if debug:
             print(f"\n\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
@@ -55,6 +56,7 @@ def main():
             gt_poses.append(gt_pose)
             frame.set_pose(gt_pose)
             keyframes.append(frame)
+            times.append(ts)
 
             save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
             save_depth(depth, results_dir / "depth" / f"{i}_d")
@@ -63,16 +65,24 @@ def main():
             # Feature matching
             matches = match_features(keyframes[-1], frame, K, debug=debug) # (N) : N < M
 
+            # Estimate time since last keyframe
+            dt = ts - times[-1]
+
             # Check if there are enough matches
             if len(matches) < 20:
-                print("Not enough matches!")
+                print(f"Not enough matches: ({len(matches)})!")
                 continue
 
             # Estimate the relative pose (odometry) between the current frame and the last keyframe
-            T, _ = estimate_relative_pose(matches, keyframes[-1], frame, K, 
+            T = estimate_relative_pose(matches, keyframes[-1], frame, K, 
                                           dist_coeffs=dist_coeffs, debug=True) # (4, 4)
             if T is None:
                 print(f"Warning: solvePnP failed!")
+                continue
+
+            # Check if the velocity is within acceptable limits
+            success = check_velocity(T, dt)
+            if not success:
                 continue
            
             # Check if this frame is a keyframe (significant motion or lack of feature matches)
@@ -86,13 +96,13 @@ def main():
                 frame.set_pose(pose)
                 frame.set_keyframe(True)
                 keyframes.append(frame)
+                times.append(ts)
 
                 # Save plots
-                if debug:
-                    save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
-                    save_depth(depth, results_dir / "depth" / f"{i}_d")
-                    plot_matches(keyframes[-2], frame)
-                    plot_trajectory(poses, gt_poses, i)
+                save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
+                save_depth(depth, results_dir / "depth" / f"{i}_d")
+                plot_matches(keyframes[-2], frame)
+                plot_trajectory(poses, gt_poses, i)
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)

@@ -6,7 +6,7 @@ from src.frame import Frame
 
 ############################### Feature Matching ##########################################
 
-def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
+def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, match_threshold=20, debug=False):
     """
     Matches features between two frames.
     
@@ -19,21 +19,28 @@ def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
     if debug:
         print(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
 
+    q_desc = q_frame.descriptors
+    q_kpts = q_frame.keypoints
+    t_desc = t_frame.descriptors
+    t_kpts = t_frame.keypoints
+
     # Create BFMatcher object
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # 1) Match descriptors (KNN)
-    matches = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
+    matches = bf.knnMatch(q_desc, t_desc, k=2)
 
     # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
     filtered_matches = filter_matches(matches, debug)
-    filtered_matches = remove_outlier_matches(filtered_matches, q_frame.keypoints, t_frame.keypoints, K, debug)
+    if len(filtered_matches) < match_threshold:
+        return []
+
+    # filtered_matches = remove_outlier_matches(filtered_matches, q_kpts, t_kpts, K, debug)
+    # if len(filtered_matches) < match_threshold:
+    #     return []
 
     if debug:
         print(f"\t{len(filtered_matches)} matches left!")
-
-    if not filtered_matches:
-        return []
 
     # 4) **Propagate keypoint IDs**  
     propagate_keypoints(t_frame, q_frame, filtered_matches)
@@ -94,7 +101,7 @@ def remove_outlier_matches(matches, q_kpts, t_kpts, K, debug=False):
 
     # Compute symmetric transfer error for Homography Matrix
     error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_frame_kpt_pixels, t_kpt_pixels, 'H', K=K)
-
+    
     # Decide which matrix to use based on the ratio of inliers
     if debug:
         print(f"\tInliers E: {num_inliers_E}, Inliers H: {num_inliers_H}")
