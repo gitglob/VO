@@ -4,20 +4,72 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
+import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation as R
 
 
-def delete_subdirectories(data_dir):
-    # Convert to Path object if not already
-    data_dir = Path(data_dir)
-    if not os.path.isdir(data_dir):
+############################### Saving ###############################
+
+def save_depth(image, save_path):
+    # Create the directory if it doesn't exist
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Check if the image is a PIL image, convert it to a NumPy array
+    if isinstance(image, Image.Image):
+        image = np.array(image)
+
+    # If the image is a NumPy array, ensure it's in a format that can be saved by OpenCV
+    if isinstance(image, np.ndarray):
+        # Convert the image to BGR format if it's in RGB (PIL is usually in RGB)
+        if len(image.shape) == 3 and image.shape[2] == 3:  # Check if it's a 3-channel image
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    
+    # Save the image using OpenCV
+    depth_path = save_path.parent / (save_path.name + '_depth.png')
+    cv2.imwrite(depth_path, image)
+
+    # Convert the depth image to 3d points
+    points = depth_to_3d_points(image)
+
+    # Extract the Z (depth) component from the points
+    Z = points[:, 2]
+    
+    # Normalize the Z values to an 8-bit range
+    # Handling NaNs or Infs if they exist:
+    Z = Z[np.isfinite(Z)]
+    if Z.size == 0:
+        print("Warning: No valid Z points to create a heatmap.")
         return
+    
+    # Z_norm is a 1D array. Reshape into a w*h image
+    h, w = image.shape[:2]
+    Z_img = Z.reshape(h, w)
+    
+    # Use matplotlib to create a heatmap with a colorbar
+    plt.figure(figsize=(8, 6))
+    plt.imshow(Z_img, cmap='jet', aspect='auto', origin='upper')
+    plt.colorbar(label="Depth (m)")
+    plt.title("Depth Heatmap")
+    heatmap_path = save_path.parent / (save_path.name + '_heat.png')
+    plt.savefig(heatmap_path, bbox_inches='tight')
+    plt.close()
+    
+def save_image(image, save_path):
+    # Create the directory if it doesn't exist
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    # Iterate through the contents of the directory
-    for item in data_dir.iterdir():
-        # Check if the item is a directory
-        if item.is_dir():
-            # Recursively delete the directory and its contents
-            shutil.rmtree(item)
+    # Check if the image is a PIL image, convert it to a NumPy array
+    if isinstance(image, Image.Image):
+        image = np.array(image)
+
+    # If the image is a NumPy array, ensure it's in a format that can be saved by OpenCV
+    if isinstance(image, np.ndarray):
+        # Convert the image to BGR format if it's in RGB (PIL is usually in RGB)
+        if len(image.shape) == 3 and image.shape[2] == 3:  # Check if it's a 3-channel image
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    
+    # Save the image using OpenCV
+    cv2.imwrite(save_path, image)
 
 def save_2_images(image1, image2, save_path):
     # Create the directory if it doesn't exist
@@ -51,88 +103,68 @@ def save_2_images(image1, image2, save_path):
     # Save the combined image using OpenCV
     cv2.imwrite(save_path, combined_image)
 
-def save_image(image, save_path):
-    # Create the directory if it doesn't exist
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+############################### Transformations ###############################
 
-    # Check if the image is a PIL image, convert it to a NumPy array
-    if isinstance(image, Image.Image):
-        image = np.array(image)
+def invert_transform(T: np.ndarray) -> np.ndarray:
+    """
+    Efficiently invert a 4x4 transformation matrix assuming it is composed of
+    a 3x3 orthonormal rotation part (R) and a 3x1 translation part (t).
 
-    # If the image is a NumPy array, ensure it's in a format that can be saved by OpenCV
-    if isinstance(image, np.ndarray):
-        # Convert the image to BGR format if it's in RGB (PIL is usually in RGB)
-        if len(image.shape) == 3 and image.shape[2] == 3:  # Check if it's a 3-channel image
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-    
-    # Save the image using OpenCV
-    cv2.imwrite(save_path, image)
+    Parameters
+    ----------
+    T : np.ndarray
+        A 4x4 homogeneous transformation matrix of the form:
+        [ R  t ]
+        [ 0  1 ]
 
-def rotation_matrix_to_euler_angles(R):
-    """Converts a Rotation Matrix to roll, pitch, yaw euler angles"""
-    
-    sy = np.sqrt(R[0, 0] * R[0, 0] +  R[1, 0] * R[1, 0])
-    
-    singular = sy < 1e-6
-    
-    if not singular:
-        roll = np.arctan2(R[2, 1], R[2, 2])
-        pitch = np.arctan2(-R[2, 0], sy)
-        yaw = np.arctan2(R[1, 0], R[0, 0])
-    else:
-        roll = np.arctan2(-R[1, 2], R[1, 1])
-        pitch = np.arctan2(-R[2, 0], sy)
-        yaw = 0
+    Returns
+    -------
+    T_inv : np.ndarray
+        The inverse of T, also a 4x4 homogeneous transformation matrix.
+    """
+    # Extract rotation (R) and translation (t)
+    R = T[:3, :3]
+    t = T[:3, 3]
 
-    return np.array([roll, pitch, yaw])
+    # Create an empty 4x4 identity matrix for the result
+    T_inv = np.eye(4)
 
-def quat2euler(qx, qy, qz, qw):
-    # Roll (x-axis rotation)
-    sinr_cosp = 2 * (qw * qx + qy * qz)
-    cosr_cosp = 1 - 2 * (qx * qx + qy * qy)
-    roll = np.arctan2(sinr_cosp, cosr_cosp)
+    # R^T goes in the top-left 3x3
+    T_inv[:3, :3] = R.T
 
-    # Pitch (y-axis rotation)
-    sinp = 2 * (qw * qy - qz * qx)
-    if np.abs(sinp) >= 1:
-        pitch = np.sign(sinp) * np.pi / 2  # use 90 degrees if out of range
-    else:
-        pitch = np.arcsin(sinp)
+    # -R^T * t goes in the top-right 3x1
+    T_inv[:3, 3] = -R.T @ t
 
-    # Yaw (z-axis rotation)
-    siny_cosp = 2 * (qw * qz + qx * qy)
-    cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
-    yaw = np.arctan2(siny_cosp, cosy_cosp)
+    return T_inv
 
-    # Convert radians to degrees
-    roll = np.degrees(roll)
-    pitch = np.degrees(pitch)
-    yaw = np.degrees(yaw)
+def transform_points(points_3d: np.ndarray, T: np.ndarray):
+    """
+    Apply a 4x4 transformation matrix T to a Nx3 array of 3D points.
+    Returns a Nx3 array of transformed 3D points.
+    """
+    # 1. Convert Nx3 -> Nx4 (homogeneous)
+    ones = np.ones((points_3d.shape[0], 1))
+    points_hom = np.hstack([points_3d, ones])  # shape (N, 4)
 
-    return [roll, pitch, yaw]
+    # 2. Multiply by the transform (assume row vectors)
+    transformed_hom = points_hom @ T.T  # shape (N, 4)
 
-def quat2rot_matrix(qx, qy, qz, qw):
-    # Compute the rotation matrix elements
-    r11 = 1 - 2*(qy**2 + qz**2)
-    r12 = 2*(qx*qy - qz*qw)
-    r13 = 2*(qx*qz + qy*qw)
-    
-    r21 = 2*(qx*qy + qz*qw)
-    r22 = 1 - 2*(qx**2 + qz**2)
-    r23 = 2*(qy*qz - qx*qw)
-    
-    r31 = 2*(qx*qz - qy*qw)
-    r32 = 2*(qy*qz + qx*qw)
-    r33 = 1 - 2*(qx**2 + qy**2)
-    
-    # Create the rotation matrix
-    rotation_matrix = np.array([[r11, r12, r13],
-                                [r21, r22, r23],
-                                [r31, r32, r33]])
-    
-    return rotation_matrix
+    # 3. Normalize back to 3D
+    w = transformed_hom[:, 3]
+    x = transformed_hom[:, 0] / w
+    y = transformed_hom[:, 1] / w
+    z = transformed_hom[:, 2] / w
+    transformed_3d = np.column_stack((x, y, z))
 
-def depth_to_3d_points(depth_image, cx, cy, fx, fy, factor=5000):
+    return transformed_3d
+
+def get_yaw(R: np.ndarray):
+    # return np.degrees(np.arctan2(R[1,0],R[0,0]))
+    return np.degrees(np.arctan2(R[0, 2], R[2, 2]))
+
+############################### Depth ###############################
+
+def depth_to_3d_points(depth_image, cx = 319.5, cy = 239.5, fx=525.0, fy=525.0, factor=5000):
     """
     Convert a depth image to 3D points using camera intrinsics.
 
@@ -176,7 +208,7 @@ def keypoints_depth_to_3d_points(kpts, depth_image, cx, cy, fx, fy, factor=5000)
         np.ndarray: An array of 3D points.
     """
     points_3d = []
-    valid_points_indices = []
+    valid_mask = np.zeros(len(kpts), dtype=bool)
     j = 0
     for i, pt in enumerate(kpts):
         # Extract pixel coordinates
@@ -198,10 +230,24 @@ def keypoints_depth_to_3d_points(kpts, depth_image, cx, cy, fx, fy, factor=5000)
         Y = (v - cy) * Z / fy
 
         points_3d.append((X, Y, Z))
-        valid_points_indices.append(i)
+        valid_mask[i] = True
     # print(f"Removed {j}/{len(kpts)} points that are too far away!")
 
     points_3d = np.array(points_3d, dtype=np.float64)
-    valid_points_indices = np.array(valid_points_indices, dtype=np.uint64)
     
-    return points_3d, valid_points_indices
+    return points_3d, valid_mask
+
+############################### Others ###############################
+
+def delete_subdirectories(data_dir):
+    # Convert to Path object if not already
+    data_dir = Path(data_dir)
+    if not os.path.isdir(data_dir):
+        return
+
+    # Iterate through the contents of the directory
+    for item in data_dir.iterdir():
+        # Check if the item is a directory
+        if item.is_dir():
+            # Recursively delete the directory and its contents
+            shutil.rmtree(item)
