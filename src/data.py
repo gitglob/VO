@@ -4,7 +4,7 @@ import pandas as pd
 import cv2
 import numpy as np
 from src.utils import save_image
-from config import results_dir
+from config import results_dir, debug
 
 
 class Dataset:
@@ -43,7 +43,7 @@ class Dataset:
         cx = self._K[0, 2]
         cy = self._K[1, 2]
 
-    def get(self, debug=False):
+    def get(self):
         """ Returns the next RGB image in terms of timestamp """
         timestamp = self._times[self._current_index]
         image_path = self._image_paths[self._current_index]

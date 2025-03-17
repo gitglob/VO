@@ -4,14 +4,14 @@ import cv2
 from cv2 import DMatch
 from src.visualize import plot_keypoints
 
-from config import results_dir
+from config import results_dir, debug, SETTINGS
 
 
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
     _keypoint_id_counter = -1
 
-    def __init__(self, id: int, img: np.ndarray, bow=None, debug=False):
+    def __init__(self, id: int, img: np.ndarray, bow=None):
         self.id: int = id                    # The frame id
         self.img: np.ndarray = img.copy()    # The rgb image
         self.bow = bow                       # The bag of words of that image
@@ -34,17 +34,12 @@ class Frame():
                 "initialization": bool,      # Whether this frame was used to initialize the pose
                 "use_homography": bool,      # Whether the homography/essential matrix was used to initialize the pose
                 
-                "pose": np.ndarray,          # The Transformation Matrix between the 2 frames
+                "T": np.ndarray,          # The Transformation Matrix to get from the query frame (this frame) to the train frame (the one with frame_id)
                 "points": np.ndarray,        # The triangulated keypoint points
                 "point_ids": np.ndarray,     # The triangulated keypoint identifiers
                 
-                "feature_mask": List[bool],     # Which keypoint/descriptors were used in the match 
-                "triangulation_mask": List[int] # Which keypoint/descriptors were triangulated in the match
-                
                 "inlier_match_mask": List[int],       # Which matches were kept after Essential/Homography filtering in this match
-                "triangulation_match_mask": List[int] # Which matches were triangulated in this match
-
-                "stage": string              # The stage of the match (initialization, tracking)
+                "triangulation_match_mask": List[int] # Which matches kept after triangulation in this match
             }
         }
         """
@@ -66,21 +61,28 @@ class Frame():
         self.match[with_frame_id]["initialization"] = None
         self.match[with_frame_id]["use_homography"] = None
         self.match[with_frame_id]["inlier_match_mask"] = None
-        self.match[with_frame_id]["pose"] = None
+        self.match[with_frame_id]["T"] = None
         self.match[with_frame_id]["points"] = None
 
-    def triangulate(self, with_frame_id: int, use_homography: bool, inlier_match_mask: np.ndarray, pose: np.ndarray, stage: str):
+    def initialize(self, with_frame_id: int, use_homography: bool, inlier_match_mask: np.ndarray, pose: np.ndarray):
         """
         Initializes the frame with another frame.
         """
-        self.match[with_frame_id]["initialization"] = stage
         self.match[with_frame_id]["use_homography"] = use_homography
         self.match[with_frame_id]["inlier_match_mask"] = inlier_match_mask
-        self.match[with_frame_id]["pose"] = pose      
+        self.match[with_frame_id]["T"] = pose
 
-    def get_matches(self, with_frame_id: int):
+    def get_matches(self, with_frame_id: int, filter=None):
         """Returns matches with a specfic frame"""
-        return self.match[with_frame_id]["matches"]
+        matches = self.match[with_frame_id]["matches"]
+        if not filter:
+            return matches
+        elif filter=="inliers":
+            mask = self.match[with_frame_id]["inlier_match_mask"]
+            return matches[mask]
+        elif filter=="triangulation":
+            mask = self.match[with_frame_id]["triangulation_match_mask"]
+            return matches[mask]
 
     def set_pose(self, pose: np.ndarray):
         self.pose = pose
@@ -101,7 +103,18 @@ class Frame():
             so the total size of descriptors will be numel(keypoints) * obj.descriptorSize(), i.e a matrix of size N-by-32 of class uint8, one row per keypoint.
         """
         # Initialize the ORB detector
-        orb = cv2.ORB_create(nfeatures=5000)
+        orb_settings = SETTINGS["orb"]
+        orb = cv2.ORB_create(
+            nfeatures=orb_settings["num_keypoints"],
+            scaleFactor=orb_settings["scale_factor"],
+            nlevels=orb_settings["level_pyramid"],
+            edgeThreshold=orb_settings["edge_threshold"],
+            firstLevel=orb_settings["first_level"],
+            WTA_K=orb_settings["WTA_K"],
+            scoreType=cv2.ORB_HARRIS_SCORE,
+            patchSize=orb_settings["patch_size"],
+            fastThreshold=orb_settings["fast_threshold"]
+        )
         
         # Detect keypoints and compute descriptors
         kp, desc = orb.detectAndCompute(self.img, None)
@@ -119,7 +132,6 @@ class Frame():
     ############################################# LOGGING #############################################
 
     def log_keypoints(self):
-        print(f"\nframe #{self.id}")
         kpts_save_path = results_dir / "keypoints" / f"{self.id}_kpts.png"
         plot_keypoints(self.img, self.keypoints, kpts_save_path)
 

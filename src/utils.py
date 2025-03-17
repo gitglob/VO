@@ -43,20 +43,24 @@ def transform_points(points_3d: np.ndarray, T: np.ndarray):
     """
     Apply a 4x4 transformation matrix T to a Nx3 array of 3D points.
     Returns a Nx3 array of transformed 3D points.
+
+    Args:
+        points_3d: Point with shape (N, 3)
+        T: Transformation with shape (4, 4)
     """
     # 1. Convert Nx3 -> Nx4 (homogeneous)
     ones = np.ones((points_3d.shape[0], 1))
-    points_hom = np.hstack([points_3d, ones])  # shape (N, 4)
+    points_hom = np.hstack([points_3d, ones]).T # (4, N)
 
     # 2. Multiply by the transform (assume row vectors)
-    transformed_hom = points_hom @ T.T  # shape (N, 4)
+    transformed_hom = (T @ points_hom).T        # (N, 4)
 
     # 3. Normalize back to 3D
     w = transformed_hom[:, 3]
     x = transformed_hom[:, 0] / w
     y = transformed_hom[:, 1] / w
     z = transformed_hom[:, 2] / w
-    transformed_3d = np.column_stack((x, y, z))
+    transformed_3d = np.column_stack((x, y, z)) # (N, 3)
 
     return transformed_3d
 
@@ -172,23 +176,9 @@ def save_image(image, save_path):
     # Save the image using OpenCV
     cv2.imwrite(save_path, image)
 
-def rotation_matrix_to_euler_angles(R):
-    """Converts a Rotation Matrix to roll, pitch, yaw euler angles"""
-    
-    sy = np.sqrt(R[0, 0] * R[0, 0] +  R[1, 0] * R[1, 0])
-    
-    singular = sy < 1e-6
-    
-    if not singular:
-        roll = np.arctan2(R[2, 1], R[2, 2])
-        pitch = np.arctan2(-R[2, 0], sy)
-        yaw = np.arctan2(R[1, 0], R[0, 0])
-    else:
-        roll = np.arctan2(-R[1, 2], R[1, 1])
-        pitch = np.arctan2(-R[2, 0], sy)
-        yaw = 0
-
-    return np.array([roll, pitch, yaw])
+def get_yaw(R: np.ndarray):
+    # return np.degrees(np.arctan2(R[1,0],R[0,0]))
+    return np.degrees(np.arctan2(R[0, 2], R[2, 2]))
 
 def quat2euler(qx, qy, qz, qw):
     # Roll (x-axis rotation)

@@ -1,0 +1,26 @@
+orb:
+    num_keypoints: 8000
+    scale_factor: 1.2
+    level_pyramid: 4
+    edge_threshold: 31
+    first_level: 0
+    WTA_K: 2
+    patch_size: 31
+    fast_threshold: 20
+    max_num_keypoints: 1500
+
+triangulation:
+    min_angle: 1
+    max_ratio_between_max_and_min_angle: 20
+
+PnP:
+    reprojection_threshold: 2
+    confidence: 0.999
+    iterations: 100
+
+matches:
+    min: 20
+
+keyframe:
+    distance: 3
+    angle: 10
