@@ -208,7 +208,7 @@ def main():
 
                 # Do feature matching with the previous keyframe
                 q_frame = keyframes[-2]
-                matches = match_features(q_frame, t_frame, K, "4-tracking")
+                matches = match_features(q_frame, t_frame, K, "5-tracking")
                 q_frame.match[t_frame.id]["T"] = T_qt
                 t_frame.match[q_frame.id]["T"] = T_tq
 

@@ -282,7 +282,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, epipolar_constrai
             cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
             cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
 
-        debug_img_path = results_dir / f"matches/2-reprojection/{q_frame.id}_{t_frame.id}.png"
+        debug_img_path = results_dir / f"matches/2-EH_reprojection/{q_frame.id}_{t_frame.id}.png"
         debug_img_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(debug_img_path), reproj_img)
 

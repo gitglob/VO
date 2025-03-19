@@ -4,6 +4,7 @@ from src.frame import Frame
 from src.backend.local_map import Map
 from src.frontend.initialization import triangulate, filter_triangulation_points, enforce_epipolar_constraint
 from src.utils import invert_transform, get_yaw, transform_points
+from src.visualize import plot_matches
 from config import debug, SETTINGS, results_dir
 
 
@@ -36,6 +37,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
 
     # Extract the matches between the previous and current frame
     matches = q_frame.get_matches(t_frame.id)
+    triang_mask = np.ones(len(matches), dtype=bool)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
     q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
@@ -53,7 +55,13 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     q_frame.match[t_frame.id]["epipolar_constraint_mask"] = epipolar_constraint_mask
     t_frame.match[q_frame.id]["epipolar_constraint_mask"] = epipolar_constraint_mask
     matches = matches[epipolar_constraint_mask]
+    triang_mask[triang_mask == True] = epipolar_constraint_mask
     
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / f"matches/6-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}.png"
+        plot_matches(q_frame, t_frame, save_path=match_save_path)
+
     # Extract the q->t transformation
     # Extract the Rotation and Translation arrays between the 2 frames
     T_qt = q_frame.match[t_frame.id]["T"] # [q->t]
@@ -76,7 +84,12 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
         print(f"\t {len(new_ids)} new points to triangulate...")
     
     # Create a mask for the newly triangulated points
-    triang_mask = np.isin(q_kpt_ids, new_ids)
+    new_points_mask = np.isin(q_kpt_ids, new_ids)
+
+    # Apply the new points mask
+    q_kpt_ids = q_kpt_ids[new_points_mask]
+    matches = matches[new_points_mask]
+    triang_mask[triang_mask == True] = new_points_mask
     
     # ------------------------------------------------------------------------
     # 4. Find the pixel coordinates of the new points
@@ -87,7 +100,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     t_new_kpt_pixels = []
 
     # Iterate over all matches
-    for m in matches[triang_mask]:
+    for m in matches:
         # Extract the reference t_frame index
         q_new_kpt_pixels.append(q_frame.keypoints[m.queryIdx].pt)
         t_new_kpt_pixels.append(t_frame.keypoints[m.trainIdx].pt)
@@ -112,16 +125,16 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     # 6. Filter out points with small triangulation angles (cheirality check)
     # ------------------------------------------------------------------------
 
-    valid_angles_mask = filter_triangulation_points(q_new_points, t_new_points, R_qt, t_qt)
-    if valid_angles_mask is None or valid_angles_mask.sum() == 0:
+    filters_mask = filter_triangulation_points(q_new_points, t_new_points, R_qt, t_qt)
+    if filters_mask is None or filters_mask.sum() == 0:
         return None, None, False
-    t_new_points = t_new_points[valid_angles_mask]
-
-    # Combine the triangulation mask with the valid angles mask
-    triang_mask[triang_mask == True] = valid_angles_mask
+    t_new_points = t_new_points[filters_mask]
 
     # Extract the ids of the valid triangulated 3d points
-    new_points_ids = q_kpt_ids[triang_mask]
+    new_points_ids = q_kpt_ids[filters_mask]
+
+    # Combine the triangulation mask with the valid angles mask
+    triang_mask[triang_mask == True] = filters_mask
 
     # ------------------------------------------------------------------------
     # 7. Save the triangulated mask and points to the t_frame
@@ -339,7 +352,7 @@ def estimate_relative_pose(
             cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
             cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
 
-        debug_img_path = results_dir / f"matches/5-reprojection/map_{t_frame.id}.png"
+        debug_img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}.png"
         debug_img_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(debug_img_path), reproj_img)
 
