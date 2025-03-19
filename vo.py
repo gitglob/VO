@@ -212,17 +212,14 @@ def main():
                 q_frame.match[t_frame.id]["T"] = T_qt
                 t_frame.match[q_frame.id]["T"] = T_tq
 
-                # Get inliers by Epipolar constraint
+                # Find new keypoints and triangulate them
                 t_points, point_ids, new_points_success = get_new_triangulated_points(q_frame, t_frame, map, K)
-                if not new_points_success:
-                    print("Searching for new triangulation points failed!")
-                    continue
+                if new_points_success:
+                    # Transfer the points to the world frame
+                    points_w = transform_points(t_points, T_tw)
 
-                # Transfer the points to the world frame
-                points_w = transform_points(t_points, T_tw)
-
-                # Create a local map and push the triangulated points
-                map.add_tracking_points(points_w, point_ids, q_frame, t_frame)
+                    # Add the triangulated points to the local map
+                    map.add_tracking_points(points_w, point_ids, q_frame, t_frame)
 
                 # Clean up map points that are not seen anymore
                 map.cleanup(T_wt, K)

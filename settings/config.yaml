@@ -16,7 +16,7 @@ triangulation:
 PnP:
     reprojection_threshold: 2
     confidence: 0.999
-    iterations: 100
+    iterations: 1000
 
 matches:
     min: 20

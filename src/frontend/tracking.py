@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from src.frame import Frame
 from src.backend.local_map import Map
-from src.frontend.initialization import triangulate, filter_triangulation_points, filter_by_reprojection
+from src.frontend.initialization import triangulate, filter_triangulation_points, enforce_epipolar_constraint
 from src.utils import invert_transform, get_yaw, transform_points
 from config import debug, SETTINGS, results_dir
 
@@ -36,6 +36,23 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
 
     # Extract the matches between the previous and current frame
     matches = q_frame.get_matches(t_frame.id)
+
+    # Extract keypoint pixel coordinates and indices for both frames from the feature match
+    q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
+
+    # ------------------------------------------------------------------------
+    # 2. Enforce Epipolar Constraint
+    # ------------------------------------------------------------------------
+
+    epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K)
+    if epipolar_constraint_mask is None:
+        print("[Tracking] Failed to apply epipolar constraint..")
+        return None, False
+
+    q_frame.match[t_frame.id]["epipolar_constraint_mask"] = epipolar_constraint_mask
+    t_frame.match[q_frame.id]["epipolar_constraint_mask"] = epipolar_constraint_mask
+    matches = matches[epipolar_constraint_mask]
     
     # Extract the q->t transformation
     # Extract the Rotation and Translation arrays between the 2 frames
@@ -44,7 +61,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     t_qt = T_qt[:3, 3].reshape(3,1)
 
     # ------------------------------------------------------------------------
-    # 2. Find 3D points that haven't been triangulated before
+    # 3. Find 3D points that haven't been triangulated before
     # ------------------------------------------------------------------------
 
     # Extract the reference t_frame keypoint ids
@@ -62,7 +79,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     triang_mask = np.isin(q_kpt_ids, new_ids)
     
     # ------------------------------------------------------------------------
-    # 3. Find the pixel coordinates of the new points
+    # 4. Find the pixel coordinates of the new points
     # ------------------------------------------------------------------------
 
     # Placeholder for the new keypoint pixels
@@ -79,7 +96,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     t_new_kpt_pixels = np.array(t_new_kpt_pixels)
     
     # ------------------------------------------------------------------------
-    # 4. Triangulate these points
+    # 5. Triangulate these points
     # ------------------------------------------------------------------------
 
     # Triangulate
@@ -92,7 +109,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     t_new_points = transform_points(q_new_points, T_qt) # (N, 3)
 
     # ------------------------------------------------------------------------
-    # 5. Filter out points with small triangulation angles (cheirality check)
+    # 6. Filter out points with small triangulation angles (cheirality check)
     # ------------------------------------------------------------------------
 
     valid_angles_mask = filter_triangulation_points(q_new_points, t_new_points, R_qt, t_qt)
@@ -107,7 +124,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     new_points_ids = q_kpt_ids[triang_mask]
 
     # ------------------------------------------------------------------------
-    # 6. Save the triangulated mask and points to the t_frame
+    # 7. Save the triangulated mask and points to the t_frame
     # ------------------------------------------------------------------------
 
     t_frame.match[q_frame.id]["triangulation_match_mask"] = triang_mask
@@ -253,7 +270,7 @@ def estimate_relative_pose(
         If the function fails, returns (None, None).
     """
 
-    print(f"Estimating relative pose in frame {t_frame.id} using {len(map_points_w)} map points...")
+    print(f"Estimating Map -> Frame #{t_frame.id} pose using {len(map_points_w)} map points...")
     num_points = len(guided_matches)
 
     # 1) Check if enough 3D points exist

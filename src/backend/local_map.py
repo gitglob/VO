@@ -178,6 +178,7 @@ class Map():
             (3) rarely matched as inlier point
         """
         print("[Map] Cleaning up map points")
+        num_points = len(self.points)
 
         # 0) Iterate over every entry in the map
         num_removed_points = 0
@@ -221,4 +222,4 @@ class Map():
             entry["points"] = points_c[in_view_mask]
             entry["point_ids"] = entry["point_ids"][z_positive_mask][in_view_mask]
 
-        print(f"[Map] Removed {num_removed_points} points from the map!")
+        print(f"[Map] Removed {num_removed_points}/{num_points} points from the map!")

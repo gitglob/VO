@@ -38,7 +38,7 @@ class Frame():
                 "points": np.ndarray,        # The triangulated keypoint points
                 "point_ids": np.ndarray,     # The triangulated keypoint identifiers
                 
-                "inlier_match_mask": List[int],       # Which matches were kept after Essential/Homography filtering in this match
+                "epipolar_constraint_mask": List[int],       # Which matches were kept after Essential/Homography filtering in this match
                 "triangulation_match_mask": List[int] # Which matches kept after triangulation in this match
             }
         }
@@ -60,16 +60,16 @@ class Frame():
         # Default values for the rest
         self.match[with_frame_id]["initialization"] = None
         self.match[with_frame_id]["use_homography"] = None
-        self.match[with_frame_id]["inlier_match_mask"] = None
+        self.match[with_frame_id]["epipolar_constraint_mask"] = None
         self.match[with_frame_id]["T"] = None
         self.match[with_frame_id]["points"] = None
 
-    def initialize(self, with_frame_id: int, use_homography: bool, inlier_match_mask: np.ndarray, pose: np.ndarray):
+    def initialize(self, with_frame_id: int, use_homography: bool, epipolar_constraint_mask: np.ndarray, pose: np.ndarray):
         """
         Initializes the frame with another frame.
         """
         self.match[with_frame_id]["use_homography"] = use_homography
-        self.match[with_frame_id]["inlier_match_mask"] = inlier_match_mask
+        self.match[with_frame_id]["epipolar_constraint_mask"] = epipolar_constraint_mask
         self.match[with_frame_id]["T"] = pose
 
     def get_matches(self, with_frame_id: int, filter=None):
@@ -78,7 +78,7 @@ class Frame():
         if not filter:
             return matches
         elif filter=="inliers":
-            mask = self.match[with_frame_id]["inlier_match_mask"]
+            mask = self.match[with_frame_id]["epipolar_constraint_mask"]
             return matches[mask]
         elif filter=="triangulation":
             mask = self.match[with_frame_id]["triangulation_match_mask"]

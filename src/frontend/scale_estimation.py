@@ -60,7 +60,7 @@ def get_common_match_indices(frame: Frame, frame1: Frame, frame2: Frame):
     """Given 3 consecutive frames, it returns the indices of the common features between all of them."""
     # Extract the matches between the frames -2 and -1
     f_f1_matches = frame.match[frame1.id]["matches"]
-    f_f1_matches = f_f1_matches[frame.match[frame1.id]["inlier_match_mask"]]
+    f_f1_matches = f_f1_matches[frame.match[frame1.id]["epipolar_constraint_mask"]]
 
     # Extract the indices of the query keypoints from frame -1
     f_f1_query_indices = [m.queryIdx for m in f_f1_matches]
@@ -68,7 +68,7 @@ def get_common_match_indices(frame: Frame, frame1: Frame, frame2: Frame):
 
     # Extract the matches between the frames -1 and 0
     f1_f2_matches = frame1.match[frame2.id]["matches"]
-    f1_f2_matches = f1_f2_matches[frame1.match[frame2.id]["inlier_match_mask"]]
+    f1_f2_matches = f1_f2_matches[frame1.match[frame2.id]["epipolar_constraint_mask"]]
 
     # Extract the indices of the query keypoints from frame -1
     f1_f2_query_indices = [m.queryIdx for m in f1_f2_matches]
