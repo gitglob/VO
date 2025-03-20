@@ -127,7 +127,7 @@ def main():
                 scaled_pose = gt_pose
 
                 # Triangulate the 3D points using the initial pose
-                t_points, t_point_ids, is_initialized = triangulate_points(q_frame, t_frame, K, scale)
+                t_points, t_point_ids, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, K, scale)
                 if not is_initialized:
                     print("Triangulation failed!")
                     continue
@@ -154,7 +154,7 @@ def main():
 
                 # Create a local map and push the triangulated points
                 map = Map(q_frame.id)
-                map.add_initialization_points(points_w, t_point_ids, q_frame, t_frame)
+                map.add_points(points_w, t_point_ids, t_descriptors)
             # ########### Tracking ###########
             else:
                 q_frame = keyframes[-1]
@@ -164,15 +164,16 @@ def main():
                 pred_pose = gt_pose
     
                 # Find the map points that can be seen in the predicted robot's pose
-                pred_map_points_w, pred_map_pixels, pred_map_descriptors = map.get_points_in_view(pred_pose, K)
+                T_wp = invert_transform(pred_pose)
+                map.view(T_wp, K)
                 # Check if enough map points are still visible
-                if pred_map_points_w is None or len(pred_map_points_w) < 6:
-                    print(f"Not enough points in view ({len(pred_map_points_w)})")
+                if map.num_points_in_view < 6:
+                    print(f"Not enough points in view ({map.num_points_in_view})")
                     is_initialized = False
                     continue
 
                 # Compare the map point’s descriptor to the descriptors of the new frame in a small search window around the projected location
-                map_kpt_dist_pairs = guided_descriptor_search(pred_map_pixels, pred_map_descriptors, t_frame)
+                map_kpt_dist_pairs = guided_descriptor_search(map, t_frame)
                 # Check if enough descriptor matches were found
                 if len(map_kpt_dist_pairs) < 6:
                     print(f"Not enough guided descriptor matches ({len(map_kpt_dist_pairs)})")
@@ -180,13 +181,16 @@ def main():
                     continue
 
                 # Estimate the new world pose using PnP (3d-2d)
-                T_wt = estimate_relative_pose(pred_map_points_w, t_frame, map_kpt_dist_pairs, K)
+                T_wt = estimate_relative_pose(map, t_frame, map_kpt_dist_pairs, K)
                 if T_wt is None:
                     print(f"Warning: solvePnP failed!")
                     is_initialized = False
                     continue
                 T_tw = invert_transform(T_wt)
             
+                # Calculate the ground truth displacement
+                gt_tq = invert_transform(gt_poses[-1]) @ gt_pose
+
                 # Check if this t_frame is a keyframe
                 T_qw = poses[-1]
                 T_wq = invert_transform(T_qw)
@@ -213,13 +217,13 @@ def main():
                 t_frame.match[q_frame.id]["T"] = T_tq
 
                 # Find new keypoints and triangulate them
-                t_points, point_ids, new_points_success = get_new_triangulated_points(q_frame, t_frame, map, K)
+                t_points, point_ids, point_descriptors, new_points_success = get_new_triangulated_points(q_frame, t_frame, map, K)
                 if new_points_success:
                     # Transfer the points to the world frame
                     points_w = transform_points(t_points, T_tw)
 
                     # Add the triangulated points to the local map
-                    map.add_tracking_points(points_w, point_ids, q_frame, t_frame)
+                    map.add_points(points_w, point_ids, point_descriptors)
 
                 # Clean up map points that are not seen anymore
                 map.cleanup(T_wt, K)

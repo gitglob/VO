@@ -375,7 +375,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     q_points = triangulate(q_kpt_pixels, t_kpt_pixels, R_qt, t_qt, K) # (N, 3)
     if q_points is None or len(q_points) == 0:
         print("[initialize] Triangulation returned no 3D points.")
-        return None, None, False
+        return None, None, None, False
 
     # Transfer the points to the current coordinate frame [t->q]
     t_points = transform_points(q_points, T_qt) # (N, 3)
@@ -392,7 +392,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     # If too few points or too small median angle, return None
     if filters_mask is None or filters_mask.sum() < SETTINGS["matches"]["min"]:
         print("Discarding frame due to insufficient triangulation quality.")
-        return None, None, False
+        return None, None, None, False
     q_points = q_points[filters_mask]
     t_points = t_points[filters_mask]
 
@@ -403,10 +403,10 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     # 8. Save the triangulated points and masks to the t_frame
     # ------------------------------------------------------------------------
 
-    q_frame.match[t_frame.id]["triangulation_match_mask"] = triang_match_mask
+    q_frame.match[t_frame.id]["triangulation_mask"] = triang_match_mask
     q_frame.match[t_frame.id]["points"] = q_points
 
-    t_frame.match[q_frame.id]["triangulation_match_mask"] = triang_match_mask
+    t_frame.match[q_frame.id]["triangulation_mask"] = triang_match_mask
     t_frame.match[q_frame.id]["points"] = t_points
 
     # Also save the triangulated points keypoint identifiers
@@ -415,6 +415,10 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
 
     t_kpt_ids = np.float32([t_frame.keypoints[m.trainIdx].class_id for m in matches[triang_match_mask]])
     q_frame.match[t_frame.id]["point_ids"] = t_kpt_ids
+
+    # Also save the triangulated point descriptors
+    q_descriptors = np.uint8([q_frame.descriptors[m.queryIdx] for m in matches[triang_match_mask]])
+    t_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in matches[triang_match_mask]])
             
     # Save the matches
     if debug:
@@ -422,7 +426,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
         plot_matches(q_frame, t_frame, triang_match_mask, match_save_path)
 
     # Return the initial pose and filtered points
-    return t_points, t_kpt_ids, True
+    return t_points, t_kpt_ids, t_descriptors, True
       
 def triangulate(q_frame_pixels, t_frame_pixels, R, t, K):
     # Compute projection matrices for triangulation

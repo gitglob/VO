@@ -39,7 +39,7 @@ class Frame():
                 "point_ids": np.ndarray,     # The triangulated keypoint identifiers
                 
                 "epipolar_constraint_mask": List[int],       # Which matches were kept after Essential/Homography filtering in this match
-                "triangulation_match_mask": List[int] # Which matches kept after triangulation in this match
+                "triangulation_mask": List[int] # Which matches kept after triangulation in this match
             }
         }
         """
@@ -81,7 +81,7 @@ class Frame():
             mask = self.match[with_frame_id]["epipolar_constraint_mask"]
             return matches[mask]
         elif filter=="triangulation":
-            mask = self.match[with_frame_id]["triangulation_match_mask"]
+            mask = self.match[with_frame_id]["triangulation_mask"]
             return matches[mask]
 
     def set_pose(self, pose: np.ndarray):

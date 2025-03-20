@@ -22,5 +22,9 @@ matches:
     min: 20
 
 keyframe:
-    distance: 3
+    distance: 1
     angle: 10
+
+map:
+    match_view_ratio: 0.1
+    view_angle_threshold: 45

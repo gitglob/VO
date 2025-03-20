@@ -50,7 +50,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K)
     if epipolar_constraint_mask is None:
         print("[Tracking] Failed to apply epipolar constraint..")
-        return None, False
+        return None, None, None, False
 
     q_frame.match[t_frame.id]["epipolar_constraint_mask"] = epipolar_constraint_mask
     t_frame.match[q_frame.id]["epipolar_constraint_mask"] = epipolar_constraint_mask
@@ -74,12 +74,13 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
 
     # Extract the reference t_frame keypoint ids
     q_kpt_ids = np.array([q_frame.keypoints[m.queryIdx].class_id for m in matches])
+    t_kpt_ids = np.array([t_frame.keypoints[m.trainIdx].class_id for m in matches])
 
     # Find which of the map keypoints don't intersect with the reference inlier keypoint IDs
     new_ids = np.setdiff1d(q_kpt_ids, map.point_ids)
     if len(new_ids) == 0:
         print("No new points to triangulate.")
-        return None, None, False
+        return None, None, None, False
     if debug:
         print(f"\t {len(new_ids)} new points to triangulate...")
     
@@ -87,7 +88,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     new_points_mask = np.isin(q_kpt_ids, new_ids)
 
     # Apply the new points mask
-    q_kpt_ids = q_kpt_ids[new_points_mask]
+    t_kpt_ids = t_kpt_ids[new_points_mask]
     matches = matches[new_points_mask]
     triang_mask[triang_mask == True] = new_points_mask
     
@@ -128,10 +129,14 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     filters_mask = filter_triangulation_points(q_new_points, t_new_points, R_qt, t_qt)
     if filters_mask is None or filters_mask.sum() == 0:
         return None, None, False
+    matches = matches[filters_mask]
     t_new_points = t_new_points[filters_mask]
 
     # Extract the ids of the valid triangulated 3d points
-    new_points_ids = q_kpt_ids[filters_mask]
+    new_points_ids = t_kpt_ids[filters_mask]
+
+    # Extract the descriptors of the valid triangulated 3d points
+    new_point_descriptors = np.array([t_frame.descriptors[m.trainIdx] for m in matches])
 
     # Combine the triangulation mask with the valid angles mask
     triang_mask[triang_mask == True] = filters_mask
@@ -140,20 +145,19 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     # 7. Save the triangulated mask and points to the t_frame
     # ------------------------------------------------------------------------
 
-    t_frame.match[q_frame.id]["triangulation_match_mask"] = triang_mask
+    t_frame.match[q_frame.id]["triangulation_mask"] = triang_mask
     t_frame.match[q_frame.id]["points"] = t_new_points
     t_frame.match[q_frame.id]["point_ids"] = new_points_ids
 
-    q_frame.match[t_frame.id]["triangulation_match_mask"] = triang_mask
+    q_frame.match[t_frame.id]["triangulation_mask"] = triang_mask
     q_frame.match[t_frame.id]["points"] = t_new_points
     q_frame.match[t_frame.id]["point_ids"] = new_points_ids
    
     # Return the newly triangulated points
-    return t_new_points, new_points_ids, True
+    return t_new_points, new_points_ids, new_point_descriptors, True
 
 def guided_descriptor_search(
-    map_pxs_in_view: np.ndarray,
-    map_desc_in_view: np.ndarray,
+    map: Map,
     t_frame: Frame,
     search_window: int = 40,
     distance_threshold: int = 100
@@ -178,17 +182,20 @@ def guided_descriptor_search(
                                   - map_idx in [0..N-1]
                                   - frame_idx in [0..len(t_frame.keypoints)-1]
     """
+    # In view map pixels and descriptors
+    map_pixels = map.pixels_in_view             # (M, 2)
+    map_descriptors = map.descriptors_in_view   # (M, 32)
 
     # Current t_frame data
-    frame_kpts = t_frame.keypoints
-    frame_desc = t_frame.descriptors
+    frame_kpts = t_frame.keypoints   # (N,)
+    frame_desc = t_frame.descriptors # (N,)
 
     # Prepare results
     matches = []  # list of (map_idx, frame_idx, best_dist)
 
     # For each projected map point, find candidate keypoints in a 2D window
-    for map_idx, (u, v) in enumerate(map_pxs_in_view):
-        desc_3d = map_desc_in_view[map_idx]  # shape (32, )
+    for map_idx, (u, v) in enumerate(map_pixels):
+        desc_3d = map_descriptors[map_idx]  # (32, )
 
         # Collect candidate keypoint indices within the bounding box
         candidate_indices = []
@@ -212,7 +219,7 @@ def guided_descriptor_search(
         best_f_idx = -1
 
         for f_idx in candidate_indices:
-            desc_2d = frame_desc[f_idx]  # shape (32,)
+            desc_2d = frame_desc[f_idx]  # (32,)
             # Compute Hamming distance
             dist = cv2.norm(desc_3d, desc_2d, cv2.NORM_HAMMING)
             if dist < best_dist:
@@ -248,7 +255,7 @@ def predict_pose_constant_velocity(poses):
 
 # Function to estimate the relative pose using solvePnP
 def estimate_relative_pose(
-    map_points_w: np.ndarray,
+    map: Map,
     t_frame: Frame,
     guided_matches: list,
     K: np.ndarray,
@@ -282,6 +289,7 @@ def estimate_relative_pose(
 
         If the function fails, returns (None, None).
     """
+    map_points_w = map.points_in_view
 
     print(f"Estimating Map -> Frame #{t_frame.id} pose using {len(map_points_w)} map points...")
     num_points = len(guided_matches)
@@ -292,19 +300,20 @@ def estimate_relative_pose(
         return None
 
     # 2) Build 3D <-> 2D correspondences
-    world_points = []
+    map_points = []
     image_pxs = []
     for (map_idx, frame_idx, best_dist) in guided_matches:
-        world_points.append(map_points_w[map_idx])        # 3D in world coords
+        map_points.append(map_points_w[map_idx])        # 3D in world coords
         kp = t_frame.keypoints[frame_idx]
-        image_pxs.append(kp.pt)                          # 2D pixel (u, v)
+        image_pxs.append(kp.pt)                         # 2D pixel (u, v)
 
-    world_points = np.array(world_points, dtype=np.float32)   # (M, 3)
+    map_points = np.array(map_points, dtype=object)   
+    map_point_positions = np.array([p.pos for p in map_points], dtype=np.float32) # (M, 3)
     image_pxs = np.array(image_pxs, dtype=np.float32)     # (M, 2)
 
     # 3) solvePnPRansac to get rvec/tvec for world->new_cam
     success, rvec, tvec, inliers = cv2.solvePnPRansac(
-        world_points,
+        map_point_positions,
         image_pxs,
         cameraMatrix=K,
         distCoeffs=dist_coeffs,
@@ -326,11 +335,16 @@ def estimate_relative_pose(
     
     # Keep only the pixels and points that match the estimated pose
     image_pxs = image_pxs[inliers_mask]
-    world_points = world_points[inliers_mask]
+    map_points = map_points[inliers_mask]
+    map_point_positions = map_point_positions[inliers_mask]
+
+    # Invrease the match counter for all matched points
+    for p in map_points:
+        p.match_counter += 1
 
     # 4) Compute reprojection error
     ## Project the 3D points to 2D using the estimated pose
-    projected_world_pxs, _ = cv2.projectPoints(world_points, rvec, t_wc, K, dist_coeffs)
+    projected_world_pxs, _ = cv2.projectPoints(map_point_positions, rvec, t_wc, K, dist_coeffs)
     projected_world_pxs = projected_world_pxs.squeeze()
     
     ## Calculate the per-point reprojection error (Euclidean distance)
