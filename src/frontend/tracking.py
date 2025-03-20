@@ -344,7 +344,7 @@ def estimate_relative_pose(
 
     ## Visualization
     if debug:
-        reproj_img = t_frame.img.copy()
+        reproj_img = cv2.cvtColor(t_frame.img, cv2.COLOR_GRAY2BGR)
         for i in range(len(image_pxs)):
             obs = tuple(np.int32(image_pxs[i]))
             reproj = tuple(np.int32(projected_world_pxs[i]))

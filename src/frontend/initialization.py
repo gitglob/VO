@@ -274,7 +274,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, epipolar_constrai
 
     # Debugging visualization
     if debug:
-        reproj_img = t_frame.img.copy()
+        reproj_img = cv2.cvtColor(t_frame.img, cv2.COLOR_GRAY2BGR)
         for i in range(len(t_pts)):
             obs = tuple(np.int32(t_pts[i]))
             reproj = tuple(np.int32(points_proj_px[i]))
