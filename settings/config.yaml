@@ -11,7 +11,11 @@ orb:
 
 triangulation:
     min_angle: 1
-    max_ratio_between_max_and_min_angle: 20
+    max_ratio_between_max_and_med_angle: 20
+
+guided_search:
+    search_window: 40
+    min_distance: 20
 
 PnP:
     reprojection_threshold: 2

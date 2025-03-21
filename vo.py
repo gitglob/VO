@@ -165,8 +165,7 @@ def main():
     
                 # Find the map points that can be seen in the predicted robot's pose
                 T_wp = invert_transform(pred_pose)
-                map.view(T_wp, K)
-                # Check if enough map points are still visible
+                map.view(T_wp, K, pred=True)
                 if map.num_points_in_view < 6:
                     print(f"Not enough points in view ({map.num_points_in_view})")
                     is_initialized = False
@@ -174,7 +173,6 @@ def main():
 
                 # Compare the map point’s descriptor to the descriptors of the new frame in a small search window around the projected location
                 map_kpt_dist_pairs = guided_descriptor_search(map, t_frame)
-                # Check if enough descriptor matches were found
                 if len(map_kpt_dist_pairs) < 6:
                     print(f"Not enough guided descriptor matches ({len(map_kpt_dist_pairs)})")
                     is_initialized = False

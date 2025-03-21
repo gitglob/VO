@@ -382,3 +382,15 @@ def plot_matches(q_frame, t_frame, mask: np.ndarray=None, save_path: str = None)
         save_path = results_dir / f"matches/" / f"{q_frame.id}_{t_frame.id}.png"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     cv2.imwrite(save_path, matched_image)
+
+def plot_reprojection(img: np.ndarray, pxs: np.ndarray, reproj_pxs: np.ndarray, path: str):
+    reproj_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    for i in range(len(pxs)):
+        obs = tuple(np.int32(pxs[i]))
+        reproj = tuple(np.int32(reproj_pxs[i]))
+        cv2.circle(reproj_img, obs, 2, (0, 0, 255), -1)    # Observed points (red)
+        cv2.circle(reproj_img, reproj, 3, (0, 255, 0), 1)  # Projected points (green)
+        cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)  # Error line (blue)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(path, reproj_img)

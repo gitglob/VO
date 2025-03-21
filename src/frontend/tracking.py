@@ -4,7 +4,7 @@ from src.frame import Frame
 from src.backend.local_map import Map
 from src.frontend.initialization import triangulate, filter_triangulation_points, enforce_epipolar_constraint
 from src.utils import invert_transform, get_yaw, transform_points
-from src.visualize import plot_matches
+from src.visualize import plot_matches, plot_reprojection
 from config import debug, SETTINGS, results_dir
 
 
@@ -156,12 +156,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     # Return the newly triangulated points
     return t_new_points, new_points_ids, new_point_descriptors, True
 
-def guided_descriptor_search(
-    map: Map,
-    t_frame: Frame,
-    search_window: int = 40,
-    distance_threshold: int = 100
-):
+def guided_descriptor_search(map: Map, t_frame: Frame):
     """
     For each map point (with a known 2D projection and a descriptor),
     search within a 'search_window' pixel box in the current t_frame.
@@ -190,6 +185,10 @@ def guided_descriptor_search(
     frame_kpts = t_frame.keypoints   # (N,)
     frame_desc = t_frame.descriptors # (N,)
 
+    # Extract config
+    search_window = SETTINGS["guided_search"]["search_window"]
+    min_distance = SETTINGS["guided_search"]["min_distance"]
+
     # Prepare results
     matches = []  # list of (map_idx, frame_idx, best_dist)
 
@@ -204,10 +203,10 @@ def guided_descriptor_search(
 
         # Iterate over all the t_frame keypoints
         for f_idx, kpt in enumerate(frame_kpts):
-            (x_kp, y_kp) = kpt.pt  # Keypoint location
+            (u_kpt, v_kpt) = kpt.pt
             # Check if the keypoint is within the search window box
-            if (x_kp >= u_min and x_kp <= u_max and
-                y_kp >= v_min and y_kp <= v_max):
+            if (u_kpt >= u_min and u_kpt <= u_max and
+                v_kpt >= v_min and v_kpt <= v_max):
                 candidate_indices.append(f_idx)
 
         if len(candidate_indices) == 0:
@@ -227,7 +226,7 @@ def guided_descriptor_search(
                 best_f_idx = f_idx
 
         # Accept the best match if below threshold
-        if best_dist < distance_threshold:
+        if best_dist < min_distance:
             matches.append((map_idx, best_f_idx, best_dist))
 
     if debug:
@@ -358,17 +357,8 @@ def estimate_relative_pose(
 
     ## Visualization
     if debug:
-        reproj_img = cv2.cvtColor(t_frame.img, cv2.COLOR_GRAY2BGR)
-        for i in range(len(image_pxs)):
-            obs = tuple(np.int32(image_pxs[i]))
-            reproj = tuple(np.int32(projected_world_pxs[i]))
-            cv2.circle(reproj_img, obs, 3, (0, 0, 255), -1)      # Observed points (red)
-            cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
-            cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
-
-        debug_img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}.png"
-        debug_img_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(debug_img_path), reproj_img)
+        img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}.png"
+        plot_reprojection(t_frame.img, image_pxs, projected_world_pxs, path=img_path)
 
     # 7) Construct T_{world->cam_new}
     T_wc = np.eye(4, dtype=np.float32)

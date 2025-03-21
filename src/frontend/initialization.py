@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from src.frame import Frame
 from src.utils import invert_transform, transform_points
-from src.visualize import plot_matches
+from src.visualize import plot_matches, plot_reprojection
 
 from config import results_dir, debug, SETTINGS
 
@@ -274,17 +274,8 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, epipolar_constrai
 
     # Debugging visualization
     if debug:
-        reproj_img = cv2.cvtColor(t_frame.img, cv2.COLOR_GRAY2BGR)
-        for i in range(len(t_pts)):
-            obs = tuple(np.int32(t_pts[i]))
-            reproj = tuple(np.int32(points_proj_px[i]))
-            cv2.circle(reproj_img, obs, 3, (0, 0, 255), -1)      # Observed points (red)
-            cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
-            cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
-
-        debug_img_path = results_dir / f"matches/2-EH_reprojection/{q_frame.id}_{t_frame.id}.png"
-        debug_img_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(debug_img_path), reproj_img)
+        save_path = results_dir / f"matches/2-EH_reprojection/{q_frame.id}_{t_frame.id}.png"
+        plot_reprojection(t_frame.img, t_pts, points_proj_px, path=save_path)
 
     return updated_mask
       
@@ -519,7 +510,7 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     print(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{cheirality_mask.sum()} points!")
 
     # Filter out points with very high angle compared to the median
-    max_med_angles_mask = filtered_angles / median_angle < SETTINGS["triangulation"]["max_ratio_between_max_and_min_angle"]
+    max_med_angles_mask = filtered_angles / median_angle < SETTINGS["triangulation"]["max_ratio_between_max_and_med_angle"]
     filtered_angles = filtered_angles[max_med_angles_mask]
     triang_mask[triang_mask==True] = max_med_angles_mask
 

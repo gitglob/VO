@@ -84,13 +84,14 @@ class Map():
             self.points[prev_num_points + i] = p
         print(f"[Map] Adding {len(points)} points. Total: {len(self.points)} points.")
 
-    def view(self, T_wc: np.ndarray, K: np.ndarray):
+    def view(self, T_wc: np.ndarray, K: np.ndarray, pred=False):
         """
         Returns the points and descriptors that are in the current view.
 
         Args:
             T_wc: The transform from the world to the current camera coordinate frame
             K: The camera intrinsics matrix
+            pref: Whether the view was for a real or predicted pose
         """
         print("[Map] Getting points in the current view...")
 
@@ -113,7 +114,6 @@ class Map():
 
         # 3) Keep only points in front of the camera (z > 0).
         z_positive_mask = points_c[:, 2] > 0
-        points_c = points_c[z_positive_mask]
 
         # 4) Project into pixel coordinates using K.
         x_cam = points_c[:, 0]
@@ -135,13 +135,12 @@ class Map():
         )
 
         # 6) Combine the z_positive and in_view mask
-        self._in_view_mask = np.ones(self.num_points, dtype=bool)
-        self._in_view_mask[self._in_view_mask == True] = z_positive_mask
-        self._in_view_mask[self._in_view_mask == True] = boundary_mask
+        self._in_view_mask = z_positive_mask & boundary_mask
 
         # 7) Increase the view counter for every visible point
-        for p in self.points[self._in_view_mask]:
-            p.view_counter += 1
+        if not pred:
+            for p in self.points[self._in_view_mask]:
+                p.view_counter += 1
 
         if debug:
             print(f"\tFound {self._in_view_mask.sum()} map points in the predicted camera pose view.")
@@ -172,7 +171,7 @@ class Map():
         for i, p in enumerate(self.points):
             match_view_ratio = p.match_counter / p.view_counter
 
-            if  p.match_counter > 10 and match_view_ratio < SETTINGS["map"]["match_view_ratio"]:
+            if p.view_counter > 5 and match_view_ratio < SETTINGS["map"]["match_view_ratio"]:
                 match_view_ratio_mask[i] = False
 
         self.points = self.points[match_view_ratio_mask]
