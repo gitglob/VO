@@ -49,7 +49,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
 
     # Plot translations
     axs[0, 0].plot(np.arange(num_poses), tx, 'b-', label='X Pose')
-    axs[0, 0].plot(np.arange(num_poses), gt_tx, 'r-', label='Ground Truth X')
+    axs[0, 0].plot(np.arange(num_poses), gt_tx, 'r--', label='Ground Truth X')
     axs[0, 0].set_title('X')
     axs[0, 0].set_xlabel('Time')
     axs[0, 0].set_ylabel('m')
@@ -57,7 +57,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     axs[0, 0].grid(True)
     
     axs[0, 1].plot(np.arange(num_poses), ty, 'b-', label='Y Pose')
-    axs[0, 1].plot(np.arange(num_poses), gt_ty, 'r-', label='Ground Truth Y')
+    axs[0, 1].plot(np.arange(num_poses), gt_ty, 'r--', label='Ground Truth Y')
     axs[0, 1].set_title('Y')
     axs[0, 1].set_xlabel('Time')
     axs[0, 1].set_ylabel('m')
@@ -65,7 +65,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     axs[0, 1].grid(True)
     
     axs[0, 2].plot(np.arange(num_poses), tz, 'b-', label='Z Pose')
-    axs[0, 2].plot(np.arange(num_poses), gt_tz, 'r-', label='Ground Truth Z')
+    axs[0, 2].plot(np.arange(num_poses), gt_tz, 'r--', label='Ground Truth Z')
     axs[0, 2].set_title('Z')
     axs[0, 2].set_xlabel('Time')
     axs[0, 2].set_ylabel('m')
@@ -74,7 +74,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     
     # Plot rotations (yaw, pitch, roll in degrees)
     axs[1, 0].plot(np.arange(num_poses), rolls, 'b-', label='Roll')
-    axs[1, 0].plot(np.arange(num_poses), gt_rolls, 'r-', label='Ground Truth Roll')
+    axs[1, 0].plot(np.arange(num_poses), gt_rolls, 'r--', label='Ground Truth Roll')
     axs[1, 0].set_title('Roll')
     axs[1, 0].set_xlabel('Time')
     axs[1, 0].set_ylabel('deg')
@@ -82,7 +82,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     axs[1, 0].grid(True)
 
     axs[1, 1].plot(np.arange(num_poses), pitches, 'b-', label='Pitch')
-    axs[1, 1].plot(np.arange(num_poses), gt_pitches, 'r-', label='Ground Truth Pitch')
+    axs[1, 1].plot(np.arange(num_poses), gt_pitches, 'r--', label='Ground Truth Pitch')
     axs[1, 1].set_title('Pitch')
     axs[1, 1].set_xlabel('Time')
     axs[1, 1].set_ylabel('deg')
@@ -90,7 +90,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     axs[1, 1].grid(True)
 
     axs[1, 2].plot(np.arange(num_poses), yaws, 'b-', label='Yaw')
-    axs[1, 2].plot(np.arange(num_poses), gt_yaws, 'r-', label='Ground Truth Yaw')
+    axs[1, 2].plot(np.arange(num_poses), gt_yaws, 'r--', label='Ground Truth Yaw')
     axs[1, 2].set_title('Yaw')
     axs[1, 2].set_xlabel('Time')
     axs[1, 2].set_ylabel('deg')
@@ -135,7 +135,7 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     # First subplot: XZ 2D view
     ax1 = fig.add_subplot(121)
     ax1.plot(poses[:, 0, 3], poses[:, 2, 3], 'b-', label='XZ')
-    ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r-', label='Ground Truth')
+    ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r--', label='Ground Truth')
     
     # Mark the start and end points with bubbles
     ax1.scatter(poses[0,0,3], poses[0,2,3], color='blue', s=100, alpha=0.7, label='Start')

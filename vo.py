@@ -100,18 +100,11 @@ def main():
 
                 # Extract the initial pose using the Essential or Homography matrix (2d-2d)
                 T_qt, is_initialized = initialize_pose(q_frame, t_frame, K)
-                # if not is_initialized:
-                #     print("Pose initialization failed!")
-                #     continue
-                # assert np.linalg.norm(T_tq[:3, 3]) - 1 < 1e-6
-                # T_tq = inevert_transform(T_qt)
-                T_tw = gt_pose
-                T_qw = gt_poses[-1]
-                T_wq = invert_transform(T_qw)
-                T_qt = T_wq @ T_tw
+                if not is_initialized:
+                    print("Pose initialization failed!")
+                    continue
+                assert np.linalg.norm(T_qt[:3, 3]) - 1 < 1e-6
                 T_tq = invert_transform(T_qt)
-                q_frame.match[t_frame.id]["T"] = T_qt
-                t_frame.match[q_frame.id]["T"] = T_tq
 
                 # Calculate the next pose with scale ambiguity
                 unscaled_pose = poses[-1] @ T_tq
@@ -123,8 +116,7 @@ def main():
                 T_tq[:3, 3] *= scale
 
                 # Apply the scale to the pose and validate it
-                # scaled_pose = poses[-1] @ T_tq
-                scaled_pose = gt_pose
+                scaled_pose = poses[-1] @ T_tq
 
                 # Triangulate the 3D points using the initial pose
                 t_points, t_point_ids, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, K, scale)
@@ -160,8 +152,7 @@ def main():
                 q_frame = keyframes[-1]
                     
                 # Predict next pose using constant velocity
-                # pred_pose = predict_pose_constant_velocity(poses)
-                pred_pose = gt_pose
+                pred_pose = predict_pose_constant_velocity(poses)
     
                 # Find the map points that can be seen in the predicted robot's pose
                 T_wp = invert_transform(pred_pose)

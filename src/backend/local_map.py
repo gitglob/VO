@@ -46,7 +46,6 @@ class Map():
     def num_points_in_view(self):
         """Returns the number of points that are currently in view"""
         if self._in_view_mask is None:
-            print("The 'inv_view_mask' is None!")
             return 0
         return self._in_view_mask.sum()
     
@@ -95,14 +94,14 @@ class Map():
         """
         print("[Map] Getting points in the current view...")
 
+        # No map points at all
+        if self.num_points == 0:
+            return
+
         # 0) Collect ALL points and descriptors from the map
         point_positions = self.point_positions     # (M, 3)
         point_descriptors = self.point_descriptors # (M, 32)
         assert(len(point_positions) == len(point_descriptors))
-
-        # No map points at all
-        if len(point_positions) == 0:
-            return
         
         # 1) Convert map points to homogeneous: (X, Y, Z, 1).
         ones = np.ones((len(point_positions), 1))
@@ -183,7 +182,7 @@ class Map():
         ## Extract the normalized camera center vector
         cam_center_vec = T_cw[:3, 3]
         cam_center_vec_norm = cam_center_vec / np.linalg.norm(cam_center_vec)
-        for p in self.points:
+        for i, p in enumerate(self.points):
             # Extract the normalized point vectors
             pos_vec = p.pos
             pos_vec_norm = pos_vec / np.linalg.norm(pos_vec)
@@ -199,5 +198,7 @@ class Map():
         self.points = self.points[view_angle_mask]
         print(f"[Map] View-Angle check removed {np.count_nonzero(~view_angle_mask)} points!")
 
-
         print(f"[Map] Removed {prev_num_points - self.num_points}/{prev_num_points} points from the map!")
+
+        # Reset the in-view mask
+        self._in_view_mask = None
