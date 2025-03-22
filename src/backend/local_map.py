@@ -1,16 +1,43 @@
-from typing import List 
+from typing import List
 import numpy as np
+import cv2
 from src.utils import invert_transform
 from config import image_width, image_height, debug, SETTINGS
 
 
-class Point():
-    def __init__(self, pos: np.ndarray, id: int, desc: np.ndarray):
-        self.pos: np.ndarray = pos 
-        self.id: int = id
-        self.desc: np.ndarray = desc
-        self.match_counter: int = 0
-        self.view_counter: int = 0
+scale_factor = SETTINGS["orb"]["scale_factor"]
+n_levels = SETTINGS["orb"]["level_pyramid"]
+min_observations = SETTINGS["orb"]["level_pyramid"]
+
+class mapPoint():
+    def __init__(self, kf_id: int, 
+                 cam_center: np.ndarray, 
+                 pos: np.ndarray, 
+                 keypoint: int, 
+                 desc: np.ndarray):
+        self.kf_id: int = kf_id           # The observation id of the keyframe inside the local map
+        self.cam_center = cam_center
+        self.pos: np.ndarray = pos        # 3D position
+        self.kpt: cv2.KeyPoint = keypoint # ORB keypoint
+        self.desc: np.ndarray = desc      # ORB descriptor
+        self.viewing_dir: np.ndarray = None # TODO
+        self.init()
+
+    def init(self):
+        self.id: int = self.kpt.class_id # The id of the keypoint
+        self.match_counter: int = 0      # Number of times the point was tracked with PnP
+        self.obs_counter: int = 0        # Number of times the point was observed in a Frame
+
+    def getScaleInvarianceLimits(self):
+        dist = np.linalg.norm(self.pos - self.cam_center)
+        level = self.kpt.octave
+        minLevelScaleFactor = scale_factor**level
+        maxLlevelScaleFactor = scale_factor**(n_levels - 1 - level)
+
+        dmin = (1 / scale_factor) * dist / minLevelScaleFactor
+        dmax = scale_factor * dist * maxLlevelScaleFactor
+
+        return (dmin, dmax)
 
 class Map():
     def __init__(self, frame_id: int):
@@ -24,6 +51,13 @@ class Map():
         self._u = None
         self._v = None
 
+        # Read settings
+        self._match_view_ratio = SETTINGS["map"]["match_view_ratio"]
+        self._max_size = SETTINGS["map"]["max_size"]
+
+        # Frame counter
+        self._kf_counter = 0
+
     @property
     def num_points(self):
         return len(self.points)
@@ -32,15 +66,11 @@ class Map():
     def point_positions(self):
         """Returns the points xyz positions"""
         return np.vstack([p.pos for p in self.points])
-    @property
-    def point_ids(self):
-        """Returns the point ids"""
-        return np.vstack([p.id for p in self.points])
 
     @property
-    def point_descriptors(self):
-        """Returns the associated descriptors from the keyframe that created them"""
-        return np.vstack([p.desc for p in self.points])
+    def point_ids(self):
+        """Returns the points xyz positions"""
+        return np.vstack([p.id for p in self.points])
     
     @property
     def num_points_in_view(self):
@@ -53,23 +83,12 @@ class Map():
     def points_in_view(self):
         return self.points[self._in_view_mask]
     
-    @property
-    def point_positions_in_view(self):
-        return self.point_positions[self._in_view_mask]
-
-    @property
-    def descriptors_in_view(self):
-        return self.point_descriptors[self._in_view_mask]
-
-    @property
-    def pixels_in_view(self):
-        u_in_view = self._u[self._in_view_mask]
-        v_in_view = self._v[self._in_view_mask]
-        pxs_c_n_view = np.column_stack([u_in_view, v_in_view])
-
-        return pxs_c_n_view
-
-    def add_points(self, points: np.ndarray, point_ids: np.ndarray, descriptors: np.ndarray):
+    def add_points(self, points: np.ndarray, 
+                   keypoints: List[cv2.KeyPoint], 
+                   descriptors: np.ndarray,
+                   T_cw: np.ndarray):
+        # Extract the camera center vector
+        cam_center = T_cw[:3, 3]
         # Get initial number of points
         prev_num_points = self.num_points
         # Create an array of empty cells
@@ -79,9 +98,10 @@ class Map():
 
         # Iterate over the new points
         for i in range(len(points)):
-            p = Point(points[i], point_ids[i], descriptors[i])
+            p = mapPoint(self._kf_counter, cam_center, points[i], keypoints[i], descriptors[i])
             self.points[prev_num_points + i] = p
-        print(f"[Map] Adding {len(points)} points. Total: {len(self.points)} points.")
+        self._kf_counter += 1
+        print(f"Adding {len(points)} points to the Map. Total: {len(self.points)} points.")
 
     def view(self, T_wc: np.ndarray, K: np.ndarray, pred=False):
         """
@@ -92,7 +112,7 @@ class Map():
             K: The camera intrinsics matrix
             pref: Whether the view was for a real or predicted pose
         """
-        print("[Map] Getting points in the current view...")
+        print("Getting points in the current view...")
 
         # No map points at all
         if self.num_points == 0:
@@ -100,8 +120,7 @@ class Map():
 
         # 0) Collect ALL points and descriptors from the map
         point_positions = self.point_positions     # (M, 3)
-        point_descriptors = self.point_descriptors # (M, 32)
-        assert(len(point_positions) == len(point_descriptors))
+        assert(len(point_positions) == self.num_points)
         
         # 1) Convert map points to homogeneous: (X, Y, Z, 1).
         ones = np.ones((len(point_positions), 1))
@@ -137,9 +156,9 @@ class Map():
         self._in_view_mask = z_positive_mask & boundary_mask
 
         # 7) Increase the view counter for every visible point
-        if not pred:
+        if pred:
             for p in self.points[self._in_view_mask]:
-                p.view_counter += 1
+                p.obs_counter += 1
 
         if debug:
             print(f"\tFound {self._in_view_mask.sum()} map points in the predicted camera pose view.")
@@ -155,50 +174,36 @@ class Map():
             (2) with a view angle larger than the threshold
             (3) rarely matched as inlier point
         """
-        print("[Map] Cleaning up map points")
+        print("Cleaning up map points")
 
-        T_cw = invert_transform(T_wc)
         prev_num_points = self.num_points
         self.view(T_wc, K)
 
-        # Remove out of view points
-        self.points = self.points[self._in_view_mask]
-        print(f"[Map] View check removed {np.count_nonzero(~self._in_view_mask)} points!")
-
-        # Remove points that are rarely matched
+        # 1) Remove points that are rarely matched
         match_view_ratio_mask = np.ones(self.num_points, dtype=bool)
         for i, p in enumerate(self.points):
-            match_view_ratio = p.match_counter / p.view_counter
-
-            if p.view_counter > 5 and match_view_ratio < SETTINGS["map"]["match_view_ratio"]:
-                match_view_ratio_mask[i] = False
+            if p.obs_counter > 4:
+                match_view_ratio = p.match_counter / p.obs_counter
+                if match_view_ratio < self._match_view_ratio:
+                    match_view_ratio_mask[i] = False
 
         self.points = self.points[match_view_ratio_mask]
-        print(f"[Map] Match-View ratio check removed {np.count_nonzero(~match_view_ratio_mask)} points!")
+        print(f"Match-View ratio check removed {np.count_nonzero(~match_view_ratio_mask)} points!")
 
-        # Remove points that have a very large view angle
-        view_angle_mask = np.ones(self.num_points, dtype=bool)
-
-        ## Extract the normalized camera center vector
-        cam_center_vec = T_cw[:3, 3]
-        cam_center_vec_norm = cam_center_vec / np.linalg.norm(cam_center_vec)
+        # 2) Remove points that are rarely seen
+        num_views_mask = np.ones(self.num_points, dtype=bool)
         for i, p in enumerate(self.points):
-            # Extract the normalized point vectors
-            pos_vec = p.pos
-            pos_vec_norm = pos_vec / np.linalg.norm(pos_vec)
+            num_kf_passed = self._kf_counter
+            point_creation_kf = p.kf_id
+            num_kf_passed_since_point_creation = num_kf_passed - point_creation_kf
 
-            # Extract the angle between the 2 vectors
-            dot_product = np.clip(np.dot(cam_center_vec_norm, pos_vec_norm), -1.0, 1.0)
-            view_angle = np.degrees(np.arccos(dot_product))
+            if num_kf_passed_since_point_creation > 3 and p.obs_counter > min_observations:
+                num_views_mask[i] = False
 
-            # Check if the view angle is larger than the threshold
-            if view_angle > SETTINGS["map"]["view_angle_threshold"]:
-                view_angle_mask[i] = False
+        self.points = self.points[num_views_mask]
+        print(f"Observability check removed {np.count_nonzero(~num_views_mask)} points!")
 
-        self.points = self.points[view_angle_mask]
-        print(f"[Map] View-Angle check removed {np.count_nonzero(~view_angle_mask)} points!")
-
-        print(f"[Map] Removed {prev_num_points - self.num_points}/{prev_num_points} points from the map!")
+        print(f"Removed {prev_num_points - self.num_points}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None

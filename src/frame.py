@@ -36,7 +36,6 @@ class Frame():
                 
                 "T": np.ndarray,          # The Transformation Matrix to get from the query frame (this frame) to the train frame (the one with frame_id)
                 "points": np.ndarray,        # The triangulated keypoint points
-                "point_ids": np.ndarray,     # The triangulated keypoint identifiers
                 
                 "epipolar_constraint_mask": List[int],       # Which matches were kept after Essential/Homography filtering in this match
                 "triangulation_mask": List[int] # Which matches kept after triangulation in this match

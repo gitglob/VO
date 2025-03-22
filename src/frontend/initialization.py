@@ -38,9 +38,6 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
 
     # Extract the matches between the previous and current frame
     matches = q_frame.get_matches(t_frame.id)
-    if len(matches) < 5:
-        print("Not enough matches to compute the Essential Matrix!")
-        return None, False
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
     q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
@@ -199,7 +196,7 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
         print(f"\t Inliers E: {num_inliers_E}, Inliers H: {num_inliers_H}")
     if num_inliers_E == 0 and num_inliers_H == 0:
         print("All keypoint pairs yield errors > threshold..")
-        return None, None
+        return None, None, None
     
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
     if debug:
@@ -400,14 +397,11 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     t_frame.match[q_frame.id]["triangulation_mask"] = triang_match_mask
     t_frame.match[q_frame.id]["points"] = t_points
 
-    # Also save the triangulated points keypoint identifiers
-    q_kpt_ids = np.float32([q_frame.keypoints[m.queryIdx].class_id for m in matches[triang_match_mask]])
-    t_frame.match[q_frame.id]["point_ids"] = q_kpt_ids
+    # Save the triangulated points keypoints
+    q_kpts = [q_frame.keypoints[m.queryIdx] for m in matches[triang_match_mask]]
+    t_kpts = [t_frame.keypoints[m.trainIdx] for m in matches[triang_match_mask]]
 
-    t_kpt_ids = np.float32([t_frame.keypoints[m.trainIdx].class_id for m in matches[triang_match_mask]])
-    q_frame.match[t_frame.id]["point_ids"] = t_kpt_ids
-
-    # Also save the triangulated point descriptors
+    # Save the triangulated point descriptors
     q_descriptors = np.uint8([q_frame.descriptors[m.queryIdx] for m in matches[triang_match_mask]])
     t_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in matches[triang_match_mask]])
             
@@ -417,7 +411,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
         plot_matches(q_frame, t_frame, triang_match_mask, match_save_path)
 
     # Return the initial pose and filtered points
-    return t_points, t_kpt_ids, t_descriptors, True
+    return t_points, t_kpts, t_descriptors, True
       
 def triangulate(q_frame_pixels, t_frame_pixels, R, t, K):
     # Compute projection matrices for triangulation

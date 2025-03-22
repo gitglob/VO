@@ -1,7 +1,7 @@
 orb:
     num_keypoints: 8000
     scale_factor: 1.2
-    level_pyramid: 8
+    level_pyramid: 4
     edge_threshold: 31
     first_level: 0
     WTA_K: 2
@@ -14,15 +14,14 @@ triangulation:
     max_ratio_between_max_and_med_angle: 20
 
 guided_search:
-    search_window: 40
-    max_distance: 100
+    search_window: 20
+    min_distance: 20
     view_angle_threshold: 60
 
 PnP:
     reprojection_threshold: 2
-    confidence: 0.99
-    iterations: 300
-    min_inliers: 4
+    confidence: 0.999
+    iterations: 1000
 
 matches:
     min: 20

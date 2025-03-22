@@ -8,6 +8,9 @@ from src.visualize import plot_matches, plot_reprojection
 from config import debug, SETTINGS, results_dir
 
 
+MIN_INLIERS = SETTINGS["PnP"]["min_inliers"]
+
+
 def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray):
     """
     Identifies and triangulates new 3D points from feature matches between two frames.
@@ -73,8 +76,10 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     # ------------------------------------------------------------------------
 
     # Extract the reference t_frame keypoint ids
-    q_kpt_ids = np.array([q_frame.keypoints[m.queryIdx].class_id for m in matches])
-    t_kpt_ids = np.array([t_frame.keypoints[m.trainIdx].class_id for m in matches])
+    q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
+    t_kpts = np.array([t_frame.keypoints[m.trainIdx] for m in matches])
+    q_kpt_ids = np.array([kpt.class_id for kpt in q_kpts])
+    t_kpt_ids = np.array([kpt.class_id for kpt in t_kpts])
 
     # Find which of the map keypoints don't intersect with the reference inlier keypoint IDs
     new_ids = np.setdiff1d(q_kpt_ids, map.point_ids)
@@ -88,6 +93,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     new_points_mask = np.isin(q_kpt_ids, new_ids)
 
     # Apply the new points mask
+    t_kpts = t_kpts[new_points_mask]
     t_kpt_ids = t_kpt_ids[new_points_mask]
     matches = matches[new_points_mask]
     triang_mask[triang_mask == True] = new_points_mask
@@ -133,7 +139,7 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
     t_new_points = t_new_points[filters_mask]
 
     # Extract the ids of the valid triangulated 3d points
-    new_points_ids = t_kpt_ids[filters_mask]
+    new_points_kpts = t_kpts[filters_mask]
 
     # Extract the descriptors of the valid triangulated 3d points
     new_point_descriptors = np.array([t_frame.descriptors[m.trainIdx] for m in matches])
@@ -147,16 +153,14 @@ def get_new_triangulated_points(q_frame: Frame, t_frame: Frame, map: Map, K: np.
 
     t_frame.match[q_frame.id]["triangulation_mask"] = triang_mask
     t_frame.match[q_frame.id]["points"] = t_new_points
-    t_frame.match[q_frame.id]["point_ids"] = new_points_ids
 
     q_frame.match[t_frame.id]["triangulation_mask"] = triang_mask
     q_frame.match[t_frame.id]["points"] = t_new_points
-    q_frame.match[t_frame.id]["point_ids"] = new_points_ids
    
     # Return the newly triangulated points
-    return t_new_points, new_points_ids, new_point_descriptors, True
+    return t_new_points, new_points_kpts, new_point_descriptors, True
 
-def guided_descriptor_search(map: Map, t_frame: Frame):
+def guided_descriptor_search(map: Map, t_frame: Frame, T_wc: np.ndarray):
     """
     For each map point (with a known 2D projection and a descriptor),
     search within a 'search_window' pixel box in the current t_frame.
@@ -177,24 +181,64 @@ def guided_descriptor_search(map: Map, t_frame: Frame):
                                   - map_idx in [0..N-1]
                                   - frame_idx in [0..len(t_frame.keypoints)-1]
     """
-    # In view map pixels and descriptors
-    map_pixels = map.pixels_in_view             # (M, 2)
-    map_descriptors = map.descriptors_in_view   # (M, 32)
-
-    # Current t_frame data
-    frame_kpts = t_frame.keypoints   # (N,)
-    frame_desc = t_frame.descriptors # (N,)
+    ## Extract the normalized camera center vector
+    cam_center_vec = T_wc[:3, 3]
+    cam_center_vec_norm = cam_center_vec / np.linalg.norm(cam_center_vec)
 
     # Extract config
     search_window = SETTINGS["guided_search"]["search_window"]
-    min_distance = SETTINGS["guided_search"]["min_distance"]
+    max_distance = SETTINGS["guided_search"]["max_distance"]
+    view_angle_threshold = SETTINGS["guided_search"]["view_angle_threshold"]
+    scale_factor = SETTINGS["orb"]["scale_factor"]
+    n_levels = SETTINGS["orb"]["level_pyramid"]
 
     # Prepare results
     matches = []  # list of (map_idx, frame_idx, best_dist)
 
+    # 1) Keep the map points that are in the current frame
+    num_points = map.num_points_in_view
+    map_points = map.points_in_view
+
     # For each projected map point, find candidate keypoints in a 2D window
-    for map_idx, (u, v) in enumerate(map_pixels):
-        desc_3d = map_descriptors[map_idx]  # (32, )
+    num_view_angle_f = 0
+    num_scale_f = 0
+    num_unmatched_kpt = 0
+    num_min_dist_f = 0
+    for map_idx in range(num_points):
+        # Extract the map point, its pixel location, its descriptor
+        map_point = map_points[map_idx]  
+        (u, v) = map_point.kpt.pt          # (2, )
+        map_point_desc = map_point.desc  # (32, )
+
+        # Extract the map point 3d position and its distance from the map origin
+        map_point_pos = map_point.pos    # (3, )
+        map_point_dist = np.linalg.norm(map_point_pos)
+
+        ## Extract the angle between the 2 vectors
+        map_point_pos_norm = map_point_pos / map_point_dist
+        dot_product = np.clip(np.dot(cam_center_vec_norm, map_point_pos_norm), -1.0, 1.0)
+        map_point_view_angle = np.degrees(np.arccos(dot_product))
+
+        # 2) Check if the viewing angle is less than the threshold
+        if map_point_view_angle < view_angle_threshold:
+            num_view_angle_f += 1
+            continue
+
+        # Extract the ORB scale invariance limits for that map point
+        dmin, dmax = map_point.getScaleInvarianceLimits()
+
+        # 3) Check if the map_point distance is in the scale invariance region
+        if map_point_dist < dmin or map_point_dist > dmax:
+            num_scale_f += 1
+            continue
+
+        # 4) Compute the scale in the frame
+        t_scale = map_point_dist/dmin
+    
+        # Compute the predicted pyramid level from t_scale.
+        predicted_level = int(round(np.log(t_scale) / np.log(scale_factor)))
+        # Clamp predicted_level to valid range
+        predicted_level = max(0, min(predicted_level, n_levels - 1))
 
         # Collect candidate keypoint indices within the bounding box
         candidate_indices = []
@@ -202,34 +246,53 @@ def guided_descriptor_search(map: Map, t_frame: Frame):
         v_min, v_max = v - search_window, v + search_window
 
         # Iterate over all the t_frame keypoints
-        for f_idx, kpt in enumerate(frame_kpts):
+        for kpt_idx, kpt in enumerate(t_frame.keypoints):
             (u_kpt, v_kpt) = kpt.pt
-            # Check if the keypoint is within the search window box
-            if (u_kpt >= u_min and u_kpt <= u_max and
-                v_kpt >= v_min and v_kpt <= v_max):
-                candidate_indices.append(f_idx)
 
+            # Check if the keypoint is within the search window box
+            if (u_kpt < u_min or u_kpt > u_max or
+                v_kpt < v_min or v_kpt > v_max):
+                continue
+    
+            # Check if the keypoint's pyramid level matches the predicted level (or is within an acceptable tolerance)
+            # For a strict match:
+            if kpt.octave != predicted_level:
+                continue
+
+            # Keep that frame candidate
+            candidate_indices.append(kpt_idx)
+
+        # No keypoints found near the projected point
         if len(candidate_indices) == 0:
-            # No keypoints found near the projected point
+            num_unmatched_kpt += 1
             continue
 
         # Find the best match among candidates by Hamming distance
         best_dist = float("inf")
         best_f_idx = -1
 
-        for f_idx in candidate_indices:
-            desc_2d = frame_desc[f_idx]  # (32,)
+        # Iterate over the frame keypoint candidates
+        for f_kpt_idx in candidate_indices:
+            frame_point_desc = t_frame.descriptors[f_kpt_idx]  # (32,)
             # Compute Hamming distance
-            dist = cv2.norm(desc_3d, desc_2d, cv2.NORM_HAMMING)
+            dist = cv2.norm(map_point_desc, frame_point_desc, cv2.NORM_HAMMING)
             if dist < best_dist:
                 best_dist = dist
-                best_f_idx = f_idx
+                best_f_idx = f_kpt_idx
 
         # Accept the best match if below threshold
-        if best_dist < min_distance:
-            matches.append((map_idx, best_f_idx, best_dist))
+        if best_dist > max_distance:
+            num_min_dist_f += 1
+            continue
+
+        matches.append((map_idx, best_f_idx, best_dist))
 
     if debug:
+        print(f"\t Guided Search Filtering: ",
+              f"\n\t\t View Angle: {num_view_angle_f}",
+              f"\n\t\t Scale: {num_scale_f}",
+              f"\n\t\t Unmatched: {num_unmatched_kpt}",
+              f"\n\t\t Max Dist: {num_min_dist_f}")
         print(f"\t Found {len(matches)} guided descriptor matches.")
 
     return matches
@@ -289,16 +352,10 @@ def estimate_relative_pose(
         If the function fails, returns (None, None).
     """
     map_points_w = map.points_in_view
-
-    print(f"Estimating Map -> Frame #{t_frame.id} pose using {len(map_points_w)} map points...")
     num_points = len(guided_matches)
+    print(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")
 
-    # 1) Check if enough 3D points exist
-    if num_points < 6:
-        print("\t Warning: Not enough points for pose estimation. Expected at least 6.")
-        return None
-
-    # 2) Build 3D <-> 2D correspondences
+    # 1) Build 3D <-> 2D correspondences
     map_points = []
     image_pxs = []
     for (map_idx, frame_idx, best_dist) in guided_matches:
@@ -310,7 +367,7 @@ def estimate_relative_pose(
     map_point_positions = np.array([p.pos for p in map_points], dtype=np.float32) # (M, 3)
     image_pxs = np.array(image_pxs, dtype=np.float32)     # (M, 2)
 
-    # 3) solvePnPRansac to get rvec/tvec for world->new_cam
+    # 2) solvePnPRansac to get rvec/tvec for world->new_cam
     success, rvec, tvec, inliers = cv2.solvePnPRansac(
         map_point_positions,
         image_pxs,
@@ -320,7 +377,7 @@ def estimate_relative_pose(
         confidence=SETTINGS["PnP"]["confidence"],
         iterationsCount=SETTINGS["PnP"]["iterations"]
     )
-    if not success or inliers is None or len(inliers) < 6:
+    if not success or inliers is None or len(inliers) < MIN_INLIERS:
         print("\t solvePnP failed or not enough inliers.")
         return None
     
@@ -329,8 +386,9 @@ def estimate_relative_pose(
     inliers = inliers.flatten()
     inliers_mask = np.zeros(num_points, dtype=bool)
     inliers_mask[inliers] = True
+    num_tracked_points = inliers_mask.sum()
     if debug:
-        print(f"\t solvePnPRansac filtered {num_points - np.sum(inliers_mask)}/{num_points} points.")
+        print(f"\t solvePnPRansac filtered {num_points - num_tracked_points}/{num_points} points.")
     
     # Keep only the pixels and points that match the estimated pose
     image_pxs = image_pxs[inliers_mask]
@@ -341,7 +399,7 @@ def estimate_relative_pose(
     for p in map_points:
         p.match_counter += 1
 
-    # 4) Compute reprojection error
+    # 3) Compute reprojection error
     ## Project the 3D points to 2D using the estimated pose
     projected_world_pxs, _ = cv2.projectPoints(map_point_positions, rvec, t_wc, K, dist_coeffs)
     projected_world_pxs = projected_world_pxs.squeeze()
@@ -353,7 +411,7 @@ def estimate_relative_pose(
     reproj_mask = errors < SETTINGS["PnP"]["reprojection_threshold"]
     error = np.mean(errors)
     if debug:
-        print(f"\t Reprojection error ({error:.2f}) filtered {num_points - reproj_mask.sum()}/{num_points} points.")
+        print(f"\t Reprojection error ({error:.2f}) filtered {len(map_points) - reproj_mask.sum()}/{len(map_points)} points.")
 
     ## Visualization
     if debug:
@@ -365,9 +423,9 @@ def estimate_relative_pose(
     T_wc[:3, :3] = R_wc
     T_wc[:3, 3] = t_wc
 
-    return T_wc
+    return T_wc, num_tracked_points
 
-def is_keyframe(T: np.ndarray):
+def is_keyframe(T: np.ndarray, num_tracked_points: int):
     """ Determine if motion expressed by t, R is significant by comparing to tresholds. """
     tx = T[0, 3] # The x component points right
     ty = T[1, 3] # The y component points down
@@ -376,9 +434,10 @@ def is_keyframe(T: np.ndarray):
     trans = np.sqrt(tx**2 + ty**2 + tz**2)
     angle = abs(get_yaw(T[:3, :3]))
 
-    is_keyframe = trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"]
+    # is_keyframe = trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"]
+    is_keyframe = num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
     if debug:
-        print(f"\t Displacement: dist: {trans:.3f}, angle: {angle:.3f}")
+        print(f"\t Tracked points: {num_tracked_points}, dist: {trans:.3f}, angle: {angle:.3f}")
         if is_keyframe:
             print("\t\t Keyframe!")
         else:
