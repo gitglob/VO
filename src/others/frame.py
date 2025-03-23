@@ -2,7 +2,7 @@ from typing import List, Tuple, Dict
 import numpy as np
 import cv2
 from cv2 import DMatch
-from src.visualize import plot_keypoints
+from src.others.visualize import plot_keypoints
 
 from config import results_dir, debug, SETTINGS
 
@@ -29,16 +29,15 @@ class Frame():
             frame_id: 
             {
                 "matches": List[DMatch],     # The feature matches between the two frames
-                "match_type": string,        # Whether the frame acted as query or train in the match
+                "init_matches":
+                "tracking_matches":
 
+                "match_type": string,        # Whether the frame acted as query or train in the match
                 "initialization": bool,      # Whether this frame was used to initialize the pose
                 "use_homography": bool,      # Whether the homography/essential matrix was used to initialize the pose
                 
                 "T": np.ndarray,          # The Transformation Matrix to get from the query frame (this frame) to the train frame (the one with frame_id)
                 "points": np.ndarray,        # The triangulated keypoint points
-                
-                "epipolar_constraint_mask": List[int],       # Which matches were kept after Essential/Homography filtering in this match
-                "triangulation_mask": List[int] # Which matches kept after triangulation in this match
             }
         }
         """
@@ -49,40 +48,41 @@ class Frame():
     def set_keyframe(self, is_keyframe: bool):
         self.is_keyframe = is_keyframe
 
-    def set_matches(self, with_frame_id: int, matches: List[DMatch], match_mask: np.ndarray, match_type: str):
+    def set_matches(self, with_frame_id: int, matches: List[DMatch], match_type: str):
         """Sets matches with another frame"""
         self.match[with_frame_id] = {}
         self.match[with_frame_id]["matches"] = np.array(matches, dtype=object)
         self.match[with_frame_id]["match_type"] = match_type
-        self.match[with_frame_id]["match_mask"] = match_mask
 
         # Default values for the rest
         self.match[with_frame_id]["initialization"] = None
         self.match[with_frame_id]["use_homography"] = None
-        self.match[with_frame_id]["epipolar_constraint_mask"] = None
         self.match[with_frame_id]["T"] = None
         self.match[with_frame_id]["points"] = None
 
-    def initialize(self, with_frame_id: int, use_homography: bool, epipolar_constraint_mask: np.ndarray, pose: np.ndarray):
+    def initialize(self, with_frame_id: int, use_homography: bool, pose: np.ndarray):
         """
         Initializes the frame with another frame.
         """
         self.match[with_frame_id]["use_homography"] = use_homography
-        self.match[with_frame_id]["epipolar_constraint_mask"] = epipolar_constraint_mask
         self.match[with_frame_id]["T"] = pose
+        self.match[with_frame_id]["initialization"] = True
 
-    def get_matches(self, with_frame_id: int, filter=None):
+    def get_matches(self, with_frame_id: int):
         """Returns matches with a specfic frame"""
         matches = self.match[with_frame_id]["matches"]
-        if not filter:
-            return matches
-        elif filter=="inliers":
-            mask = self.match[with_frame_id]["epipolar_constraint_mask"]
-            return matches[mask]
-        elif filter=="triangulation":
-            mask = self.match[with_frame_id]["triangulation_mask"]
-            return matches[mask]
+        return matches
 
+    def get_init_matches(self, with_frame_id: int):
+        """Returns matches with a specfic frame"""
+        matches = self.match[with_frame_id]["init_matches"]
+        return matches
+
+    def get_tracking_matches(self, with_frame_id: int):
+        """Returns matches with a specfic frame"""
+        matches = self.match[with_frame_id]["tracking_matches"]
+        return matches
+    
     def set_pose(self, pose: np.ndarray):
         self.pose = pose
     

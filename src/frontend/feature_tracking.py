@@ -1,15 +1,19 @@
 from typing import List
 import cv2
 import numpy as np
-from src.frame import Frame
-from src.visualize import plot_matches
+from src.others.frame import Frame
+from src.others.filtering import filterMatches
+from src.others.visualize import plot_matches
 
 from config import results_dir, debug, SETTINGS
 
 
+
 ############################### Feature Matching ##########################################
 
-def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
+MIN_NUM_MATCHES = SETTINGS["matches"]["min"]
+
+def matchFeatures(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
     """
     Matches features between two frames.
     
@@ -26,33 +30,26 @@ def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
     
     # 1) Match descriptors (KNN)
     matches = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
-
-    # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
-    filtered_matches = filter_matches(matches)
-
-    if len(matches) < SETTINGS["matches"]["min"]:
+    if len(matches) < MIN_NUM_MATCHES:
         return []
 
-    # 3) Create masks indicating whether each keypoint is used in a match
-    q_mask = np.zeros(len(q_frame.keypoints), dtype=bool)
-    t_mask = np.zeros(len(t_frame.keypoints), dtype=bool)
+    # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
+    matches = filterMatches(matches)
+    if len(matches) < MIN_NUM_MATCHES:
+        return []
 
-    for m in filtered_matches:
-        q_mask[m.queryIdx] = True
-        t_mask[m.trainIdx] = True
+    # 3) **Propagate keypoint IDs**  
+    propagate_keypoints(q_frame, t_frame, matches)
 
-    # 4) **Propagate keypoint IDs**  
-    propagate_keypoints(q_frame, t_frame, filtered_matches)
-
-    # 5) Store the matches in each frame
-    q_frame.set_matches(t_frame.id, filtered_matches, q_mask, "query")
-    t_frame.set_matches(q_frame.id, filtered_matches, t_mask, "train")
-    print(f"\t{len(filtered_matches)} matches left!")
+    # 4) Store the matches in each frame
+    q_frame.set_matches(t_frame.id, matches, "query")
+    t_frame.set_matches(q_frame.id, matches, "train")
+    print(f"\t{len(matches)} matches left!")
             
     # Save the matches
     if debug:
         match_save_path = results_dir / f"matches/{stage}" / f"{q_frame.id}_{t_frame.id}.png"
-        plot_matches(q_frame, t_frame, save_path=match_save_path)
+        plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
     return matches
 
@@ -78,15 +75,3 @@ def propagate_keypoints(q_frame: Frame, t_frame: Frame, matches: List[cv2.DMatch
             # Naive approach: unify by assigning query ID to train ID
             # or vice versa. Real SLAM systems often handle merges in a global map.
             t_kp.class_id = q_kp.class_id
-
-def filter_matches(matches, ratio=0.8):
-    """Filter out matches using Lowe's Ratio Test"""
-    good_matches = []
-    for m, n in matches:
-        if m.distance < ratio * n.distance:
-            good_matches.append(m)
-
-    if debug:
-        print(f"\tLowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
-    return good_matches
-   

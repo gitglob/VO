@@ -3,7 +3,7 @@ import glob
 import pandas as pd
 import cv2
 import numpy as np
-from src.utils import save_image
+from src.others.utils import save_image
 from config import results_dir, debug
 
 

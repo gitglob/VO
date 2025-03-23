@@ -1,7 +1,7 @@
 from typing import List
 import numpy as np
 import cv2
-from src.utils import invert_transform
+from src.others.utils import invert_transform
 from config import image_width, image_height, debug, SETTINGS
 
 
@@ -20,13 +20,21 @@ class mapPoint():
         self.pos: np.ndarray = pos        # 3D position
         self.kpt: cv2.KeyPoint = keypoint # ORB keypoint
         self.desc: np.ndarray = desc      # ORB descriptor
-        self.viewing_dir: np.ndarray = None # TODO
+
         self.init()
 
     def init(self):
-        self.id: int = self.kpt.class_id # The id of the keypoint
-        self.match_counter: int = 0      # Number of times the point was tracked with PnP
-        self.obs_counter: int = 0        # Number of times the point was observed in a Frame
+        self.id: int = self.kpt.class_id    # The id of the keypoint
+        self.match_counter: int = 0         # Number of times the point was tracked with PnP
+        self.obs_counter: int = 0           # Number of times the point was observed in a Frame
+
+    def view_ray(self, cam_center_vec):
+        v = self.pos - cam_center_vec
+        v = v / np.linalg.norm(v)
+        return v
+    
+    def mean_view_ray(self): # TODO: integrate multiple points
+        return self.view_ray(self.cam_center)
 
     def getScaleInvarianceLimits(self):
         dist = np.linalg.norm(self.pos - self.cam_center)
@@ -163,7 +171,7 @@ class Map():
         if debug:
             print(f"\tFound {self._in_view_mask.sum()} map points in the predicted camera pose view.")
     
-    def cleanup(self, T_wc: np.ndarray, K: np.ndarray):
+    def cull(self):
         """
         Args:
             T_wc: Transformation from world to camera coordinate frame
@@ -174,10 +182,9 @@ class Map():
             (2) with a view angle larger than the threshold
             (3) rarely matched as inlier point
         """
-        print("Cleaning up map points")
+        print("Cleaning up map points...")
 
         prev_num_points = self.num_points
-        self.view(T_wc, K)
 
         # 1) Remove points that are rarely matched
         match_view_ratio_mask = np.ones(self.num_points, dtype=bool)
@@ -188,7 +195,7 @@ class Map():
                     match_view_ratio_mask[i] = False
 
         self.points = self.points[match_view_ratio_mask]
-        print(f"Match-View ratio check removed {np.count_nonzero(~match_view_ratio_mask)} points!")
+        print(f"\t Match-View ratio check removed {np.count_nonzero(~match_view_ratio_mask)} points!")
 
         # 2) Remove points that are rarely seen
         num_views_mask = np.ones(self.num_points, dtype=bool)
@@ -201,9 +208,9 @@ class Map():
                 num_views_mask[i] = False
 
         self.points = self.points[num_views_mask]
-        print(f"Observability check removed {np.count_nonzero(~num_views_mask)} points!")
+        print(f"\t Observability check removed {np.count_nonzero(~num_views_mask)} points!")
 
-        print(f"Removed {prev_num_points - self.num_points}/{prev_num_points} points from the map!")
+        print(f"\t Removed {prev_num_points - self.num_points}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None

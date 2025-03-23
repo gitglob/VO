@@ -1,6 +1,6 @@
 import numpy as np
-from src.frame import Frame
-from src.utils import isnan
+from src.others.frame import Frame
+from src.others.utils import isnan
 from config import debug
 
 

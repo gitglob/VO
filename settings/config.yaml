@@ -14,18 +14,19 @@ triangulation:
     max_ratio_between_max_and_med_angle: 20
 
 guided_search:
-    search_window: 40
+    search_window: 100
     max_distance: 100
     view_angle_threshold: 60
 
 PnP:
-    reprojection_threshold: 2
+    reprojection_threshold: 4
     confidence: 0.99
     iterations: 300
     min_inliers: 4
 
 matches:
     min: 20
+    lowe_ratio: 0.8
 
 keyframe:
     distance: 1

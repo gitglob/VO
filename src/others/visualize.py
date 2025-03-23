@@ -6,7 +6,7 @@ import matplotlib
 from scipy.spatial.transform import Rotation as R
 
 from config import results_dir
-from src.utils import get_yaw
+from src.others.utils import get_yaw
 matplotlib.use('TkAgg')
 
 
@@ -361,21 +361,21 @@ def plot_keypoints(image, keypoints, save_path):
     cv2.imwrite(save_path, img_with_keypoints)
 
 # Function to visualize the found feature matches
-def plot_matches(q_frame, t_frame, mask: np.ndarray=None, save_path: str = None):
-    img1 = q_frame.img
-    kpts1 = q_frame.keypoints
-    img2 = t_frame.img
-    kpts2 = t_frame.keypoints
-    matches = q_frame.get_matches(t_frame.id)
+def plot_matches(matches, q_frame, t_frame, save_path: str = None):
+    if isinstance(matches, np.ndarray):
+        matches = matches.tolist()
+        
+    q_img = q_frame.img
+    q_kpts = q_frame.keypoints
 
-    if mask is not None:
-        matches = matches[mask]
+    t_img = t_frame.img
+    t_kpts = t_frame.keypoints
 
     if len(matches) > 50:
         matches = matches[:50]
 
     # Draw the matches on the images
-    matched_image = cv2.drawMatches(img1, kpts1, img2, kpts2, matches, outImg=None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    matched_image = cv2.drawMatches(q_img, q_kpts, t_img, t_kpts, matches, outImg=None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     
     # Save the image with matched features
     if not save_path:

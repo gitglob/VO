@@ -1,20 +1,18 @@
 import numpy as np
 
-from src.data import Dataset
+from src.others.data import Dataset
+from src.others.frame import Frame
+from src.others.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
+from src.others.utils import save_image, delete_subdirectories, transform_points, invert_transform
 
-from src.frame import Frame
-
-from src.frontend.feature_tracking import match_features
+from src.frontend.feature_tracking import matchFeatures
 from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import estimate_relative_pose, is_keyframe, predict_pose_constant_velocity, guided_descriptor_search, get_new_triangulated_points
-
+from src.frontend.tracking import estimate_relative_pose, is_keyframe, predictPose, pointAssociation, triangulateNewPoints
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
-from src.backend.local_map import Map
+from src.others.local_map import Map
 from src.backend import optimization
 
-from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
-from src.utils import save_image, delete_subdirectories, transform_points, invert_transform, get_yaw
 
 from config import main_dir, data_dir, scene, results_dir, debug, SETTINGS
 print(f"\t\tUsing dataset: `{scene}` ...")
@@ -93,7 +91,7 @@ def main():
                 q_frame = keyframes[-1]
 
                 # Feature matching
-                matches = match_features(q_frame, t_frame, K, "0-raw") # (N) : N < M
+                matches = matchFeatures(q_frame, t_frame, K, "0-raw") # (N) : N < M
 
                 # Check if there are enough matches
                 if len(matches) < SETTINGS["matches"]["min"]:
@@ -155,7 +153,7 @@ def main():
                 q_frame = keyframes[-1]
                     
                 # Predict next pose using constant velocity
-                pred_pose = predict_pose_constant_velocity(poses)
+                pred_pose = predictPose(poses)
                 T_wp = invert_transform(pred_pose)
     
                 # Find the map points that can be seen in the predicted robot's pose
@@ -166,7 +164,7 @@ def main():
                     continue
 
                 # Search the map point of the new frame in a small search window around the projected location
-                map_kpt_dist_pairs = guided_descriptor_search(map, t_frame, T_wp)
+                map_kpt_dist_pairs = pointAssociation(map, t_frame, T_wp)
                 if len(map_kpt_dist_pairs) < 6:
                     print(f"Not enough guided descriptor matches ({len(map_kpt_dist_pairs)}). Expected at least 6 for PnP.")
                     is_initialized = False
@@ -179,6 +177,9 @@ def main():
                     is_initialized = False
                     continue
                 T_tw = invert_transform(T_wt)
+    
+                # Find the map points that can be seen in the actual robot's pose
+                map.view(T_wt, K, pred=True)
             
                 # Check if this t_frame is a keyframe
                 T_wq = invert_transform(poses[-1])
@@ -199,12 +200,12 @@ def main():
 
                 # Do feature matching with the previous keyframe
                 q_frame = keyframes[-2]
-                matches = match_features(q_frame, t_frame, K, "5-tracking")
+                matches = matchFeatures(q_frame, t_frame, K, "5-raw")
                 q_frame.match[t_frame.id]["T"] = T_qt
                 t_frame.match[q_frame.id]["T"] = T_tq
 
                 # Find new keypoints and triangulate them
-                t_points, t_kpts, t_descriptors, new_points_success = get_new_triangulated_points(q_frame, t_frame, map, K)
+                t_points, t_kpts, t_descriptors, new_points_success = triangulateNewPoints(q_frame, t_frame, map, K)
                 if new_points_success:
                     # Transfer the points to the world frame
                     points_w = transform_points(t_points, T_tw)
@@ -213,7 +214,7 @@ def main():
                     map.add_points(points_w, t_kpts, t_descriptors, T_tw)
 
                 # Clean up map points that are not seen anymore
-                map.cleanup(T_wt, K)
+                map.cull()
                 
                 # Visualize the current state of the map and trajectory
                 plot_trajectory(poses, gt_poses, i)
