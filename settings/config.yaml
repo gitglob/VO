@@ -15,7 +15,7 @@ triangulation:
 
 guided_search:
     search_window: 100
-    max_distance: 100
+    max_distance: 60
     view_angle_threshold: 60
 
 PnP:

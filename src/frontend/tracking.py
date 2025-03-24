@@ -291,9 +291,9 @@ def pointAssociation(map: Map, t_frame: Frame, T_wc: np.ndarray):
                 best_f_idx = f_kpt_idx
 
         # Accept the best match if below threshold
-        # if best_dist > max_distance:
-        #     num_min_dist_f += 1
-        #     continue
+        if best_dist > max_distance:
+            num_min_dist_f += 1
+            continue
 
         distances.append(best_dist)
         matches.append((map_idx, best_f_idx, best_dist))
@@ -406,13 +406,8 @@ def estimate_relative_pose(
     if debug:
         print(f"\t solvePnPRansac filtered {num_points - num_tracked_points}/{num_points} points.")
     
-    # Keep only the pixels and points that match the estimated pose
-    image_pxs = image_pxs[inliers_mask]
-    map_points = map_points[inliers_mask]
-    map_point_positions = map_point_positions[inliers_mask]
-
     # Invrease the match counter for all matched points
-    for p in map_points:
+    for p in map_points[inliers_mask]:
         p.match_counter += 1
 
     # 3) Compute reprojection error
@@ -421,18 +416,21 @@ def estimate_relative_pose(
     projected_world_pxs = projected_world_pxs.squeeze()
     
     ## Calculate the per-point reprojection error (Euclidean distance)
-    errors = np.sqrt(np.sum((image_pxs - projected_world_pxs)**2, axis=1))
-    error = np.mean(errors)
+    errors = np.sqrt(np.sum((image_pxs[inliers_mask] - projected_world_pxs[inliers_mask])**2, axis=1))
     
     ## Create a mask for points with error less than the threshold
     reproj_mask = errors < SETTINGS["PnP"]["reprojection_threshold"]
     if debug:
-        print(f"\t Reprojection error ({error:.2f}) filtered {len(map_points) - reproj_mask.sum()}/{len(map_points)} points.")
+        print(f"\t Reprojection:",
+              f"\n\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})",
+              f"\n\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
 
     ## Visualization
     if debug:
-        img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}.png"
-        plot_reprojection(t_frame.img, image_pxs, projected_world_pxs, path=img_path)
+        img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}a.png"
+        plot_reprojection(t_frame.img, image_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
+        img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}b.png"
+        plot_reprojection(t_frame.img, image_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
     # 7) Construct T_{world->cam_new}
     T_wc = np.eye(4, dtype=np.float32)
