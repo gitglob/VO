@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from src.others.local_map import Map
+from src.others.local_map import Map, mapPoint
 from src.frontend.initialization import triangulate
 from src.others.frame import Frame
 from src.others.utils import invert_transform, get_yaw, transform_points
@@ -10,6 +10,8 @@ from config import debug, SETTINGS, results_dir
 
 
 MIN_INLIERS = SETTINGS["PnP"]["min_inliers"]
+W = SETTINGS["image"]["width"]
+H = SETTINGS["image"]["height"]
 
 
 def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray):
@@ -33,7 +35,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
             - A boolean indicating whether triangulation was successful.
     """
     if debug:
-        print(f"Performing tracking using keyframes {q_frame.id} & {t_frame.id}...")
+        print(f"Triangulating New Points using keyframes {q_frame.id} & {t_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
@@ -171,7 +173,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     # Return the newly triangulated points
     return t_new_points, t_new_kpts, t_new_descriptors, True
 
-def pointAssociation(map: Map, t_frame: Frame, T_wc: np.ndarray):
+def pointAssociation(map: Map, t_frame: Frame, T_wc: np.ndarray, search_window: int):
     """
     For each map point (with a known 2D projection and a descriptor),
     search within a 'search_window' pixel box in the current t_frame.
@@ -194,10 +196,8 @@ def pointAssociation(map: Map, t_frame: Frame, T_wc: np.ndarray):
     """
     ## Extract the normalized camera center vector
     cam_center_vec = T_wc[:3, 3]
-    cam_center_vec_norm = cam_center_vec / np.linalg.norm(cam_center_vec)
 
     # Extract config
-    search_window = SETTINGS["guided_search"]["search_window"]
     max_distance = SETTINGS["guided_search"]["max_distance"]
     view_angle_threshold = SETTINGS["guided_search"]["view_angle_threshold"]
     scale_factor = SETTINGS["orb"]["scale_factor"]
@@ -218,7 +218,7 @@ def pointAssociation(map: Map, t_frame: Frame, T_wc: np.ndarray):
     distances = []
     for map_idx in range(num_points):
         # Extract the map point, its pixel location, its descriptor
-        map_point = map_points[map_idx]  
+        map_point: mapPoint = map_points[map_idx]  
         (u, v) = map_point.kpt.pt          # (2, )
         map_point_desc = map_point.desc    # (32, )
 
@@ -252,8 +252,10 @@ def pointAssociation(map: Map, t_frame: Frame, T_wc: np.ndarray):
 
         # Collect candidate keypoint indices within the bounding box
         candidate_indices = []
-        u_min, u_max = u - search_window, u + search_window
-        v_min, v_max = v - search_window, v + search_window
+        u_min = max(u - search_window, 0)
+        u_max = min(u + search_window, W)
+        v_min = max(v - search_window, 0)
+        v_max = min(v + search_window, H)
 
         # Iterate over all the t_frame keypoints
         for kpt_idx, kpt in enumerate(t_frame.keypoints):
@@ -299,17 +301,18 @@ def pointAssociation(map: Map, t_frame: Frame, T_wc: np.ndarray):
         matches.append((map_idx, best_f_idx, best_dist))
 
     if debug:
+        print(f"\t Found {len(matches)} Point Associations!")
         print(f"\t Point Association filtering: ",
               f"\n\t\t View Change: {num_view_angle_f}",
               f"\n\t\t Scale: {num_scale_f}",
               f"\n\t\t Unmatched: {num_unmatched_kpt}",
               f"\n\t\t Max Dist: {num_min_dist_f}")
-        print(f"\t Hamming Distances of matches: ",
-              f"\n\t\t Min: {min(distances)}",
-              f"\n\t\t Max: {max(distances)}",
-              f"\n\t\t Mean: {np.mean(distances)}",
-              f"\n\t\t Median: {np.median(distances)}")
-        print(f"\t Found {len(matches)} guided descriptor matches.")
+        if (len(matches) > 0):
+            print(f"\t Hamming Distances of matches: ",
+                f"\n\t\t Min: {min(distances)}",
+                f"\n\t\t Max: {max(distances)}",
+                f"\n\t\t Mean: {np.mean(distances)}",
+                f"\n\t\t Median: {np.median(distances)}")
 
     return matches
 
@@ -395,7 +398,7 @@ def estimate_relative_pose(
     )
     if not success or inliers is None or len(inliers) < MIN_INLIERS:
         print("\t solvePnP failed or not enough inliers.")
-        return None
+        return None, None
     
     t_wc = tvec.flatten()
     R_wc, _ = cv2.Rodrigues(rvec)

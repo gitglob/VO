@@ -8,9 +8,6 @@ data_dir = Path.home() / "Documents" / "data" / "kitti"
 scene = "00"
 results_dir = main_dir / "results" / scene / "orb"
 
-image_width = 1243
-image_height = 376
-
 np.set_printoptions(precision=2, suppress=True)
 debug = True
 

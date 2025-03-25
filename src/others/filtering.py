@@ -20,8 +20,22 @@ def filterMatches(matches):
             good_matches.append(m)
 
     if debug:
-        print(f"\tLowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
-    return good_matches
+        print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+
+    # Next, ensure uniqueness by keeping only the best match per train descriptor.
+    unique_matches = {}
+    for m in good_matches:
+        # If this train descriptor is not seen yet, or if the current match is better, update.
+        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
+            unique_matches[m.trainIdx] = m
+
+    # Convert the dictionary values to a list of unique matches
+    unique_matches = list(unique_matches.values())
+
+    if debug:
+        print(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+
+    return unique_matches
 
 ############################### Keypoints ###############################
 
@@ -43,25 +57,23 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
 
     ## Compute symmetric transfer error for Homography Matrix
     error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H', K=K)
-
-    ## Decide which matrix to use based on the ratio of inliers
-    if debug:
-        print(f"\t Inliers E: {num_inliers_E}, Inliers H: {num_inliers_H}")
+        
     if num_inliers_E == 0 and num_inliers_H == 0:
-        print("All keypoint pairs yield errors > threshold..")
+        print("0 Inliers. All keypoint pairs yield errors > threshold..")
         return None, None, None
     
+    ## Decide which matrix to use based on the ratio of inliers
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
     if debug:
-        print(f"\t Ratio H/(E+H): {ratio}")
+        print(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio}")
 
     use_homography = (ratio > 0.45)
     if debug:
-        print(f"\t Using {'Homography' if use_homography else 'Essential'} Matrix...")
+        print(f"\t\t Using {'Homography' if use_homography else 'Essential'} Matrix...")
 
     epipolar_constraint_mask = mask_H if use_homography else mask_E
     if debug:
-        print(f"\t\t E/H inliers filtered {len(q_kpt_pixels) - np.sum(epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches!")
+        print(f"\t\t Epipolar Constraint filtered {len(q_kpt_pixels) - epipolar_constraint_mask.sum()}/{len(q_kpt_pixels)} matches!")
 
     M = H if use_homography else E
 
@@ -141,7 +153,6 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     Returns:   valid_angles_mask (bool array of shape (N,)),
                filtered_points_3d (N_filtered, 3) or (None, None)
     """
-    print("\t\tFiltering triangulation points...")
     # -----------------------------------------------------
     # (1) Positive-depth check in both cameras
     # -----------------------------------------------------
@@ -196,7 +207,6 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
 
     # Calculate median angle
     median_angle = np.median(angles)
-    print(f"\t\t The median angle is {median_angle:.3f} deg.")
 
     # Filter out points with too small triangulation angle
     valid_angles_mask = angles >= SETTINGS["triangulation"]["min_angle"]
@@ -212,11 +222,7 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     triang_mask[triang_mask==True] = max_med_angles_mask
 
     # Check conditions to decide whether to discard
-    print(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points!")
-
-    
-    print(f"\t\tTotal filtering: {num_points-triang_mask.sum()}/{num_points}")
-    print(f"\t\t {max_med_angles_mask.sum()} points left!")
+    print(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points! Median angle: {median_angle:.3f} deg.")
 
     return triang_mask # (N,)
 
@@ -234,8 +240,6 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, save_path):
     Returns:
         np.array: Updated boolean mask with matches having large reprojection errors filtered out.
     """
-    if debug:
-        print("\tReprojecting correspondances...")
     # Extract matched keypoints
     q_pxs = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
     t_pxs = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
@@ -259,9 +263,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, save_path):
 
     num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
     if debug:
-        print(f"\t\tPrior mean reprojection error: {np.mean(errors):.3f} px")
-        print(f"\t\tReprojection filtered: {num_removed_matches}/{len(q_pxs)}")
-        print(f"\t\tFinal mean reprojection error: {np.mean(errors[reproj_mask]):.3f} px")
+        print(f"\t\tReprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
 
     # Debugging visualization
     if debug:

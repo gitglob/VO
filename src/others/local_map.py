@@ -1,13 +1,14 @@
 from typing import List
 import numpy as np
 import cv2
-from src.others.utils import invert_transform
-from config import image_width, image_height, debug, SETTINGS
+from config import debug, SETTINGS
 
 
 scale_factor = SETTINGS["orb"]["scale_factor"]
 n_levels = SETTINGS["orb"]["level_pyramid"]
 min_observations = SETTINGS["orb"]["level_pyramid"]
+W = SETTINGS["image"]["width"]
+H = SETTINGS["image"]["height"]
 
 class mapPoint():
     def __init__(self, kf_id: int, 
@@ -156,8 +157,8 @@ class Map():
 
         # 5) Check if the projected points lie within image boundaries.
         boundary_mask = (
-            (self._u >= 0) & (self._u < image_width) &
-            (self._v >= 0) & (self._v < image_height)
+            (self._u >= 0) & (self._u < W) &
+            (self._v >= 0) & (self._v < H)
         )
 
         # 6) Combine the z_positive and in_view mask

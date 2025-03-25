@@ -13,8 +13,9 @@ matplotlib.use('TkAgg')
 ############################### Pose Visualization ###############################
 
 def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory"):
-    plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
-    plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
+    plot_trajectory_2d(poses, gt, save_path / f"{i}.png")
+    # plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
+    # plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
 
 def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     num_poses = len(poses)

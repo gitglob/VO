@@ -11,7 +11,7 @@ from src.frontend.tracking import estimate_relative_pose, is_keyframe, predictPo
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.others.local_map import Map
-from src.backend import optimization
+from src.backend.full_ba import BA
 
 
 from config import main_dir, data_dir, scene, results_dir, debug, SETTINGS
@@ -45,6 +45,9 @@ def main():
     # Get the camera matrix
     K = data.get_intrinsics()
 
+    # Initialize the BA optimizer
+    ba = BA(K)
+
     # Initialize the graph, the keyframes, and the bow list
     frames = []
     keyframes = []
@@ -54,7 +57,6 @@ def main():
     # Run the main VO loop
     i = -1
     is_initialized = False
-    is_scale_initialized = False
     while not data.finished():
         # Advance the iteration
         i+=1
@@ -74,6 +76,7 @@ def main():
             pose = gt_pose
             assert np.all(np.eye(4) - pose < 1e-6)
 
+            ba.add_first_pose(pose, t_frame.id)
             gt_poses.append(gt_pose)
             poses.append(pose)
             t_frame.set_pose(pose)
@@ -124,6 +127,14 @@ def main():
                     print("Triangulation failed!")
                     continue
 
+                # Transfer the points to the world frame
+                points_w = transform_points(t_points, scaled_pose)
+
+                # Add pose and landmarks to the optimizer
+                ba.add_pose(scaled_pose, t_frame.id)
+                ba.add_landmarks(points_w, t_kpts)
+                ba.add_observations(t_frame.id, t_kpts)
+
                 # Save the pose and t_frame information
                 gt_poses.append(gt_pose)
                 poses.append(scaled_pose)
@@ -141,9 +152,6 @@ def main():
                 if debug:
                     save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
-                # Transfer the points to the world frame
-                points_w = transform_points(t_points, scaled_pose)
-
                 # Create a local map and push the triangulated points
                 map = Map(q_frame.id)
                 map.add_points(points_w, t_kpts, t_descriptors, scaled_pose)
@@ -158,15 +166,27 @@ def main():
     
                 # Find the map points that can be seen in the predicted robot's pose
                 map.view(T_wp, K, pred=True)
-                if map.num_points_in_view < 6:
-                    print(f"Not enough points in view ({map.num_points_in_view}). Expected at least 6 for PnP.")
+                if map.num_points_in_view < SETTINGS["keyframe"]["num_tracked_points"]:
+                    print(f"Not enough points in view ({map.num_points_in_view}).")
                     is_initialized = False
                     continue
 
-                # Search the map point of the new frame in a small search window around the projected location
-                map_kpt_dist_pairs = pointAssociation(map, t_frame, T_wp)
-                if len(map_kpt_dist_pairs) < 6:
-                    print(f"Not enough guided descriptor matches ({len(map_kpt_dist_pairs)}). Expected at least 6 for PnP.")
+                # Search the map point of the new frame in a window around the projected location
+                associations_found = False
+                search_window = SETTINGS["guided_search"]["search_window"]
+                while not associations_found:
+                    map_kpt_dist_pairs = pointAssociation(map, t_frame, T_wp, search_window)
+                    if len(map_kpt_dist_pairs) > SETTINGS["guided_search"]["num_associations"]:
+                        associations_found = True
+                    else:
+                        # Keep increasing the search window if associations are not found
+                        search_window *= 2
+                        print(f"Not enough point associations ({len(map_kpt_dist_pairs)}).",
+                              f"Increasing window size to {search_window}!")
+                        if search_window > 2000:
+                            break
+                if not associations_found:
+                    print("Point association failed!")
                     is_initialized = False
                     continue
 
@@ -187,6 +207,9 @@ def main():
                 if not is_keyframe(T_tq, num_tracked_points):
                     continue
 
+                # Add the new pose to the optimizer
+                ba.add_pose(T_tw, t_frame.id)
+                
                 # Save the T_tw and t_frame information
                 gt_poses.append(gt_pose)
                 poses.append(T_tw)
@@ -213,11 +236,17 @@ def main():
                     # Add the triangulated points to the local map
                     map.add_points(points_w, t_kpts, t_descriptors, T_tw)
 
+                    # Add landmarks and observations to the optimizer
+                    ba.add_landmarks(points_w, t_kpts)
+                    ba.add_observations(t_frame.id, t_kpts)
+
                 # Clean up map points that are not seen anymore
                 map.cull()
-                
-                # Visualize the current state of the map and trajectory
+
+                # Optimizer the poses using BA
                 plot_trajectory(poses, gt_poses, i)
+                poses, _ = ba.optimize()
+                plot_trajectory(poses, gt_poses, i, save_path=results_dir / "trajectory_ba")
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)

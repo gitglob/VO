@@ -7,7 +7,11 @@ from src.others.visualize import plot_matches
 
 from config import results_dir, debug, SETTINGS
 
-
+def has_duplicates(arr):
+    # If array is multidimensional, flatten it
+    arr = np.ravel(arr)
+    unique_vals, counts = np.unique(arr, return_counts=True)
+    return np.any(counts > 1)
 
 ############################### Feature Matching ##########################################
 
@@ -38,7 +42,7 @@ def matchFeatures(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
     if len(matches) < MIN_NUM_MATCHES:
         return []
 
-    # 3) **Propagate keypoint IDs**  
+    # 3) **Propagate keypoint IDs**
     propagate_keypoints(q_frame, t_frame, matches)
 
     # 4) Store the matches in each frame

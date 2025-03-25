@@ -1,3 +1,7 @@
+image:
+    width: 1243
+    height: 376
+
 orb:
     num_keypoints: 8000
     scale_factor: 1.2
@@ -14,9 +18,10 @@ triangulation:
     max_ratio_between_max_and_med_angle: 20
 
 guided_search:
-    search_window: 100
-    max_distance: 60
+    search_window: 20
+    max_distance: 40
     view_angle_threshold: 60
+    num_associations: 100
 
 PnP:
     reprojection_threshold: 4
@@ -37,3 +42,7 @@ map:
     match_view_ratio: 0.25
     min_observations: 3
     max_size: 1000
+
+ba:
+    first_pose_noise: 1e-9  # Std. deviation for the first robot pose (meters)
+    measurement_noise: 1.0  # Std. Deviation for camera measurements (pixels)
