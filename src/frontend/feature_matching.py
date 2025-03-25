@@ -7,11 +7,6 @@ from src.others.visualize import plot_matches
 
 from config import results_dir, debug, SETTINGS
 
-def has_duplicates(arr):
-    # If array is multidimensional, flatten it
-    arr = np.ravel(arr)
-    unique_vals, counts = np.unique(arr, return_counts=True)
-    return np.any(counts > 1)
 
 ############################### Feature Matching ##########################################
 

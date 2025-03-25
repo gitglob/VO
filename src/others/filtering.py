@@ -263,7 +263,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, save_path):
 
     num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
     if debug:
-        print(f"\t\tReprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
+        print(f"\t\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
 
     # Debugging visualization
     if debug:

@@ -5,9 +5,9 @@ from src.others.frame import Frame
 from src.others.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
 from src.others.utils import save_image, delete_subdirectories, transform_points, invert_transform
 
-from src.frontend.feature_tracking import matchFeatures
+from src.frontend.feature_matching import matchFeatures
 from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import estimate_relative_pose, is_keyframe, predictPose, pointAssociation, triangulateNewPoints
+from src.frontend.tracking import estimate_relative_pose, is_keyframe, pointAssociation, triangulateNewPoints
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.others.local_map import Map
@@ -47,6 +47,9 @@ def main():
 
     # Initialize the BA optimizer
     ba = BA(K)
+
+    # Initialize the local map
+    map = Map()
 
     # Initialize the graph, the keyframes, and the bow list
     frames = []
@@ -152,55 +155,36 @@ def main():
                 if debug:
                     save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
-                # Create a local map and push the triangulated points
-                map = Map(t_frame.id)
+                # Push the triangulated points to the map
                 map.add_points(t_frame.id, points_w, t_kpts, t_descriptors, scaled_pose)
             # ########### Tracking ###########
             else:
                 print("Tracking)")
                 q_frame = keyframes[-1]
-                    
-                # Predict next pose using constant velocity
-                pred_pose = predictPose(poses)
-                T_wp = invert_transform(pred_pose)
     
-                # Find the map points that can be seen in the predicted robot's pose
-                map.view(T_wp, K, pred=True)
+                # Find the map points that can be seen in the previous frame
+                T_wq = invert_transform(poses[-1])
+                map.view(T_wq, K)
                 if map.num_points_in_view < SETTINGS["keyframe"]["num_tracked_points"]:
                     print(f"Not enough points in view ({map.num_points_in_view}).")
                     is_initialized = False
                     continue
 
-                # Search the map point of the new frame in a window around the projected location
-                associations_found = False
-                search_window = SETTINGS["guided_search"]["search_window"]
-                while not associations_found:
-                    map_kpt_dist_pairs = pointAssociation(map, t_frame, T_wp, search_window)
-                    if len(map_kpt_dist_pairs) > SETTINGS["guided_search"]["num_associations"]:
-                        associations_found = True
-                    else:
-                        # Keep increasing the search window if associations are not found
-                        search_window *= 2
-                        print(f"Not enough point associations ({len(map_kpt_dist_pairs)}).",
-                              f"Increasing window size to {search_window}!")
-                        if search_window > 2000:
-                            break
-                if not associations_found:
+                # Match these map points with the current frame
+                map_t_pairs = pointAssociation(map, t_frame)
+                if len(map_t_pairs) < SETTINGS["point_association"]["num_matches"]:
                     print("Point association failed!")
                     is_initialized = False
                     continue
 
                 # Estimate the new world pose using PnP (3d-2d)
-                T_wt, num_tracked_points = estimate_relative_pose(map, t_frame, map_kpt_dist_pairs, K)
+                T_wt, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs, K)
                 if T_wt is None:
                     print(f"Warning: solvePnP failed!")
                     is_initialized = False
                     continue
                 T_tw = invert_transform(T_wt)
     
-                # Find the map points that can be seen in the actual robot's pose
-                map.view(T_wt, K, pred=True)
-            
                 # Check if this t_frame is a keyframe
                 T_wq = invert_transform(poses[-1])
                 T_tq = T_wq @ T_tw

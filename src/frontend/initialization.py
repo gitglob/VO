@@ -85,8 +85,6 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
             R, t, K,
             save_path=results_dir / f"matches/2-EH_reprojection/{q_frame.id}_{t_frame.id}.png"
         )
-        if debug:
-            print(f"\t\t Reprojection filtered {np.sum(mask_pose) - np.sum(reproj_mask)}/{np.sum(mask_pose)} matches!")
     else:
         # Decompose Homography Matrix
         num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(M, K)
