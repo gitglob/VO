@@ -153,8 +153,8 @@ def main():
                     save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 # Create a local map and push the triangulated points
-                map = Map(q_frame.id)
-                map.add_points(points_w, t_kpts, t_descriptors, scaled_pose)
+                map = Map(t_frame.id)
+                map.add_points(t_frame.id, points_w, t_kpts, t_descriptors, scaled_pose)
             # ########### Tracking ###########
             else:
                 print("Tracking)")
@@ -228,17 +228,23 @@ def main():
                 t_frame.match[q_frame.id]["T"] = T_tq
 
                 # Find new keypoints and triangulate them
-                t_points, t_kpts, t_descriptors, new_points_success = triangulateNewPoints(q_frame, t_frame, map, K)
+                (t_points, 
+                 old_kpts, old_descriptors, 
+                 new_kpts, new_descriptors, 
+                 new_points_success) = triangulateNewPoints(q_frame, t_frame, map, K)
                 if new_points_success:
                     # Transfer the points to the world frame
                     points_w = transform_points(t_points, T_tw)
 
                     # Add the triangulated points to the local map
-                    map.add_points(points_w, t_kpts, t_descriptors, T_tw)
+                    map.add_points(t_frame.id, points_w, new_kpts, new_descriptors, T_tw)
+
+                    # Update the old triangulated points
+                    map.update_points(t_frame.id, old_kpts, old_descriptors, T_tw)
 
                     # Add landmarks and observations to the optimizer
-                    ba.add_landmarks(points_w, t_kpts)
-                    ba.add_observations(t_frame.id, t_kpts)
+                    ba.add_landmarks(points_w, new_kpts)
+                    ba.add_observations(t_frame.id, new_kpts)
 
                 # Clean up map points that are not seen anymore
                 map.cull()
