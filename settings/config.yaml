@@ -41,5 +41,7 @@ map:
     max_keyframes_since_last_observation: 10
 
 ba:
+    odometry_trans_noise: 1.0  # Std. deviation for the calculated odometry (meters)
+    odometry_rot_noise: 10.0    # Std. deviation for the calculated odometry (degrees)
     first_pose_noise: 1e-9  # Std. deviation for the first robot pose (meters)
-    measurement_noise: 1.0  # Std. Deviation for camera measurements (pixels)
+    measurement_noise: 1.0  # Std. deviation for camera measurements (pixels)
