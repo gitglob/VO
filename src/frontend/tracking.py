@@ -119,21 +119,36 @@ def estimate_relative_pose(
     if not success or inliers is None or len(inliers) < MIN_INLIERS:
         print("\t solvePnP failed or not enough inliers.")
         return None, None
-    
-    t_wc = tvec.flatten()
-    R_wc, _ = cv2.Rodrigues(rvec)
     inliers = inliers.flatten()
+
+    # Build an inliers mask
     inliers_mask = np.zeros(num_points, dtype=bool)
     inliers_mask[inliers] = True
     num_tracked_points = inliers_mask.sum()
     if debug:
         print(f"\t solvePnPRansac filtered {num_points - num_tracked_points}/{num_points} points.")
     
+    # 3) Refine the pose using Levenberg-Marquardt on the inlier correspondences.
+    map_points_inliers = map_point_positions[inliers]
+    image_pxs_inliers = image_pxs[inliers]
+    rvec, tvec = cv2.solvePnPRefineLM(
+        map_points_inliers,
+        image_pxs_inliers,
+        K,
+        dist_coeffs,
+        rvec,
+        tvec
+    )
+
+    # 4) Convert refined pose to a 4x4 transformation matrix.
+    t_wc = tvec.flatten()
+    R_wc, _ = cv2.Rodrigues(rvec)
+    
     # Invrease the match counter for all matched points
     for p in map_points[inliers_mask]:
         p.match_counter += 1
 
-    # 3) Compute reprojection error
+    # 5) Compute reprojection error
     ## Project the 3D points to 2D using the estimated pose
     projected_world_pxs, _ = cv2.projectPoints(map_point_positions, rvec, t_wc, K, dist_coeffs)
     projected_world_pxs = projected_world_pxs.squeeze()
@@ -155,7 +170,7 @@ def estimate_relative_pose(
         img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}b.png"
         plot_reprojection(t_frame.img, image_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
-    # 7) Construct T_{world->cam_new}
+    # 6) Construct T_{world->cam_new}
     T_wc = np.eye(4, dtype=np.float32)
     T_wc[:3, :3] = R_wc
     T_wc[:3, 3] = t_wc
