@@ -162,6 +162,14 @@ class Map():
 
         print(f"Updating {len(keypoints)} map points.")
         
+    def update_landmarks(self, point_ids, point_positions):
+        """Updates the 3d positions of given map points"""
+        print("Updating landmark positions...")
+        for i in range(len(point_ids)):
+            p_idx = point_ids[i]
+            if p_idx in self.point_ids:
+                p = self.points[p_idx]
+                p.pos = point_positions[i]
 
     def view(self, T_wc: np.ndarray, K: np.ndarray):
         """
@@ -247,7 +255,8 @@ class Map():
         for p_id in removed_point_ids:
             del self.points[p_id]
 
-        print(f"\t Match-View ratio check removed {len(removed_point_ids)} points!")
+        if debug:
+            print(f"\t Match-View ratio check removed {len(removed_point_ids)} points!")
 
         # 2) Remove points that are rarely seen
         removed_point_ids1 = []
@@ -260,7 +269,8 @@ class Map():
         for p_id in removed_point_ids1:
             del self.points[p_id]
 
-        print(f"\t Observability check removed {len(removed_point_ids1)} points!")
+        if debug:
+            print(f"\t Observability check removed {len(removed_point_ids1)} points!")
 
         # 2) Remove very old points
         removed_point_ids2 = []
@@ -273,9 +283,11 @@ class Map():
         for p_id in removed_point_ids2:
             del self.points[p_id]
 
-        print(f"\t Oldness check removed {len(removed_point_ids2)} points!")
+        if debug:
+            print(f"\t Oldness check removed {len(removed_point_ids2)} points!")
 
-        print(f"\t Removed {len(removed_point_ids) + len(removed_point_ids2)}/{prev_num_points} points from the map!")
+        if debug:
+            print(f"\t Removed {len(removed_point_ids) + len(removed_point_ids2)}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None

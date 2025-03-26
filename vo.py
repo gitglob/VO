@@ -11,7 +11,7 @@ from src.frontend.tracking import estimate_relative_pose, is_keyframe, pointAsso
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.others.local_map import Map
-from src.backend.isam import BA
+from src.backend.ba import BA
 
 
 from config import main_dir, data_dir, scene, results_dir, debug, SETTINGS
@@ -135,7 +135,7 @@ def main():
                 points_w = transform_points(t_points, scaled_pose)
 
                 # Add pose and landmarks to the optimizer
-                ba.add_odometry(T_tq, scaled_pose, t_frame.id)
+                ba.add_odometry(T_tq, t_frame.id)
                 ba.add_landmarks(points_w, t_kpts)
                 ba.add_observations(t_frame.id, t_kpts)
 
@@ -193,7 +193,7 @@ def main():
                     continue
 
                 # Add the new pose to the optimizer
-                ba.add_odometry(T_tq, T_tw, t_frame.id)
+                ba.add_odometry(T_tq, t_frame.id)
                 
                 # Save the T_tw and t_frame information
                 gt_poses.append(gt_pose)
@@ -236,12 +236,14 @@ def main():
 
                 # Optimizer the poses using BA
                 plot_trajectory(poses, gt_poses, i)
-                if i > 10 and i % opt_freq == 0:
-                    poses, _ = ba.optimize()
-                    plot_trajectory(poses, gt_poses, i, save_path=results_dir / "trajectory_ba")
+                if i > 0 and i % opt_freq == 0:
+                    poses, landmark_ids, landmark_poses = ba.optimize()
+                    # map.update_landmarks(landmark_ids, landmark_poses)
+                    plot_trajectory(poses, gt_poses, i, ba=True)
+                    breakpoint()
 
     # Perform one final optimization
-    poses, _ = ba.finalize()
+    poses = ba.finalize()
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)

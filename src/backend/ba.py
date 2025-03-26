@@ -5,10 +5,12 @@ from config import SETTINGS
 from gtsam.symbol_shorthand import X, L 
 
 
-MEASUREMENT_SIGMA = SETTINGS["ba"]["measurement_noise"]
-ODOMETRY_TRANS_SIGMA = SETTINGS["ba"]["odometry_trans_noise"]
-ODOMETRY_ROT_SIGMA = np.deg2rad(SETTINGS["ba"]["odometry_rot_noise"])
-PRIOR_SIGMA = SETTINGS["ba"]["first_pose_noise"]
+POSE_PRIOR_SIGMA = float(SETTINGS["ba"]["first_pose_noise"])
+ODOMETRY_TRANS_SIGMA = float(SETTINGS["ba"]["odometry_trans_noise"])
+ODOMETRY_ROT_SIGMA = np.deg2rad(float(SETTINGS["ba"]["odometry_rot_noise"]))
+
+MEASUREMENT_PRIOR_SIGMA = float(SETTINGS["ba"]["first_measurement_noise"])
+MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
 
 
 class BA:
@@ -32,21 +34,25 @@ class BA:
         self.calibration = gtsam.Cal3_S2(fx, fy, 0.0, cx, cy)
 
         # Measurement and odometry noise
-        self.measurement_noise = gtsam.noiseModel.Isotropic.Sigma(2, MEASUREMENT_SIGMA)
-        self.odometry_noise = gtsam.noiseModel.Isotropic.Sigmas(
+        self.odometry_noise = gtsam.noiseModel.Diagonal.Sigmas(
             np.array([ODOMETRY_TRANS_SIGMA]*3 + [ODOMETRY_ROT_SIGMA]*3)
         )
+        self.measurement_noise = gtsam.noiseModel.Isotropic.Sigma(2, MEASUREMENT_SIGMA)
         
         # Prior noise
-        self.prior_pose_noise = gtsam.noiseModel.Diagonal.Sigmas(np.array([PRIOR_SIGMA] * 6))
-        self.prior_pos_noise = gtsam.noiseModel.Isotropic.Sigmas(np.array([PRIOR_SIGMA] * 3))
+        self.prior_pose_noise = gtsam.noiseModel.Isotropic.Sigma(6, POSE_PRIOR_SIGMA)
+        self.prior_landmark_noise = gtsam.noiseModel.Isotropic.Sigma(3, MEASUREMENT_PRIOR_SIGMA)
         
         # Counters for poses and landmarks keys.
         self.poses = []
         self.landmarks = []
+        self._last_pose = None
 
         # Debugging info
         self.verbose = verbose
+
+        # Flag for first initialization
+        self.initialized = False
 
     def add_first_pose(self, pose: np.ndarray, node_idx: int):
         """Add the first pose and anchor it with a prior factor."""
@@ -59,8 +65,9 @@ class BA:
             print(f"Added fixed pose X({node_idx})")
         
         self.poses.append(node_idx)
+        self._last_pose = pose
 
-    def add_odometry(self, T: np.ndarray, pose: np.ndarray, node_idx: int):
+    def add_odometry(self, T: np.ndarray, node_idx: int):
         """
         Add an odometry measurement to the graph.
 
@@ -70,6 +77,9 @@ class BA:
         """
         # Extract the Rotation and Translation components from the transformation matrix
         T = gtsam.Pose3(T)
+
+        # Retrieve the new pose
+        new_pose = self._last_pose.compose(T).matrix()
         
         # Add a BetweenFactor (edge) between the last pose and the new pose
         edge = gtsam.BetweenFactorPose3(X(self.poses[-1]), 
@@ -82,10 +92,7 @@ class BA:
             print(f"Added edge X({self.poses[-1]}) ~ X({node_idx})")
 
         # Insert the new pose into initial estimates
-        self._add_pose(pose, node_idx)
-    
-        # Update iSAM2 and clear the graph
-        self.optimize()
+        self._add_pose(new_pose, node_idx)
 
     def _add_pose(self, pose: np.ndarray, node_idx: int):
         """Add a subsequent pose."""
@@ -96,6 +103,7 @@ class BA:
             print(f"Added pose X({node_idx})")
         
         self.poses.append(node_idx)
+        self._last_pose = pose
 
     def add_landmarks(self, landmarks: np.ndarray, landmark_kpts: np.ndarray):
         """Add landmarks.
@@ -115,9 +123,9 @@ class BA:
             pt = gtsam.Point3(pt)
 
             self.initial_estimates.insert(L(l_idx), pt)
-            self.graph.add(gtsam.PriorFactorPoint3(L(l_idx), pt, self.prior_pos_noise))
-            if self.verbose:
-                print(f"Added landmark L({l_idx})")
+            self.graph.add(gtsam.PriorFactorPoint3(L(l_idx), pt, self.prior_landmark_noise))
+            # if self.verbose:
+            #     print(f"Added landmark L({l_idx})")
             self.landmarks.append(l_idx)
 
     def add_observations(self, pose_idx: int, observations: np.ndarray[cv2.KeyPoint]):
@@ -146,9 +154,17 @@ class BA:
 
     def optimize(self):
         """ Optimize the graph and return the optimized robot poses and landmark positions"""
+        # Do a full optimize the first time
+        if not self.initialized:
+            batchOptimizer = gtsam.LevenbergMarquardtOptimizer(
+                self.graph, self.initial_estimates)
+            self.initial_estimates = batchOptimizer.optimize()
+            self.initialized = True
+
         # Update iSAM
         self.isam.update(self.graph, self.initial_estimates)
         self.estimate = self.isam.calculateEstimate()
+        self._lastPose = self.estimate.atPose3(X(self.poses[-1]))
 
         # Get the optimized robot poses and landmark positions
         optimized_poses = self.get_poses()
@@ -158,7 +174,7 @@ class BA:
         self.graph = gtsam.NonlinearFactorGraph()
         self.initial_estimates = gtsam.Values()
 
-        return optimized_poses, optimized_landmark_poses
+        return optimized_poses, self.landmarks, optimized_landmark_poses
     
     def finalize(self):
         """Returns the final estimate"""
@@ -166,9 +182,8 @@ class BA:
 
         # Get the optimized robot poses and landmark positions
         optimized_poses = self.get_poses()
-        optimized_landmark_poses = self.get_landmarks()
 
-        return optimized_poses, optimized_landmark_poses
+        return optimized_poses
 
     def get_poses(self):
         """

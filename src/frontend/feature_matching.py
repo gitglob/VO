@@ -43,7 +43,8 @@ def matchFeatures(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
     # 4) Store the matches in each frame
     q_frame.set_matches(t_frame.id, matches, "query")
     t_frame.set_matches(q_frame.id, matches, "train")
-    print(f"\t{len(matches)} matches left!")
+    if debug:
+        print(f"\t{len(matches)} matches left!")
             
     # Save the matches
     if debug:

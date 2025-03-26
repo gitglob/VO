@@ -170,7 +170,8 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     # If no point remains, triangulation failed
     t_points = t_points[cheirality_mask]
     q_points = q_points[cheirality_mask]
-    print(f"\t\t Cheirality check filtered {num_points - cheirality_mask.sum()}/{num_points} points!")
+    if debug:
+        print(f"\t\t Cheirality check filtered {num_points - cheirality_mask.sum()}/{num_points} points!")
     if cheirality_mask.sum() == 0:
         return None
 
@@ -214,7 +215,8 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     triang_mask[triang_mask==True] = valid_angles_mask
 
     # Check conditions to decide whether to discard
-    print(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{cheirality_mask.sum()} points!")
+    if debug:
+        print(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{cheirality_mask.sum()} points!")
 
     # Filter out points with very high angle compared to the median
     max_med_angles_mask = filtered_angles / median_angle < SETTINGS["triangulation"]["max_ratio_between_max_and_med_angle"]
@@ -222,7 +224,8 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     triang_mask[triang_mask==True] = max_med_angles_mask
 
     # Check conditions to decide whether to discard
-    print(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points! Median angle: {median_angle:.3f} deg.")
+    if debug:
+        print(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points! Median angle: {median_angle:.3f} deg.")
 
     return triang_mask # (N,)
 
@@ -295,5 +298,6 @@ def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
             scale_mask[i] = False
 
     # Check conditions to decide whether to discard
-    print(f"\t\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
+    if debug:
+        print(f"\t\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
     return scale_mask

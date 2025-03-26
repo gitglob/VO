@@ -33,7 +33,7 @@ matches:
 keyframe:
     distance: 1
     angle: 10
-    num_tracked_points: 10
+    num_tracked_points: 20
 
 map:
     match_view_ratio: 0.25
@@ -41,7 +41,8 @@ map:
     max_keyframes_since_last_observation: 10
 
 ba:
-    odometry_trans_noise: 1.0  # Std. deviation for the calculated odometry (meters)
+    first_pose_noise: 1e-9 # Std. deviation for the first robot pose (meters)
+    odometry_trans_noise: 2.0  # Std. deviation for the calculated odometry (meters)
     odometry_rot_noise: 10.0    # Std. deviation for the calculated odometry (degrees)
-    first_pose_noise: 1e-9  # Std. deviation for the first robot pose (meters)
-    measurement_noise: 1.0  # Std. deviation for camera measurements (pixels)
+    first_measurement_noise: 1e-9  # Std. deviation for the first landmark observation (pixels)
+    measurement_noise: 50.0  # Std. deviation for camera measurements (pixels)
