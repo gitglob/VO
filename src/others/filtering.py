@@ -270,7 +270,8 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, save_path):
 
     # Debugging visualization
     if debug:
-        plot_reprojection(t_frame.img, t_pxs, points_proj_px, path=save_path)
+        plot_reprojection(t_frame.img, t_pxs[~reproj_mask], points_proj_px[~reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}a.png")
+        plot_reprojection(t_frame.img, t_pxs[reproj_mask], points_proj_px[reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}b.png")
 
     return reproj_mask
 

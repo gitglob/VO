@@ -47,7 +47,7 @@ def main():
 
     # Initialize the BA optimizer
     ba = BA(K)
-    opt_freq = 10
+    opt_freq = SETTINGS["ba"]["frequency"]
 
     # Initialize the local map
     map = Map()
@@ -98,7 +98,7 @@ def main():
                 q_frame = keyframes[-1]
 
                 # Feature matching
-                matches = matchFeatures(q_frame, t_frame, K, "0-raw") # (N) : N < M
+                matches = matchFeatures(q_frame, t_frame, K, "initialization/0-raw") # (N) : N < M
 
                 # Check if there are enough matches
                 if len(matches) < SETTINGS["matches"]["min"]:
@@ -208,7 +208,7 @@ def main():
 
                 # Do feature matching with the previous keyframe
                 q_frame = keyframes[-2]
-                matches = matchFeatures(q_frame, t_frame, K, "5-raw")
+                matches = matchFeatures(q_frame, t_frame, K, "mapping/0-raw")
                 q_frame.match[t_frame.id]["T"] = T_qt
                 t_frame.match[q_frame.id]["T"] = T_tq
 
@@ -238,7 +238,7 @@ def main():
                 plot_trajectory(poses, gt_poses, i)
                 if i > 0 and i % opt_freq == 0:
                     poses, landmark_ids, landmark_poses = ba.optimize()
-                    # map.update_landmarks(landmark_ids, landmark_poses)
+                    map.update_landmarks(landmark_ids, landmark_poses)
                     plot_trajectory(poses, gt_poses, i, ba=True)
                     breakpoint()
 

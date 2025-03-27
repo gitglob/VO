@@ -46,6 +46,7 @@ class BA:
         # Counters for poses and landmarks keys.
         self.poses = []
         self.landmarks = []
+        self.obs_buffer = {}
         self._last_pose = None
 
         # Debugging info
@@ -150,7 +151,27 @@ class BA:
                 L(l_idx),
                 self.calibration
             )
-            self.graph.add(factor)
+
+            # If that landmark has been observed before, add it to the graph 
+            if l_idx in self.obs_buffer.keys():
+                # Get the number of observations of that landmark
+                num_obs = self.obs_buffer[l_idx]["count"]
+
+                # If there is only one, add the first factor to the graph
+                if num_obs == 1:
+                    self.graph.add(self.obs_buffer[l_idx]["first_factor"])
+
+                # Add the current factor too
+                self.graph.add(factor)
+
+                # Increase the factor observation counter
+                self.obs_buffer[l_idx]["count"] += 1
+            else:
+                # If it is the first observation, add the factor to a buffer
+                self.obs_buffer[l_idx] = {
+                    "first_factor": factor,
+                    "count": 1
+                }
 
     def optimize(self):
         """ Optimize the graph and return the optimized robot poses and landmark positions"""
@@ -171,6 +192,7 @@ class BA:
         optimized_landmark_poses = self.get_landmarks()
 
         # Prepare a new graph
+        self.obs_buffer = {}
         self.graph = gtsam.NonlinearFactorGraph()
         self.initial_estimates = gtsam.Values()
 

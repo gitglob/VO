@@ -14,7 +14,7 @@ orb:
     max_num_keypoints: 1500
 
 triangulation:
-    min_angle: 1
+    min_angle: 0.5
     max_ratio_between_max_and_med_angle: 20
 
 point_association:
@@ -31,7 +31,7 @@ matches:
     lowe_ratio: 0.8
 
 keyframe:
-    distance: 1
+    distance: 2
     angle: 10
     num_tracked_points: 20
 
@@ -41,8 +41,9 @@ map:
     max_keyframes_since_last_observation: 10
 
 ba:
+    frequency: 10
     first_pose_noise: 1e-9 # Std. deviation for the first robot pose (meters)
     odometry_trans_noise: 2.0  # Std. deviation for the calculated odometry (meters)
     odometry_rot_noise: 10.0    # Std. deviation for the calculated odometry (degrees)
-    first_measurement_noise: 1e-9  # Std. deviation for the first landmark observation (pixels)
-    measurement_noise: 50.0  # Std. deviation for camera measurements (pixels)
+    first_measurement_noise: 5.0  # Std. deviation for the first landmark observation (pixels)
+    measurement_noise: 5.0  # Std. deviation for camera measurements (pixels)

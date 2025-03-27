@@ -31,7 +31,15 @@ def pointAssociation(map: Map, t_frame: Frame):
     """
     # Extract the in view descriptors
     map_points = map.points_in_view
-    map_descriptors = np.array([p.observations[-1]["descriptor"] for p in map_points])
+    map_descriptors = []
+    map_descriptors_idx = []
+    for i, p in enumerate(map_points):
+        # Get the descriptors from every observation of a point
+        for obs in p.observations:
+            map_descriptors.append(obs["descriptor"])
+            map_descriptors_idx.append(i)
+    map_descriptors = np.array(map_descriptors)
+    map_descriptors_idx = np.array(map_descriptors_idx)
 
     # Create BFMatcher object
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
@@ -41,15 +49,20 @@ def pointAssociation(map: Map, t_frame: Frame):
     if len(matches) < MIN_NUM_MATCHES:
         return []
 
-    # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
+    # 2) Filter matches
     matches = filterMatches(matches)
     if len(matches) < MIN_NUM_MATCHES:
         return []
+            
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / "matches/tracking/0-point_association" / f"map_{t_frame.id}.png"
+        plot_matches(matches, t_frame, t_frame, save_path=match_save_path)
     
     # Prepare results
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in matches:
-        pairs.append((m.queryIdx, m.trainIdx))
+        pairs.append((map_descriptors_idx[m.queryIdx], m.trainIdx))
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -129,11 +142,9 @@ def estimate_relative_pose(
         print(f"\t solvePnPRansac filtered {num_points - num_tracked_points}/{num_points} points.")
     
     # 3) Refine the pose using Levenberg-Marquardt on the inlier correspondences.
-    map_points_inliers = map_point_positions[inliers]
-    image_pxs_inliers = image_pxs[inliers]
     rvec, tvec = cv2.solvePnPRefineLM(
-        map_points_inliers,
-        image_pxs_inliers,
+        map_point_positions[inliers],
+        image_pxs[inliers],
         K,
         dist_coeffs,
         rvec,
@@ -165,9 +176,9 @@ def estimate_relative_pose(
 
     ## Visualization
     if debug:
-        img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}a.png"
+        img_path = results_dir / f"matches/tracking/1-PnP_reprojection/map_{t_frame.id}a.png"
         plot_reprojection(t_frame.img, image_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
-        img_path = results_dir / f"matches/4-PnP_reprojection/map_{t_frame.id}b.png"
+        img_path = results_dir / f"matches/tracking/1-PnP_reprojection/map_{t_frame.id}b.png"
         plot_reprojection(t_frame.img, image_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
     # 6) Construct T_{world->cam_new}
@@ -186,8 +197,9 @@ def is_keyframe(T: np.ndarray, num_tracked_points: int):
     trans = np.sqrt(tx**2 + ty**2 + tz**2)
     angle = abs(get_yaw(T[:3, :3]))
 
-    # is_keyframe = trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"]
     is_keyframe = num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
+    # is_keyframe = is_keyframe and (trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"])
+    
     if debug:
         print(f"\t Tracked points: {num_tracked_points}, dist: {trans:.3f}, angle: {angle:.3f}")
         if is_keyframe:
@@ -239,12 +251,14 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     if epipolar_constraint_mask is None:
         print("[Tracking] Failed to apply epipolar constraint..")
         return None, None, None, False
-    matches = matches[epipolar_constraint_mask]
     
     # Save the matches
     if debug:
-        match_save_path = results_dir / f"matches/6-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}.png"
-        plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / f"matches/mapping/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~epipolar_constraint_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / f"matches/mapping/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[epipolar_constraint_mask], q_frame, t_frame, save_path=match_save_path)
+    matches = matches[epipolar_constraint_mask]
 
     # Extract the q->t transformation
     # Extract the Rotation and Translation arrays between the 2 frames
@@ -259,8 +273,15 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     reproj_mask = filter_by_reprojection(
         matches, q_frame, t_frame,
         R_qt, t_qt, K,
-        save_path= results_dir / f"matches/7-NP_reprojection/{q_frame.id}_{t_frame.id}.png"
+        save_path= results_dir / f"matches/mapping/2-reprojection"
     )
+    
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / f"matches/mapping/3-reprojection" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~reproj_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / f"matches/mapping/3-reprojection" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[reproj_mask], q_frame, t_frame, save_path=match_save_path)
     matches = matches[reproj_mask]
     
     # ------------------------------------------------------------------------
@@ -290,6 +311,14 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     filters_mask = filter_triangulation_points(q_points, t_points, R_qt, t_qt)
     if filters_mask is None or filters_mask.sum() == 0:
         return None, None, False
+    
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / f"matches/mapping/4-triangulation" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~filters_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / f"matches/mapping/4-triangulation" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[filters_mask], q_frame, t_frame, save_path=match_save_path)
+
     matches = matches[filters_mask]
     q_points = q_points[filters_mask]
     t_points = t_points[filters_mask]
@@ -340,9 +369,9 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     
     # Save the matches
     if debug:
-        match_save_path = results_dir / f"matches/8-old_points" / f"{q_frame.id}_{t_frame.id}.png"
+        match_save_path = results_dir / f"matches/mapping/5-old_new" / f"{q_frame.id}_{t_frame.id}_old.png"
         plot_matches(old_matches, q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / f"matches/9-new_points" / f"{q_frame.id}_{t_frame.id}.png"
+        match_save_path = results_dir / f"matches/mapping/5-old_new" / f"{q_frame.id}_{t_frame.id}_new.png"
         plot_matches(new_matches, q_frame, t_frame, save_path=match_save_path)
 
     # ------------------------------------------------------------------------
@@ -360,11 +389,6 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
 
     t_old_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in old_matches])
     t_new_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in new_matches])
-    
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / f"matches/10-NP_filtered" / f"{q_frame.id}_{t_frame.id}.png"
-        plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
     # ------------------------------------------------------------------------
     # 8. Save the triangulated mask and points to the t_frame
