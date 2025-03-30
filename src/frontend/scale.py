@@ -1,7 +1,10 @@
 import numpy as np
 from src.others.frame import Frame
 from src.others.utils import isnan
-from config import debug
+from config import SETTINGS
+
+
+debug = SETTINGS["generic"]["debug"]
 
 
 def validate_scale(scaled_poses: list[np.ndarray], gt_poses: list[np.ndarray]):

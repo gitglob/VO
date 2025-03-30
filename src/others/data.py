@@ -4,7 +4,10 @@ import pandas as pd
 import cv2
 import numpy as np
 from src.others.utils import save_image
-from config import results_dir, debug
+from config import results_dir, SETTINGS
+
+
+debug = SETTINGS["generic"]["debug"]
 
 
 class Dataset:
@@ -44,7 +47,7 @@ class Dataset:
         cy = self._K[1, 2]
 
     def get(self):
-        """ Returns the next RGB image in terms of timestamp """
+        """ Returns the next BW image in terms of timestamp """
         timestamp = self._times[self._current_index]
         image_path = self._image_paths[self._current_index]
         image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
@@ -76,5 +79,5 @@ class Dataset:
         return len(self._image_paths)
 
     def log_img(self, img):
-        rgb_save_path = results_dir / "img" / f"{self._current_index}_rgb.png"
-        save_image(img, rgb_save_path)
+        img_save_path = results_dir / "img" / f"{self._current_index}_bw.png"
+        save_image(img, img_save_path)

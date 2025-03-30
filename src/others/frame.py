@@ -4,7 +4,10 @@ import cv2
 from cv2 import DMatch
 from src.others.visualize import plot_keypoints
 
-from config import results_dir, debug, SETTINGS
+from config import results_dir, SETTINGS
+
+
+debug = SETTINGS["generic"]["debug"]
 
 
 class Frame():
@@ -13,7 +16,7 @@ class Frame():
 
     def __init__(self, id: int, img: np.ndarray, bow=None):
         self.id: int = id                    # The frame id
-        self.img: np.ndarray = img.copy()    # The rgb image
+        self.img: np.ndarray = img.copy()    # The BW image
         self.bow = bow                       # The bag of words of that image
 
         self.keypoints: Tuple                # The extracted ORB keypoints

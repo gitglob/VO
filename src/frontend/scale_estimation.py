@@ -3,8 +3,8 @@
 
 
 import numpy as np
-from src.frame import Frame
-from src.utils import isnan
+from src.others.frame import Frame
+from src.others.utils import isnan
 
 
 def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Frame):

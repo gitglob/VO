@@ -2,8 +2,9 @@ import numpy as np
 import cv2
 from src.others.visualize import plot_reprojection
 
-from config import results_dir, debug, SETTINGS
+from config import results_dir, SETTINGS
 
+debug = SETTINGS["generic"]["debug"]
 LOWE_RATIO = SETTINGS["matches"]["lowe_ratio"]
 REPROJECTION_THREHSOLD = SETTINGS["PnP"]["reprojection_threshold"]
 SCALE_FACTOR = SETTINGS["orb"]["scale_factor"]
@@ -244,8 +245,8 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, save_path):
         np.array: Updated boolean mask with matches having large reprojection errors filtered out.
     """
     # Extract matched keypoints
-    q_pxs = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_pxs = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_pxs = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_pxs = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Projection matrices
     q_M = K @ np.eye(3,4)        # Reference frame (identity)

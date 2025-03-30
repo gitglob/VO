@@ -9,8 +9,6 @@ scene = "00"
 results_dir = main_dir / "results" / scene / "orb"
 
 np.set_printoptions(precision=2, suppress=True)
-debug = True
-
 
 # Settings
 settings_path = main_dir / "settings" / "config.yaml"

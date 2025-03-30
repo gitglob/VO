@@ -1,7 +1,7 @@
 from typing import List
 import numpy as np
 import cv2
-from config import debug, SETTINGS
+from config import SETTINGS
 
 
 scale_factor = SETTINGS["orb"]["scale_factor"]
@@ -11,8 +11,11 @@ MIN_OBSERVATIONS = SETTINGS["map"]["min_observations"]
 MAX_KEYFRAMES_SINCE_LAST_OBS = SETTINGS["map"]["max_keyframes_since_last_observation"]
 MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
 
-W = SETTINGS["image"]["width"]
-H = SETTINGS["image"]["height"]
+W = SETTINGS["camera"]["width"]
+H = SETTINGS["camera"]["height"]
+
+debug = SETTINGS["generic"]["debug"]
+
 
 class mapPoint():
     def __init__(self, 
@@ -148,7 +151,8 @@ class Map():
             self.points[kpt_id] = p
         self._kf_counter += 1
 
-        print(f"Adding {len(points_pos)} points to the Map. Total: {len(self.points)} points.")
+        if debug:
+            print(f"Adding {len(points_pos)} points to the Map. Total: {len(self.points)} points.")
 
     def update_points(self, 
                       kf_id: int,
@@ -160,16 +164,27 @@ class Map():
             p = self.points[kpt_id]
             p.observe(self._kf_counter, kf_id, T_cw, keypoints[i], descriptors[i])
 
-        print(f"Updating {len(keypoints)} map points.")
+        if debug:
+            print(f"Updating {len(keypoints)} map points.")
         
-    def update_landmarks(self, point_ids, point_positions):
+    def update_landmarks(self, point_ids: List, point_positions: List):
         """Updates the 3d positions of given map points"""
-        print("Updating landmark positions...")
-        for i in range(len(point_ids)):
-            p_idx = point_ids[i]
-            if p_idx in self.point_ids:
-                p = self.points[p_idx]
-                p.pos = point_positions[i]
+        if debug:
+            print("Updating landmark positions...")
+        point_ids = np.array(point_ids)
+        point_positions = np.array(point_positions)
+
+        # Create a boolean mask: True for IDs that exist in the map
+        mask = np.isin(point_ids, self.point_ids)
+        
+        # Filter valid point IDs and their corresponding positions
+        to_update_point_ids = point_ids[mask]
+        to_update_positions = point_positions[mask]
+        
+        # Update the positions of the landmarks
+        for pid, pos in zip(to_update_point_ids, to_update_positions):
+            # print(f"Updating point {pid} from {self.points[pid].pos} to {pos}")
+            self.points[pid].pos = pos
 
     def view(self, T_wc: np.ndarray, K: np.ndarray):
         """
@@ -179,7 +194,8 @@ class Map():
             T_wc: The transform from the world to the current camera coordinate frame
             K: The camera intrinsics matrix
         """
-        print("Getting points in the current view...")
+        if debug:
+            print("Getting points in the current view...")
 
         # No map points at all
         if self.num_points == 0:
@@ -240,7 +256,8 @@ class Map():
             (2) not observed over M frames after their creation
             (3) not observed over the last N frames
         """
-        print("Cleaning up map points...")
+        if debug:
+            print("Cleaning up map points...")
 
         prev_num_points = self.num_points
 

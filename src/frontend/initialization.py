@@ -5,9 +5,10 @@ from src.others.utils import invert_transform, transform_points
 from src.others.visualize import plot_matches
 from src.others.filtering import enforce_epipolar_constraint, filter_by_reprojection, filter_triangulation_points
 
-from config import results_dir, debug, SETTINGS
+from config import results_dir, SETTINGS
 
 
+debug = SETTINGS["generic"]["debug"]
 MIN_NUM_MATCHES = SETTINGS["matches"]["min"]
 
 
@@ -44,8 +45,8 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
     matches = q_frame.get_matches(t_frame.id)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # ------------------------------------------------------------------------
     # 2. Enforce Epipolar Constraint
@@ -197,8 +198,8 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     matches = q_frame.get_init_matches(t_frame.id)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Triangulate
     q_points = triangulate(q_kpt_pixels, t_kpt_pixels, R_qt, t_qt, K) # (N, 3)

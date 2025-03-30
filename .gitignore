@@ -26,7 +26,10 @@ tmp
 # Redirected terminal output
 *.txt
 
-# GTSAM
+# GTSAM and g2o
 gtsam
+g2o
+g2o-pymem
+g2opy
 
 **/.gitkeep

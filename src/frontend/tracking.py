@@ -7,12 +7,13 @@ from src.others.utils import get_yaw, transform_points
 from src.others.visualize import plot_matches, plot_reprojection
 from src.others.filtering import filterMatches
 from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint, filter_by_reprojection, filter_scale
-from config import debug, SETTINGS, results_dir
+from config import SETTINGS, results_dir
 
 
+debug = SETTINGS["generic"]["debug"]
 MIN_INLIERS = SETTINGS["PnP"]["min_inliers"]
-W = SETTINGS["image"]["width"]
-H = SETTINGS["image"]["height"]
+W = SETTINGS["camera"]["width"]
+H = SETTINGS["camera"]["height"]
 MIN_NUM_MATCHES = SETTINGS["point_association"]["num_matches"]
 
 
@@ -95,11 +96,9 @@ def estimate_relative_pose(
             Distortion coefficients for the camera. Default = None.
 
     Returns:
-        (displacement, rmse):
-            displacement (np.ndarray): 4×4 transformation matrix T_{cam_new <- cam_old}.
-                                       i.e., the relative transform from the old camera t_frame
-                                       to the new camera t_frame.
-            rmse (float): root-mean-squared reprojection error over the inliers.
+        displacement (np.ndarray): 4×4 transformation matrix T_{cam_new <- cam_old}.
+                                    i.e., the relative transform from the old camera t_frame
+                                    to the new camera t_frame.
 
         If the function fails, returns (None, None).
     """
@@ -116,8 +115,8 @@ def estimate_relative_pose(
         image_pxs.append(kp.pt)                   # 2D pixel (u, v)
 
     map_points = np.array(map_points, dtype=object)   
-    map_point_positions = np.array([p.pos for p in map_points], dtype=np.float32) # (M, 3)
-    image_pxs = np.array(image_pxs, dtype=np.float32)     # (M, 2)
+    map_point_positions = np.array([p.pos for p in map_points], dtype=np.float64) # (M, 3)
+    image_pxs = np.array(image_pxs, dtype=np.float64)     # (M, 2)
 
     # 2) solvePnPRansac to get rvec/tvec for world->new_cam
     success, rvec, tvec, inliers = cv2.solvePnPRansac(
@@ -129,8 +128,11 @@ def estimate_relative_pose(
         confidence=SETTINGS["PnP"]["confidence"],
         iterationsCount=SETTINGS["PnP"]["iterations"]
     )
-    if not success or inliers is None or len(inliers) < MIN_INLIERS:
-        print("\t solvePnP failed or not enough inliers.")
+    if not success or inliers is None:
+        print("\t solvePnP failed!")
+        return None, None
+    if len(inliers) < MIN_INLIERS:
+        print("\t solvePnP did not find enough inliers!")
         return None, None
     inliers = inliers.flatten()
 
@@ -182,7 +184,7 @@ def estimate_relative_pose(
         plot_reprojection(t_frame.img, image_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
     # 6) Construct T_{world->cam_new}
-    T_wc = np.eye(4, dtype=np.float32)
+    T_wc = np.eye(4, dtype=np.float64)
     T_wc[:3, :3] = R_wc
     T_wc[:3, 3] = t_wc
 
@@ -240,8 +242,8 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     matches = q_frame.get_matches(t_frame.id)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # ------------------------------------------------------------------------
     # 2. Enforce Epipolar Constraint
@@ -250,7 +252,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K)
     if epipolar_constraint_mask is None:
         print("[Tracking] Failed to apply epipolar constraint..")
-        return None, None, None, False
+        return None, None, None, None, None, None, False
     
     # Save the matches
     if debug:
@@ -267,7 +269,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     t_qt = T_qt[:3, 3].reshape(3,1)
    
     # ------------------------------------------------------------------------
-    # 3. Reprojection check
+    # 3. Filter based on the reprojection of the PnP pose
     # ------------------------------------------------------------------------ 
 
     reproj_mask = filter_by_reprojection(
@@ -285,57 +287,54 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     matches = matches[reproj_mask]
     
     # ------------------------------------------------------------------------
-    # 4. Find the pixel coordinates of the points
+    # 4. Triangulate the matched points using the PnP estimated pose
     # ------------------------------------------------------------------------
 
+    # Extract the pixel coordinates of the points
     q_pxs = np.array([q_frame.keypoints[m.queryIdx].pt for m in matches])
     t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in matches])
-    
-    # ------------------------------------------------------------------------
-    # 5. Triangulate these points
-    # ------------------------------------------------------------------------
 
     # Triangulate
     q_points = triangulate(q_pxs, t_pxs, R_qt, t_qt, K)
     if q_points is None or len(q_points) == 0:
         print("Triangulation returned no 3D points.")
-        return None, None, False
+        return None, None, None, None, None, None, False
 
     # Transfer the points to the current coordinate frame [t->q]
     t_points = transform_points(q_points, T_qt) # (N, 3)
 
     # ------------------------------------------------------------------------
-    # 6. Filter triangulated points for Z<0 and small triang. angle
+    # 5. Filter triangulated points for Z<0 and small triang. angle
     # ------------------------------------------------------------------------
 
-    filters_mask = filter_triangulation_points(q_points, t_points, R_qt, t_qt)
-    if filters_mask is None or filters_mask.sum() == 0:
-        return None, None, False
+    triang_mask = filter_triangulation_points(q_points, t_points, R_qt, t_qt)
+    if triang_mask is None or triang_mask.sum() == 0:
+        return None, None, None, None, None, None, False
     
     # Save the matches
     if debug:
         match_save_path = results_dir / f"matches/mapping/4-triangulation" / f"{q_frame.id}_{t_frame.id}a.png"
-        plot_matches(matches[~filters_mask], q_frame, t_frame, save_path=match_save_path)
+        plot_matches(matches[~triang_mask], q_frame, t_frame, save_path=match_save_path)
         match_save_path = results_dir / f"matches/mapping/4-triangulation" / f"{q_frame.id}_{t_frame.id}b.png"
-        plot_matches(matches[filters_mask], q_frame, t_frame, save_path=match_save_path)
+        plot_matches(matches[triang_mask], q_frame, t_frame, save_path=match_save_path)
 
-    matches = matches[filters_mask]
-    q_points = q_points[filters_mask]
-    t_points = t_points[filters_mask]
+    matches = matches[triang_mask]
+    q_points = q_points[triang_mask]
+    t_points = t_points[triang_mask]
 
     # Extract the keypoints and descriptors of the valid triangulated 3d points
     q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
     t_kpts = np.array([t_frame.keypoints[m.trainIdx] for m in matches])
 
     # ------------------------------------------------------------------------
-    # 7. Filter triangulated points based on scale
+    # 6. Filter triangulated points based on scale
     # ------------------------------------------------------------------------
 
     q_scale_mask = filter_scale(q_points, q_kpts, q_frame.pose)
     t_scale_mask = filter_scale(t_points, t_kpts, t_frame.pose)
     scale_mask = q_scale_mask & t_scale_mask
     if scale_mask is None or scale_mask.sum() == 0:
-        return None, None, False
+        return None, None, None, None, None, None, False
 
     # Apply the scale mask to points, keypoints and descriptors
     matches = matches[scale_mask]
@@ -345,7 +344,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     t_kpts = t_kpts[t_scale_mask]
 
     # ------------------------------------------------------------------------
-    # 8. Find 3D points that have/haven't been triangulated before
+    # 7. Find 3D points that have/haven't been triangulated before
     # ------------------------------------------------------------------------
 
     # Extract the reference keypoint ids
@@ -355,7 +354,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     new_ids = np.setdiff1d(q_kpt_ids, map.point_ids)
     if len(new_ids) == 0:
         print("No new points to triangulate.")
-        return None, None, None, False
+        return None, None, None, None, None, None, False
     if debug:
         print(f"\t {len(new_ids)}/{len(q_kpt_ids)} points are new!")
     
@@ -375,14 +374,16 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
         plot_matches(new_matches, q_frame, t_frame, save_path=match_save_path)
 
     # ------------------------------------------------------------------------
-    # 9. Save the old/new keypoints and descriptors
+    # 8. Save the old/new keypoints and descriptors
     # ------------------------------------------------------------------------
 
     q_old_points = q_points[old_points_mask]
     q_new_points = q_points[new_points_mask]
+    q_frame.match[t_frame.id]["points"] = q_new_points
 
     t_old_points = t_points[old_points_mask]
     t_new_points = t_points[new_points_mask]
+    t_frame.match[q_frame.id]["points"] = t_new_points
 
     t_old_kpts = t_kpts[old_points_mask]
     t_new_kpts = t_kpts[new_points_mask]
@@ -390,12 +391,5 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     t_old_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in old_matches])
     t_new_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in new_matches])
 
-    # ------------------------------------------------------------------------
-    # 8. Save the triangulated mask and points to the t_frame
-    # ------------------------------------------------------------------------
-
-    q_frame.match[t_frame.id]["points"] = q_new_points
-    t_frame.match[q_frame.id]["points"] = t_new_points
-   
     # Return the newly triangulated points
-    return t_new_points, t_old_kpts, t_old_descriptors, t_new_kpts, t_new_descriptors, True
+    return t_old_points, t_old_kpts, t_old_descriptors, t_new_points, t_new_kpts, t_new_descriptors, True

@@ -1,4 +1,11 @@
-image:
+generic:
+    debug: True
+
+camera:
+    fx: 718.86
+    fy: 718.86
+    cx: 607.19
+    cy: 185.22
     width: 1243
     height: 376
 
@@ -21,17 +28,18 @@ point_association:
     num_matches: 40
 
 PnP:
-    reprojection_threshold: 4
-    confidence: 0.99
+    reprojection_threshold: 2
+    confidence: 0.999
     iterations: 300
     min_inliers: 4
 
 matches:
     min: 20
     lowe_ratio: 0.8
+    xiang_gao_match_ratio: 2
 
 keyframe:
-    distance: 2
+    distance: 0.5
     angle: 10
     num_tracked_points: 20
 
@@ -43,7 +51,7 @@ map:
 ba:
     frequency: 10
     first_pose_noise: 1e-9 # Std. deviation for the first robot pose (meters)
-    odometry_trans_noise: 2.0  # Std. deviation for the calculated odometry (meters)
-    odometry_rot_noise: 10.0    # Std. deviation for the calculated odometry (degrees)
-    first_measurement_noise: 5.0  # Std. deviation for the first landmark observation (pixels)
-    measurement_noise: 5.0  # Std. deviation for camera measurements (pixels)
+    odometry_trans_noise: 1.0  # Std. deviation for the calculated odometry (meters)
+    odometry_rot_noise: 2.0    # Std. deviation for the calculated odometry (degrees)
+    first_measurement_noise: 0.1  # Std. deviation for the first landmark observation (meters)
+    measurement_noise: 10.0  # Std. deviation for camera measurements (pixels)
