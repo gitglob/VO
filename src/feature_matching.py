@@ -9,7 +9,7 @@ from config import results_dir
 
 ############################### Feature Matching ##########################################
 
-def match_features(q_frame: Frame, t_frame: Frame, stage: str, debug=False):
+def match_features(q_frame: Frame, t_frame: Frame, debug=False):
     """
     Matches features between two frames.
     
@@ -50,7 +50,7 @@ def match_features(q_frame: Frame, t_frame: Frame, stage: str, debug=False):
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / f"matches/{stage}" / f"{q_frame.id}_{t_frame.id}.png"
+        match_save_path = results_dir / f"matches/raw" / f"{q_frame.id}_{t_frame.id}.png"
         plot_matches(q_frame.img, q_frame.keypoints,
                      t_frame.img, t_frame.keypoints,
                      filtered_matches, match_save_path)

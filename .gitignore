@@ -26,7 +26,9 @@ tmp
 # Redirected terminal output
 *.txt
 
-# GTSAM
+# optimization
 gtsam
+g2o
+g2opy
 
 **/.gitkeep

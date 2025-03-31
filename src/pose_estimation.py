@@ -39,12 +39,13 @@ def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
 
     # Extract the matches between the previous and current frame
     matches = q_frame.get_matches(t_frame.id)
+    num_matches = len(matches)
     if len(matches) < 5:
         print("Not enough matches to compute the Essential Matrix!")
         return None, False
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    q_frame_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
     t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # ------------------------------------------------------------------------
@@ -52,11 +53,11 @@ def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
     # ------------------------------------------------------------------------
 
     # Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(q_frame_kpt_pixels, t_kpt_pixels, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
     mask_E = mask_E.ravel().astype(bool)
 
     # Compute the Homography Matrix
-    H, mask_H = cv2.findHomography(q_frame_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=1.0)
+    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=1.0)
     mask_H = mask_H.ravel().astype(bool)
 
     # ------------------------------------------------------------------------
@@ -64,16 +65,16 @@ def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
     # ------------------------------------------------------------------------
 
     # Compute symmetric transfer error for Essential Matrix
-    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_frame_kpt_pixels, t_kpt_pixels, 'E', K=K)
+    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E', K=K)
 
     # Compute symmetric transfer error for Homography Matrix
-    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_frame_kpt_pixels, t_kpt_pixels, 'H', K=K)
+    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H', K=K)
 
     # Decide which matrix to use based on the ratio of inliers
     if debug:
         print(f"\tInliers E: {num_inliers_E}, Inliers H: {num_inliers_H}")
     if num_inliers_E == 0 and num_inliers_H == 0:
-        print("[initialize] All keypoint pairs yield errors > threshold..")
+        print("All keypoint pairs yield errors > threshold..")
         return None, False
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
     if debug:
@@ -85,12 +86,13 @@ def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
     # ------------------------------------------------------------------------
 
     # Filter keypoints based on the chosen mask
-    inlier_match_mask = mask_H if use_homography else mask_E
-    inlier_q_frame_pixels = q_frame_kpt_pixels[inlier_match_mask]
-    inlier_t_frame_pixels = t_kpt_pixels[inlier_match_mask]
+    epipolar_constraint_mask = mask_H if use_homography else mask_E
+    matches = matches[epipolar_constraint_mask]
+    inlier_q_frame_pixels = q_kpt_pixels[epipolar_constraint_mask]
+    inlier_t_frame_pixels = t_kpt_pixels[epipolar_constraint_mask]
     if debug:
         print(f"\tUsing {'Homography' if use_homography else 'Essential'} Matrix...")
-        print(f"\t\tE/H inliers filtered {len(matches) - np.sum(inlier_match_mask)}/{len(matches)} matches!")
+        print(f"\t\tEpipolar Constraint filtered {num_matches - epipolar_constraint_mask.sum()}/{num_matches} matches!")
 
     # Check if we will use homography
     R, t, final_match_mask = None, None, None
@@ -101,24 +103,20 @@ def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
         if debug:
-            print(f"\t\tPose Recovery filtered {np.sum(inlier_match_mask) - np.sum(mask_pose)}/{np.sum(inlier_match_mask)} matches!")
+            print(f"\t\tPose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
 
         if R_est is not None and t_est is not None and np.any(mask_pose):
             R, t = R_est, t_est
 
-            # Create a final_match_mask by combining the epipolar constraint and transformation fitting checks
-            final_match_mask = np.zeros_like(inlier_match_mask, dtype=bool)
-            final_match_mask[inlier_match_mask] = mask_pose
-
         # Reprojection filter
-        final_match_mask = filter_by_reprojection(
+        matches = matches[mask_pose]
+        reproj_mask = filter_by_reprojection(
             matches, q_frame, t_frame,
             R, t, K,
-            final_match_mask,
             debug=debug
         )
         if debug:
-            print(f"\t\tReprojection filtered {np.sum(mask_pose) - np.sum(final_match_mask)}/{np.sum(mask_pose)} matches!")
+            print(f"\t\tReprojection filtered {mask_pose.sum() - reproj_mask.sum()}/{mask_pose.sum()} matches!")
     else:
         # Decompose Homography Matrix
         num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(H, K)
@@ -166,24 +164,20 @@ def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
         R = Rs[best_solution]
         t = Ts[best_solution]
 
-        # The final mask doesn't change if we use the Homography Matrix
-        final_match_mask = inlier_match_mask
-
         # Reprojection filter
-        final_match_mask = filter_by_reprojection(
-            q_frame_kpt_pixels, t_kpt_pixels,
+        reproj_mask = filter_by_reprojection(
+            q_kpt_pixels, t_kpt_pixels,
             R, t, K,
-            final_match_mask,
-            reproj_threshold=2.0,
             debug=debug
         )
+    matches = matches[reproj_mask]
 
     # If we failed to recover R and t
     if R is None or t is None:
-        print("[initialize] Failed to recover a valid pose from either E or H.")
+        print("Failed to recover a valid pose from either E or H.")
         return None, False
 
-    remaining_points = np.sum(final_match_mask)
+    remaining_points = reproj_mask.sum()
     num_removed_matches = len(matches) - remaining_points
     if debug:
         print(f"\tTotal filtering: {num_removed_matches}/{len(matches)}. {remaining_points} matches left!")
@@ -198,20 +192,16 @@ def estimate_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray, debug=False):
     # Extract the c2 to c1 pose (this is the new robot's pose in the old coordinate system)
     inv_pose = invert_transform(pose)
     
-    # Initialize the frames
-    t_frame.triangulate(q_frame.id, use_homography, final_match_mask, pose, "initialization")
-    q_frame.triangulate(t_frame.id, use_homography, final_match_mask, inv_pose, "initialization")
-            
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/1-initialization" / f"{q_frame.id}_{t_frame.id}.png"
+        match_save_path = results_dir / "matches/pose-estimation" / f"{q_frame.id}_{t_frame.id}.png"
         plot_matches(q_frame.img, q_frame.keypoints,
                      t_frame.img, t_frame.keypoints,
-                     matches[final_match_mask], match_save_path)
+                     matches, match_save_path)
 
     return inv_pose, True
 
-def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, inlier_match_mask, reproj_threshold=1.0, debug=False):
+def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, reproj_threshold=1.0, debug=False):
     """
     Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
 
@@ -220,7 +210,6 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, inlier_match_mask
         frame, q_frame: Frame objects.
         R, t: relative pose from q_frame to frame.
         K: camera intrinsic matrix.
-        inlier_match_mask (np.array): initial boolean mask for inlier matches.
         reproj_threshold (float): reprojection error threshold in pixels.
         debug (bool): flag for visual debugging.
         results_dir (Path): path to save debug visualizations.
@@ -231,12 +220,8 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, inlier_match_mask
     if debug:
         print("\tReprojecting correspondances...")
     # Extract matched keypoints
-    q_frame_pts = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_frame_pts = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
-
-    # Select inlier matches
-    q_pts = q_frame_pts[inlier_match_mask]
-    t_pts = t_frame_pts[inlier_match_mask]
+    q_pts = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_pts = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Projection matrices
     q_M = K @ np.eye(3,4)        # Reference frame (identity)
@@ -255,16 +240,13 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, inlier_match_mask
     errors = np.linalg.norm(points_proj_px - t_pts, axis=1)
 
     # Update the inlier mask
-    valid_mask = errors < reproj_threshold
-    updated_mask = inlier_match_mask.copy()
-    original_indices = np.flatnonzero(inlier_match_mask)
-    updated_mask[original_indices[~valid_mask]] = False
+    reproj_mask = errors < reproj_threshold
 
-    num_removed_matches = len(q_pts) - np.sum(valid_mask)
+    num_removed_matches = len(q_pts) - np.sum(reproj_mask)
     if debug:
         print(f"\t\tPrior mean reprojection error: {np.mean(errors):.3f} px")
         print(f"\t\tReprojection filtered: {num_removed_matches}/{len(q_pts)}")
-        print(f"\t\tFinal mean reprojection error: {np.mean(errors[valid_mask]):.3f} px")
+        print(f"\t\tFinal mean reprojection error: {np.mean(errors[reproj_mask]):.3f} px")
 
     # Debugging visualization
     if debug:
@@ -276,11 +258,11 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, inlier_match_mask
             cv2.circle(reproj_img, reproj, 2, (0, 255, 0), -1)   # Projected points (green)
             cv2.line(reproj_img, obs, reproj, (255, 0, 0), 1)    # Error line (blue)
 
-        debug_img_path = results_dir / f"matches/2-reprojection/{q_frame.id}_{t_frame.id}.png"
+        debug_img_path = results_dir / f"matches/reprojection/{q_frame.id}_{t_frame.id}.png"
         debug_img_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(debug_img_path), reproj_img)
 
-    return updated_mask
+    return reproj_mask
       
 def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', K=None, threshold=4.0):
     """
@@ -342,7 +324,7 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
     mean_error = np.mean(errors) if errors else float('inf')
     return mean_error, num_inliers
 
-def is_keyframe(P, t_threshold=3, yaw_threshold=3, debug=False):
+def is_keyframe(P, t_threshold=3, angle_threshold=20, debug=False):
     """ Determine if motion expressed by t, R is significant by comparing to tresholds. """
     R = P[:3, :3]
     t = P[:3, 3]
@@ -351,7 +333,7 @@ def is_keyframe(P, t_threshold=3, yaw_threshold=3, debug=False):
     rpy = rotation_matrix_to_euler_angles(R)
     pitch = abs(rpy[1])
 
-    is_keyframe = trans > t_threshold or pitch > yaw_threshold
+    is_keyframe = trans > t_threshold or pitch > angle_threshold
     if debug:
         print(f"\tDisplacement: dist: {trans:.3f}, angle: {pitch:.3f}")
         if is_keyframe:

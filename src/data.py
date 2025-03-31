@@ -76,5 +76,5 @@ class Dataset:
         return len(self._image_paths)
 
     def log_img(self, img):
-        rgb_save_path = results_dir / "img" / f"{self._current_index}_rgb.png"
+        rgb_save_path = results_dir / "img" / f"{self._current_index}_bw.png"
         save_image(img, rgb_save_path)

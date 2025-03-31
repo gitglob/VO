@@ -1,15 +1,10 @@
 import numpy as np
 
 from src.data import Dataset
-
 from src.frame import Frame
-
-from src.frontend.feature_tracking import match_features
-from src.frontend.initialization import estimate_pose, is_keyframe
-from src.frontend.scale_estimation import estimate_depth_scale, validate_scale
-
-from src.backend import optimization as ba
-
+from src.feature_matching import match_features
+from src.pose_estimation import estimate_pose, is_keyframe
+from src.scale_estimation import estimate_depth_scale, validate_scale
 from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
 from src.utils import save_image, delete_subdirectories
 
@@ -30,7 +25,6 @@ def main():
     debug = False
     use_dist = False
     cleanup = True
-    bundle_adjustment = False
     use_keyframes = True
     log_period = 100
 
@@ -60,6 +54,8 @@ def main():
     while not data.finished():
         # Advance the iteration
         i+=1
+        if debug:
+            print(f"\n\n\tIteration: {i} / {data.length()}")
         if i%log_period == 0:
             print(f"\n\tIteration: {i} / {data.length()}")
 
@@ -79,12 +75,12 @@ def main():
             frame.set_keyframe(True)
             keyframes.append(frame)
             if debug:
-                save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
+                save_image(frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
             plot_trajectory(poses, gt_poses, i)
         else:                    
             # Feature matching
-            matches = match_features(keyframes[-1], frame, "0-raw", debug) # (N) : N < M
+            matches = match_features(keyframes[-1], frame, debug) # (N) : N < M
 
             # Check if there are enough matches
             if len(matches) < 20:
@@ -94,7 +90,7 @@ def main():
             # Extract the initial pose using the Essential or Homography matrix (2d-2d)
             T, is_initialized = estimate_pose(keyframes[-1], frame, K, debug)
             if not is_initialized:
-                print("Pose initialization failed!")
+                print("Pose estimation failed!")
                 continue
             assert np.linalg.norm(T[:3, 3]) - 1 < 1e-6
 
@@ -112,7 +108,7 @@ def main():
             validate_scale([poses[-1], scaled_pose], [gt_poses[-1], gt_pose])
 
             # Check if the frame is a keyframe
-            if use_keyframes and is_keyframe(T):
+            if use_keyframes and is_keyframe(T, debug=debug):
                 # Save the poses
                 gt_poses.append(gt_pose)
                 poses.append(scaled_pose)
@@ -124,19 +120,15 @@ def main():
                 # Save the keyframe
                 keyframes.append(frame)
                 if debug:
-                    save_image(frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
-
-                # Integrate Bundle Adjustment after adding the new pose.
-                if bundle_adjustment:
-                    poses = ba.optimize_poses(poses)
+                    save_image(frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
             # Visualize the current state of the map and trajectory
-            if i%log_period == 0:
+            if i%log_period == 0 or debug:
                 plot_trajectory(poses, gt_poses, i)
 
     # Save final map and trajectory
-    plot_trajectory(poses, gt_poses, i)
-    plot_trajectory_3d(poses)
+    plot_trajectory(poses, gt_poses, i, save_path=results_dir / "vo")
+    plot_trajectory_3d(poses, gt_poses)
 
 if __name__ == "__main__":
     main()

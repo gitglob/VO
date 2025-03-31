@@ -11,8 +11,8 @@ matplotlib.use('TkAgg')
 ############################### Pose Visualization ###############################
 
 def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory"):
-    plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
-    plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
+    plot_trajectory_2d(poses, gt, save_path / f"{i}.png")
+    # plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
 
 def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     num_poses = len(poses)
@@ -133,7 +133,7 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     # First subplot: XZ 2D view
     ax1 = fig.add_subplot(121)
     ax1.plot(poses[:, 0, 3], poses[:, 2, 3], 'b-', label='XZ')
-    ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r-', label='Ground Truth')
+    ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r--', label='Ground Truth')
     
     # Mark the start and end points with bubbles
     ax1.scatter(poses[0,0,3], poses[0,2,3], color='blue', s=100, alpha=0.7, label='Start')
@@ -165,7 +165,7 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     ax2 = fig.add_subplot(122)
 
     ax2.plot(np.arange(poses.shape[0]), angle, 'b-', label='-Pitch')
-    ax2.plot(np.arange(gt_poses.shape[0]), gt_angle, 'r-', label='Ground Truth')
+    ax2.plot(np.arange(gt_poses.shape[0]), gt_angle, 'r--', label='Ground Truth')
     
     # Mark the start and end points with bubbles
     ax2.scatter(0, angle[0], color='blue', s=100, alpha=0.7, label='Start')
@@ -185,13 +185,15 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
 
     plt.close(fig)
 
-def plot_trajectory_3d(poses, save_path=results_dir / "vo" / "final_trajectory.png"):
+def plot_trajectory_3d(poses, gt_poses, save_path=results_dir / "vo" / "final_trajectory.png"):
     poses = np.array(poses)
+    gt_poses = np.array(gt_poses)
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     
     # Plot the trajectory
     ax.plot(poses[:, 0, 3], poses[:, 2, 3], -poses[:, 1, 3], 'b-', label='Trajectory')
+    ax.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], -gt_poses[:, 1, 3], 'r--', label='Ground Truth')
     
     # Set labels and title
     ax.set_xlabel('X')
