@@ -3,9 +3,10 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from src.utils import keypoints_depth_to_3d_points, invert_transform, get_yaw
 
+from config import debug
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(matches, q_frame, t_frame, K, dist_coeffs=None, debug=False):
+def estimate_relative_pose(matches, q_frame, t_frame, K, dist_coeffs=None):
     """
     Estimate the relative pose between two frames using matched keypoints and depth information.
 
@@ -25,7 +26,6 @@ def estimate_relative_pose(matches, q_frame, t_frame, K, dist_coeffs=None, debug
     """
     if debug:
         print(f"Estimating pose using frames {q_frame.id} & {t_frame.id}...")
-    T = np.eye(4)
 
     # Extract matched keypoints' coordinates
     q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
@@ -49,14 +49,13 @@ def estimate_relative_pose(matches, q_frame, t_frame, K, dist_coeffs=None, debug
     # Use solvePnP to estimate the pose
     success, rvec, tvec, inliers = cv2.solvePnPRansac(q_pts_3d, t_kpt_pixels, 
                                                       cameraMatrix=K, distCoeffs=dist_coeffs, 
-                                                      reprojectionError=0.2, confidence=0.999, 
-                                                      iterationsCount=5000)
-    tvec = tvec.flatten()
-    Rot, _ = cv2.Rodrigues(rvec)
-
-    # Check if PnP was successful
-    if not success:
-        print("\tWarning: solvePnP failed!")
+                                                      reprojectionError=1.0, confidence=0.999, 
+                                                      iterationsCount=300)
+    if not success or inliers is None:
+        print("\t solvePnP failed!")
+        return None
+    if len(inliers) < 10:
+        print("\t solvePnP did not find enough inliers!")
         return None
 
     inliers = inliers.flatten()
@@ -64,39 +63,33 @@ def estimate_relative_pose(matches, q_frame, t_frame, K, dist_coeffs=None, debug
     inliers_mask[inliers] = True
     if debug:
         print(f"\tsolvePnPRansac filtered {len(q_pts_3d) - np.sum(inliers_mask)}/{len(q_pts_3d)} points.")
-    
-    # Keep only the pixels and points that match the estimated pose
-    t_kpt_pixels = t_kpt_pixels[inliers_mask]
-    q_pts_3d = q_pts_3d[inliers_mask]
 
+    # Refine the pose using Levenberg-Marquardt on the inlier correspondences.
+    rvec, tvec = cv2.solvePnPRefineLM(
+        q_pts_3d[inliers_mask],
+        t_kpt_pixels[inliers_mask],
+        K,
+        dist_coeffs,
+        rvec,
+        tvec
+    )
+
+    tvec = tvec.flatten()
+    Rot, _ = cv2.Rodrigues(rvec)
+    
     # Compute reprojection error and print it
-    reprojection_mask, errors = compute_reprojection_error(q_pts_3d, t_kpt_pixels, rvec, tvec, K, dist_coeffs)
+    reprojection_mask, errors = compute_reprojection_error(q_pts_3d[inliers_mask], t_kpt_pixels[inliers_mask], rvec, tvec, K, dist_coeffs)
     error = np.mean(errors)
     if debug:
-        print(f"\tReprojection error ({error:.2f}) filtered {len(q_pts_3d) - np.sum(reprojection_mask)}/{len(q_pts_3d)} points.")
-
-    # Filter the points using the mask
-    q_pts_3d = q_pts_3d[reprojection_mask]
-    t_kpt_pixels = t_kpt_pixels[reprojection_mask]
+        print(f"\tReprojection error ({error:.2f}) filtered {inliers_mask.sum() - reprojection_mask.sum()}/{inliers_mask.sum()} points.")
 
     # Construct the refined pose matrix
+    T = np.eye(4)
     T[:3, :3] = Rot
     T[:3, 3] = tvec
 
     # Convert the camera coordinates to the world coordinates
     T_inv = invert_transform(T)
-
-    # Create a final mask that maps back to the original matches.
-    indices = np.arange(len(matches))
-    indices_after_depth = indices[depth_mask]
-    indices_after_inliers = indices_after_depth[inliers_mask]
-    indices_after_reproj = indices_after_inliers[reprojection_mask]
-
-    # Filtered matches
-    filtered_matches = [matches[i] for i in indices_after_reproj]
-
-    q_frame.set_matches(t_frame.id, filtered_matches, "query")
-    t_frame.set_matches(q_frame.id, filtered_matches, "train")
 
     return T_inv
     

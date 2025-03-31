@@ -1,6 +1,8 @@
 import numpy as np
 from pathlib import Path
 
+debug=False
+
 data_dir = Path.home() / "Documents" / "data" / "vSLAM"
 scene = "rgbd_dataset_freiburg2_pioneer_360"
 

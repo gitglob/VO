@@ -2,11 +2,13 @@ from typing import List
 import cv2
 import numpy as np
 from src.frame import Frame
+from src.visualize import plot_matches
 
+from config import results_dir, debug
 
 ############################### Feature Matching ##########################################
 
-def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, match_threshold=20, debug=False):
+def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, match_threshold=20):
     """
     Matches features between two frames.
     
@@ -19,110 +21,99 @@ def match_features(q_frame: Frame, t_frame: Frame, K: np.ndarray, match_threshol
     if debug:
         print(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
 
-    q_desc = q_frame.descriptors
-    q_kpts = q_frame.keypoints
-    t_desc = t_frame.descriptors
-    t_kpts = t_frame.keypoints
-
     # Create BFMatcher object
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING)
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # 1) Match descriptors (KNN)
-    matches = bf.knnMatch(q_desc, t_desc, k=2)
-
-    # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
-    filtered_matches = filter_matches(matches, debug)
-    if len(filtered_matches) < match_threshold:
+    matches = matcher.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
+    if len(matches) < match_threshold:
         return []
 
-    # filtered_matches = remove_outlier_matches(filtered_matches, q_kpts, t_kpts, K, debug)
-    # if len(filtered_matches) < match_threshold:
-    #     return []
+    # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
+    matches = filter_matches(matches, debug)
+    if len(matches) < match_threshold:
+        return []
 
+    # Filter using epipolar constraint
+    q_pxs = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_pxs = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pxs, t_pxs, K)
+    matches = np.array(matches, dtype=object)
+    matches = matches[epipolar_constraint_mask]
+    if len(matches) < match_threshold:
+        return []
+
+    # Save the matches
     if debug:
-        print(f"\t{len(filtered_matches)} matches left!")
+        match_save_path = results_dir / f"matches/" / f"{q_frame.id}_{t_frame.id}.png"
+        plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
-    # 4) **Propagate keypoint IDs**  
-    propagate_keypoints(t_frame, q_frame, filtered_matches)
+    return matches
 
-    # 5) Store the matches in each t_frame
-    q_frame.set_matches(t_frame.id, filtered_matches, "query")
-    t_frame.set_matches(q_frame.id, filtered_matches, "train")
-
-    return filtered_matches
-
-def propagate_keypoints(t_frame: Frame, q_frame: Frame, matches: List[cv2.DMatch]):
-    """Merges the keypoint identifiers for the matches features between query and train frames."""
-    for m in matches:
-        q_kp = q_frame.keypoints[m.queryIdx]
-        t_kp = t_frame.keypoints[m.trainIdx]
-
-        # If the train keypoint has no ID, copy from the query keypoint
-        if t_kp.class_id < 0:  # or `t_kp.class_id is None`
-            t_kp.class_id = q_kp.class_id
-
-        # If the query keypoint has no ID, copy from the train keypoint
-        elif q_kp.class_id <= 0:
-            q_kp.class_id = t_kp.class_id
-
-        # If both have IDs but they differ, pick a strategy (e.g., overwrite one)
-        elif q_kp.class_id != t_kp.class_id:
-            # Naive approach: unify by assigning query ID to train ID
-            # or vice versa. Real SLAM systems often handle merges in a global map.
-            t_kp.class_id = q_kp.class_id
-
-def filter_matches(matches, debug=False):
+def filter_matches(matches, debug):
     """Filter out matches using Lowe's Ratio Test"""
     good_matches = []
     for m, n in matches:
-        if m.distance < 0.75 * n.distance:
+        if m.distance < 0.8 * n.distance:
             good_matches.append(m)
 
     if debug:
-        print(f"\tLowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
-    return good_matches
-   
-def remove_outlier_matches(matches, q_kpts, t_kpts, K, debug=False):
-    """Remove matches that don't match the Essential or Homography Matrix"""
-    # Extract the keypoint pixel coordinates
-    q_frame_kpt_pixels = np.float32([q_kpts[m.queryIdx].pt for m in matches]).reshape(-1, 2)
-    t_kpt_pixels = np.float32([t_kpts[m.trainIdx].pt for m in matches]).reshape(-1, 2)
+        print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
-    # Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(q_frame_kpt_pixels, t_kpt_pixels, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+    # Next, ensure uniqueness by keeping only the best match per train descriptor.
+    unique_matches = {}
+    for m in good_matches:
+        # If this train descriptor is not seen yet, or if the current match is better, update.
+        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
+            unique_matches[m.trainIdx] = m
+
+    # Convert the dictionary values to a list of unique matches
+    unique_matches = list(unique_matches.values())
+
+    if debug:
+        print(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+
+    return unique_matches
+   
+def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
+    # Compute Essential & Homography matrices
+
+    ## Compute the Essential Matrix
+    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
     mask_E = mask_E.ravel().astype(bool)
 
-    # Compute the Homography Matrix
-    H, mask_H = cv2.findHomography(q_frame_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=1.0)
+    ## Compute the Homography Matrix
+    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=1.0)
     mask_H = mask_H.ravel().astype(bool)
 
-    # Compute symmetric transfer error for Essential Matrix
-    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_frame_kpt_pixels, t_kpt_pixels, 'E', K=K)
+    # Compute symmetric transfer errors & decide which model to use
 
-    # Compute symmetric transfer error for Homography Matrix
-    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_frame_kpt_pixels, t_kpt_pixels, 'H', K=K)
-    
-    # Decide which matrix to use based on the ratio of inliers
-    if debug:
-        print(f"\tInliers E: {num_inliers_E}, Inliers H: {num_inliers_H}")
+    ## Compute symmetric transfer error for Essential Matrix
+    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E', K=K)
+
+    ## Compute symmetric transfer error for Homography Matrix
+    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H', K=K)
+        
     if num_inliers_E == 0 and num_inliers_H == 0:
-        print("\tAll keypoint pairs yield errors > threshold..")
-        return []
+        print("0 Inliers. All keypoint pairs yield errors > threshold..")
+        return None, None, None
+    
+    ## Decide which matrix to use based on the ratio of inliers
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
     if debug:
-        print(f"\tRatio H/(E+H): {ratio}")
+        print(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio}")
+
     use_homography = (ratio > 0.45)
-
-    # Filter keypoints based on the chosen mask
-    inlier_match_mask = mask_H if use_homography else mask_E
-
-    # Use the mask to filter inlier matches
-    inlier_matches = [matches[i] for i in range(len(matches)) if inlier_match_mask[i]]
-
     if debug:
-        print(f"\tRansac filtered {len(matches) - len(inlier_matches)}/{len(matches)} matches!")
+        print(f"\t\t Using {'Homography' if use_homography else 'Essential'} Matrix...")
 
-    return inlier_matches
+    epipolar_constraint_mask = mask_H if use_homography else mask_E
+    if debug:
+        print(f"\t\t Epipolar Constraint filtered {len(q_kpt_pixels) - epipolar_constraint_mask.sum()}/{len(q_kpt_pixels)} matches!")
+
+    M = H if use_homography else E
+
+    return epipolar_constraint_mask, M, use_homography
 
 def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', K=None, threshold=4.0):
     """
@@ -183,3 +174,4 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
 
     mean_error = np.mean(errors) if errors else float('inf')
     return mean_error, num_inliers
+    

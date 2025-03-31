@@ -1,15 +1,14 @@
 from src.data import Dataset
 from src.frame import Frame
-from src.frontend.feature_tracking import match_features
-from src.frontend.pose_estimation import estimate_relative_pose, check_velocity, is_keyframe
+from src.feature_tracking import match_features
+from src.pose_estimation import estimate_relative_pose, check_velocity, is_keyframe
 from src.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d, plot_matches
 from src.utils import save_depth, save_image, delete_subdirectories
-from config import data_dir, main_dir, scene, results_dir
+from config import data_dir, main_dir, scene, results_dir, debug
 
 
 def main():
     print(f"\t\tUsing dataset: `{scene}` ...")
-    debug = False
     use_dist = False
     cleanup = True
 
@@ -58,15 +57,12 @@ def main():
             keyframes.append(frame)
             times.append(ts)
 
-            save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
+            save_image(img, results_dir / "keyframes" / f"{i}_bw.png")
             save_depth(depth, results_dir / "depth" / f"{i}_d")
             plot_trajectory(poses, gt_poses, i)
         else:
             # Feature matching
-            matches = match_features(keyframes[-1], frame, K, debug=debug) # (N) : N < M
-
-            # Estimate time since last keyframe
-            dt = ts - times[-1]
+            matches = match_features(keyframes[-1], frame, K) # (N) : N < M
 
             # Check if there are enough matches
             if len(matches) < 20:
@@ -74,15 +70,9 @@ def main():
                 continue
 
             # Estimate the relative pose (odometry) between the current frame and the last keyframe
-            T = estimate_relative_pose(matches, keyframes[-1], frame, K, 
-                                          dist_coeffs=dist_coeffs, debug=True) # (4, 4)
+            T = estimate_relative_pose(matches, keyframes[-1], frame, K, dist_coeffs=dist_coeffs) # (4, 4)
             if T is None:
                 print(f"Warning: solvePnP failed!")
-                continue
-
-            # Check if the velocity is within acceptable limits
-            success = check_velocity(T, dt)
-            if not success:
                 continue
            
             # Check if this frame is a keyframe (significant motion or lack of feature matches)
@@ -99,14 +89,13 @@ def main():
                 times.append(ts)
 
                 # Save plots
-                save_image(img, results_dir / "keyframes" / f"{i}_rgb.png")
+                save_image(img, results_dir / "keyframes" / f"{i}_bw.png")
                 save_depth(depth, results_dir / "depth" / f"{i}_d")
-                plot_matches(keyframes[-2], frame)
                 plot_trajectory(poses, gt_poses, i)
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)
-    plot_trajectory_3d(poses)
+    plot_trajectory_3d(poses, gt_poses)
 
 if __name__ == "__main__":
     main()

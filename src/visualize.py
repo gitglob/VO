@@ -13,8 +13,8 @@ matplotlib.use('TkAgg')
 ############################### Pose Visualization ###############################
 
 def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory"):
-    plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
-    plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
+    plot_trajectory_2d(poses, gt, save_path / f"{i}.png")
+    # plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
 
 def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     num_poses = len(poses)
@@ -182,13 +182,15 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
 
     plt.close(fig)
 
-def plot_trajectory_3d(poses, save_path=results_dir / "vo" / "final_trajectory.png"):
+def plot_trajectory_3d(poses, gt_poses, save_path=results_dir / "vo" / "final_trajectory.png"):
     poses = np.array(poses)
+    gt_poses = np.array(gt_poses)
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     
     # Plot the trajectory
     ax.plot(poses[:, 0, 3], poses[:, 2, 3], -poses[:, 1, 3], 'b-', label='Trajectory')
+    ax.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], -gt_poses[:, 1, 3], 'r--', label='Ground Truth')
     
     # Set labels and title
     ax.set_xlabel('X')
@@ -361,18 +363,21 @@ def plot_keypoints(image, keypoints, save_path):
     cv2.imwrite(save_path, img_with_keypoints)
 
 # Function to visualize the found feature matches
-def plot_matches(q_frame, t_frame, save_path: str = None):
-    img1 = q_frame.img
-    kpts1 = q_frame.keypoints
-    img2 = t_frame.img
-    kpts2 = t_frame.keypoints
-    matches = q_frame.get_matches(t_frame.id)
+def plot_matches(matches, q_frame, t_frame, save_path: str = None):
+    if isinstance(matches, np.ndarray):
+        matches = matches.tolist()
+        
+    q_img = q_frame.img
+    q_kpts = q_frame.keypoints
+
+    t_img = t_frame.img
+    t_kpts = t_frame.keypoints
 
     if len(matches) > 50:
         matches = matches[:50]
 
     # Draw the matches on the images
-    matched_image = cv2.drawMatches(img1, kpts1, img2, kpts2, matches, outImg=None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    matched_image = cv2.drawMatches(q_img, q_kpts, t_img, t_kpts, matches, outImg=None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     
     # Save the image with matched features
     if not save_path:
