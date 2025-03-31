@@ -1,3 +1,14 @@
+generic:
+    debug: True
+
+camera:
+    fx: 718.86
+    fy: 718.86
+    cx: 607.19
+    cy: 185.22
+    width: 1243
+    height: 376
+    
 orb:
     num_keypoints: 8000
     scale_factor: 1.2
@@ -10,14 +21,12 @@ orb:
     max_num_keypoints: 1500
 
 triangulation:
-    min_angle: 1
+    min_angle: 0.5
     max_ratio_between_max_and_med_angle: 20
 
-guided_search:
-    search_window: 100
-    max_distance: 60
-    view_angle_threshold: 60
-
+point_association:
+    num_matches: 10
+    
 PnP:
     reprojection_threshold: 4
     confidence: 0.99
@@ -31,9 +40,9 @@ matches:
 keyframe:
     distance: 1
     angle: 10
-    num_tracked_points: 50
+    num_tracked_points: 10
 
 map:
     match_view_ratio: 0.25
     min_observations: 3
-    max_size: 1000
+    max_keyframes_since_last_observation: 10

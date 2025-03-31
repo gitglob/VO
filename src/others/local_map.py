@@ -1,44 +1,81 @@
 from typing import List
 import numpy as np
+import matplotlib.pyplot as plt
 import cv2
-from src.others.utils import invert_transform
-from config import image_width, image_height, debug, SETTINGS
+from config import SETTINGS
 
 
 scale_factor = SETTINGS["orb"]["scale_factor"]
 n_levels = SETTINGS["orb"]["level_pyramid"]
-min_observations = SETTINGS["orb"]["level_pyramid"]
+
+MIN_OBSERVATIONS = SETTINGS["map"]["min_observations"]
+MAX_KEYFRAMES_SINCE_LAST_OBS = SETTINGS["map"]["max_keyframes_since_last_observation"]
+MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
+
+W = SETTINGS["camera"]["width"]
+H = SETTINGS["camera"]["height"]
+
+debug = SETTINGS["generic"]["debug"]
+
 
 class mapPoint():
-    def __init__(self, kf_id: int, 
-                 cam_center: np.ndarray, 
+    def __init__(self, 
+                 kf_number: int,
+                 kf_id: int, 
+                 cam_pose: np.ndarray, 
                  pos: np.ndarray, 
-                 keypoint: int, 
+                 keypoint: cv2.KeyPoint, 
                  desc: np.ndarray):
-        self.kf_id: int = kf_id           # The observation id of the keyframe inside the local map
-        self.cam_center = cam_center
+        self.observations = [
+            { 
+                "kf_number": kf_number, # The keyframe number (not ID!) when it was obsrved
+                "kf_id": kf_id,       # The id of the keyframe that observed it
+                "cam_pose": cam_pose, # Camera pose in that keyframe
+                "keypoint": keypoint, # ORB keypoint
+                "descriptor": desc    # ORB descriptor
+            }
+        ]
+
         self.pos: np.ndarray = pos        # 3D position
-        self.kpt: cv2.KeyPoint = keypoint # ORB keypoint
-        self.desc: np.ndarray = desc      # ORB descriptor
+        self.id: int = keypoint.class_id  # The unique id of the keypoint
 
-        self.init()
-
-    def init(self):
-        self.id: int = self.kpt.class_id    # The id of the keypoint
         self.match_counter: int = 0         # Number of times the point was tracked with PnP
         self.obs_counter: int = 0           # Number of times the point was observed in a Frame
 
-    def view_ray(self, cam_center_vec):
-        v = self.pos - cam_center_vec
+    def observe(self,
+                kf_number: int, 
+                kf_id: int, 
+                cam_pose: np.ndarray, 
+                keypoint: cv2.KeyPoint, 
+                desc: np.ndarray):
+        
+        new_observation = {
+            "kf_number": kf_number,
+            "kf_id": kf_id,    
+            "cam_pose": cam_pose, 
+            "keypoint": keypoint, 
+            "descriptor": desc
+        }
+        self.observations.append(new_observation)
+
+    def view_ray(self, cam_pos):
+        v = self.pos - cam_pos
         v = v / np.linalg.norm(v)
         return v
     
-    def mean_view_ray(self): # TODO: integrate multiple points
-        return self.view_ray(self.cam_center)
+    def mean_view_ray(self):
+        view_rays = []
+        for obs in self.observations:
+            v = self.view_ray(obs["cam_pose"][:3, 3])
+            view_rays.append(v)
+
+        return np.mean(view_rays, axis=0)
 
     def getScaleInvarianceLimits(self):
-        dist = np.linalg.norm(self.pos - self.cam_center)
-        level = self.kpt.octave
+        cam_pos = self.observations[-1]["cam_pose"][:3, 3]
+        level = self.observations[-1]["keypoint"].octave
+
+        dist = np.linalg.norm(self.pos - cam_pos)
         minLevelScaleFactor = scale_factor**level
         maxLlevelScaleFactor = scale_factor**(n_levels - 1 - level)
 
@@ -48,9 +85,8 @@ class mapPoint():
         return (dmin, dmax)
 
 class Map():
-    def __init__(self, frame_id: int):
-        self.origin_frame = frame_id  # ID of the frame when the map was first created
-        self.points: np.ndarray = np.empty((0,), dtype=object)
+    def __init__(self):
+        self.points: dict = {}   # Dictionary with id<->mapPoint pairs
 
         # Mask that indicates which of the current points are in the camera view
         self._in_view_mask = None
@@ -59,26 +95,39 @@ class Map():
         self._u = None
         self._v = None
 
-        # Read settings
-        self._match_view_ratio = SETTINGS["map"]["match_view_ratio"]
-        self._max_size = SETTINGS["map"]["max_size"]
-
         # Frame counter
         self._kf_counter = 0
 
     @property
     def num_points(self):
         return len(self.points)
+    
+    @property
+    def points_arr(self):
+        """Returns the mapPoints as an arrayu"""
+        p_arr = []
+        for k,v in self.points.items():
+            p_arr.append(v)
+        p_arr = np.array(p_arr, dtype=object)
+        return p_arr
 
     @property
     def point_positions(self):
         """Returns the points xyz positions"""
-        return np.vstack([p.pos for p in self.points])
+        positions = []
+        for k,v in self.points.items():
+            positions.append(v.pos)
+        positions = np.vstack(positions, dtype=np.float64)
+        return positions
 
     @property
     def point_ids(self):
-        """Returns the points xyz positions"""
-        return np.vstack([p.id for p in self.points])
+        """Returns the points IDs"""
+        ids = []
+        for k,v in self.points.items():
+            ids.append(k)
+        ids = np.array(ids, dtype=int)
+        return ids
     
     @property
     def num_points_in_view(self):
@@ -89,38 +138,70 @@ class Map():
     
     @property
     def points_in_view(self):
-        return self.points[self._in_view_mask]
+        return self.points_arr[self._in_view_mask]
     
-    def add_points(self, points: np.ndarray, 
+    def add_points(self, 
+                   kf_id: int,
+                   points_pos: np.ndarray, 
                    keypoints: List[cv2.KeyPoint], 
                    descriptors: np.ndarray,
                    T_cw: np.ndarray):
-        # Extract the camera center vector
-        cam_center = T_cw[:3, 3]
-        # Get initial number of points
-        prev_num_points = self.num_points
-        # Create an array of empty cells
-        empty_cells = np.full(len(points), None, dtype=object)
-        # Concatenate the new empty cells to the existing points array
-        self.points = np.concatenate((self.points, empty_cells))
-
         # Iterate over the new points
-        for i in range(len(points)):
-            p = mapPoint(self._kf_counter, cam_center, points[i], keypoints[i], descriptors[i])
-            self.points[prev_num_points + i] = p
+        for i in range(len(points_pos)):
+            kpt_id = keypoints[i].class_id
+            p = mapPoint(self._kf_counter, kf_id, T_cw, points_pos[i], keypoints[i], descriptors[i])
+            self.points[kpt_id] = p
         self._kf_counter += 1
-        print(f"Adding {len(points)} points to the Map. Total: {len(self.points)} points.")
 
-    def view(self, T_wc: np.ndarray, K: np.ndarray, pred=False):
+        if debug:
+            print(f"Adding {len(points_pos)} points to the Map. Total: {len(self.points)} points.")
+
+    def update_points(self, 
+                      kf_id: int,
+                      keypoints: List[cv2.KeyPoint], 
+                      descriptors: np.ndarray,
+                      T_cw: np.ndarray):
+        for i in range(len(keypoints)):
+            kpt_id = keypoints[i].class_id
+            p = self.points[kpt_id]
+            p.observe(self._kf_counter, kf_id, T_cw, keypoints[i], descriptors[i])
+
+        if debug:
+            print(f"Updating {len(keypoints)} map points.")
+        
+    def update_landmarks(self, point_ids: List, point_positions: List):
+        """Updates the 3d positions of given map points"""
+        if debug:
+            print("Updating landmark positions...")
+
+        prev_point_positions = self.point_positions.copy()
+        point_ids = np.array(point_ids, dtype=np.uint16)
+        point_positions = np.array(point_positions, dtype=np.float64)
+
+        # Create a boolean mask: True for IDs that exist in the map
+        mask = np.isin(point_ids, self.point_ids)
+        
+        # Filter valid point IDs and their corresponding positions
+        to_update_point_ids = point_ids[mask]
+        to_update_positions = point_positions[mask]
+        
+        # Update the positions of the landmarks
+        for pid, pos in zip(to_update_point_ids, to_update_positions):
+            # print(f"Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
+            self.points[pid].pos = pos
+
+        # self.show(prev_point_positions, self.point_positions)
+
+    def view(self, T_wc: np.ndarray, K: np.ndarray):
         """
-        Returns the points and descriptors that are in the current view.
+        Calculates the points and descriptors that are in a view.
 
         Args:
             T_wc: The transform from the world to the current camera coordinate frame
             K: The camera intrinsics matrix
-            pref: Whether the view was for a real or predicted pose
         """
-        print("Getting points in the current view...")
+        if debug:
+            print("Getting points in the current view...")
 
         # No map points at all
         if self.num_points == 0:
@@ -156,20 +237,19 @@ class Map():
 
         # 5) Check if the projected points lie within image boundaries.
         boundary_mask = (
-            (self._u >= 0) & (self._u < image_width) &
-            (self._v >= 0) & (self._v < image_height)
+            (self._u >= 0) & (self._u < W) &
+            (self._v >= 0) & (self._v < H)
         )
 
         # 6) Combine the z_positive and in_view mask
         self._in_view_mask = z_positive_mask & boundary_mask
 
         # 7) Increase the view counter for every visible point
-        if pred:
-            for p in self.points[self._in_view_mask]:
-                p.obs_counter += 1
+        for p in self.points_arr[self._in_view_mask]:
+            p.obs_counter += 1
 
         if debug:
-            print(f"\tFound {self._in_view_mask.sum()} map points in the predicted camera pose view.")
+            print(f"\t Found {self._in_view_mask.sum()} map points in the previous camera pose.")
     
     def cull(self):
         """
@@ -178,39 +258,102 @@ class Map():
             K: Intrinsics matrix
 
         Remove map points that are 
-            (1) not in current view
-            (2) with a view angle larger than the threshold
-            (3) rarely matched as inlier point
+            (1) rarely matched in PnP
+            (2) not observed over M frames after their creation
+            (3) not observed over the last N frames
         """
-        print("Cleaning up map points...")
+        if debug:
+            print("Cleaning up map points...")
 
         prev_num_points = self.num_points
 
         # 1) Remove points that are rarely matched
-        match_view_ratio_mask = np.ones(self.num_points, dtype=bool)
-        for i, p in enumerate(self.points):
+        removed_point_ids = []
+        for p_id, p in self.points.items():
             if p.obs_counter > 4:
-                match_view_ratio = p.match_counter / p.obs_counter
-                if match_view_ratio < self._match_view_ratio:
-                    match_view_ratio_mask[i] = False
+                r = p.match_counter / p.obs_counter
+                if r < MATCH_VIEW_RATIO:
+                    removed_point_ids.append(p_id)
 
-        self.points = self.points[match_view_ratio_mask]
-        print(f"\t Match-View ratio check removed {np.count_nonzero(~match_view_ratio_mask)} points!")
+        for p_id in removed_point_ids:
+            del self.points[p_id]
+
+        if debug:
+            print(f"\t Match-View ratio check removed {len(removed_point_ids)} points!")
 
         # 2) Remove points that are rarely seen
-        num_views_mask = np.ones(self.num_points, dtype=bool)
-        for i, p in enumerate(self.points):
-            num_kf_passed = self._kf_counter
-            point_creation_kf = p.kf_id
-            num_kf_passed_since_point_creation = num_kf_passed - point_creation_kf
+        removed_point_ids1 = []
+        for p_id, p in self.points.items():
+            num_kf_passed_since_point_creation = self._kf_counter - p.observations[0]["kf_number"]
 
-            if num_kf_passed_since_point_creation > 3 and p.obs_counter > min_observations:
-                num_views_mask[i] = False
+            if num_kf_passed_since_point_creation > 3 and p.obs_counter < MIN_OBSERVATIONS:
+                removed_point_ids1.append(p_id)
 
-        self.points = self.points[num_views_mask]
-        print(f"\t Observability check removed {np.count_nonzero(~num_views_mask)} points!")
+        for p_id in removed_point_ids1:
+            del self.points[p_id]
 
-        print(f"\t Removed {prev_num_points - self.num_points}/{prev_num_points} points from the map!")
+        if debug:
+            print(f"\t Observability check removed {len(removed_point_ids1)} points!")
+
+        # 3) Remove very old points
+        removed_point_ids2 = []
+        for p_id, p in self.points.items():
+            num_kf_passed_since_last_observation = self._kf_counter - p.observations[-1]["kf_number"]
+
+            if num_kf_passed_since_last_observation > MAX_KEYFRAMES_SINCE_LAST_OBS:
+                removed_point_ids2.append(p_id)
+
+        for p_id in removed_point_ids2:
+            del self.points[p_id]
+
+        if debug:
+            print(f"\t Oldness check removed {len(removed_point_ids2)} points!")
+
+        if debug:
+            all_removed_points = removed_point_ids + removed_point_ids1 + removed_point_ids2
+            total_removed = len(removed_point_ids) + len(removed_point_ids1) + len(removed_point_ids2)
+            print(f"\t Removed {total_removed}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None
+
+        return all_removed_points
+
+    def show(self, prev_point_positions, point_positions):
+        """
+        Visualize the map points in 3D.
+        """
+        # Create a new figure and a 3D subplot
+        fig = plt.figure(figsize=(14, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot the previous point positions in red
+        ax.scatter(prev_point_positions[:, 0],
+                prev_point_positions[:, 1],
+                prev_point_positions[:, 2],
+                facecolors='none', edgecolors='r', marker='o', label='Landmarks')
+        
+        # Plot the current point positions in blue
+        ax.scatter(point_positions[:, 0],
+                point_positions[:, 1],
+                point_positions[:, 2],
+                c='b', marker='o', alpha=0.2, label='Optimized Landmarks')
+        
+        # Label the axes
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        
+        # Add a legend to differentiate the point clouds
+        ax.legend()
+        errors = point_positions - prev_point_positions
+        errors_norm = np.linalg.norm(errors, axis=1)
+        ax.set_title("Map Points <-> Error" + 
+                     f"\nTotal: {np.sum(errors):.2f}" +
+                     f", Mean: {np.mean(errors_norm):.2f}" +
+                     f", Median: {np.median(errors_norm):.2f}" +
+                     f"\nMin: {np.min(errors_norm):.2f}" +
+                     f", Max: {np.max(errors_norm):.2f}")
+        
+        # Display the plot
+        plt.show()

@@ -12,9 +12,14 @@ matplotlib.use('TkAgg')
 
 ############################### Pose Visualization ###############################
 
-def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory"):
-    plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
-    plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
+def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory", ba=False):
+    if ba:
+        save_path = save_path / f"{i}ba.png"
+    else:
+        save_path = save_path / f"{i}.png"
+    plot_trajectory_2d(poses, gt, save_path)
+    # plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
+    # plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
 
 def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     num_poses = len(poses)
@@ -394,3 +399,11 @@ def plot_reprojection(img: np.ndarray, pxs: np.ndarray, reproj_pxs: np.ndarray, 
 
     path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(path, reproj_img)
+
+def plot_pixels(img: np.ndarray, pixels: np.ndarray, save_path: str):
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    for u, v in pixels:
+        x, y = int(u), int(v)
+        cv2.circle(img, (x, y), 3, (0, 255, 0), 1)  # Draw the keypoint
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(save_path, img)

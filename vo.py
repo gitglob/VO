@@ -7,11 +7,10 @@ from src.others.utils import save_image, delete_subdirectories, transform_points
 
 from src.frontend.feature_tracking import matchFeatures
 from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import estimate_relative_pose, is_keyframe, predictPose, pointAssociation, triangulateNewPoints
+from src.frontend.tracking import estimate_relative_pose, is_keyframe, pointAssociation, triangulateNewPoints
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.others.local_map import Map
-from src.backend import optimization
 
 
 from config import main_dir, data_dir, scene, results_dir, debug, SETTINGS
@@ -45,6 +44,9 @@ def main():
     # Get the camera matrix
     K = data.get_intrinsics()
 
+    # Initialize the local map
+    map = Map()
+
     # Initialize the graph, the keyframes, and the bow list
     frames = []
     keyframes = []
@@ -53,13 +55,13 @@ def main():
 
     # Run the main VO loop
     i = -1
+    tracking_fails = 0
     is_initialized = False
-    is_scale_initialized = False
     while not data.finished():
         # Advance the iteration
         i+=1
-        # if i%50 == 0:
-        print(f"\n\tIteration: {i} / {data.length()}")
+        if debug:
+            print(f"\n\n\n\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
         t, img, gt_pose = data.get()
@@ -80,7 +82,7 @@ def main():
             t_frame.set_keyframe(True)
             keyframes.append(t_frame)
             if debug:
-                save_image(t_frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
+                save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
                 
             plot_trajectory(poses, gt_poses, i)
         else:                    
@@ -91,7 +93,7 @@ def main():
                 q_frame = keyframes[-1]
 
                 # Feature matching
-                matches = matchFeatures(q_frame, t_frame, K, "0-raw") # (N) : N < M
+                matches = matchFeatures(q_frame, t_frame, K, "initialization/0-raw") # (N) : N < M
 
                 # Check if there are enough matches
                 if len(matches) < SETTINGS["matches"]["min"]:
@@ -114,9 +116,12 @@ def main():
             
                 # Remove scale ambiguity
                 T_tq[:3, 3] *= scale
+                if not is_keyframe(T_tq, len(matches)):
+                    is_initialized = False
+                    continue
 
                 # Apply the scale to the pose and validate it
-                scaled_pose = poses[-1] @ T_tq
+                T_tw = poses[-1] @ T_tq
 
                 # Triangulate the 3D points using the initial pose
                 t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, K, scale)
@@ -126,13 +131,13 @@ def main():
 
                 # Save the pose and t_frame information
                 gt_poses.append(gt_pose)
-                poses.append(scaled_pose)
-                t_frame.set_pose(scaled_pose)
+                poses.append(T_tw)
+                t_frame.set_pose(T_tw)
                 t_frame.set_keyframe(True)
                 keyframes.append(t_frame)
 
                 # Validate the scale
-                validate_scale([poses[-1], scaled_pose], [gt_poses[-1], gt_pose])
+                validate_scale([poses[-1], T_tw], [gt_poses[-1], gt_pose])
                
                 # Visualize the current state of the map and trajectory
                 plot_trajectory(poses, gt_poses, i)
@@ -142,45 +147,44 @@ def main():
                     save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 # Transfer the points to the world frame
-                points_w = transform_points(t_points, scaled_pose)
+                points_w = transform_points(t_points, T_tw)
 
                 # Create a local map and push the triangulated points
-                map = Map(q_frame.id)
-                map.add_points(points_w, t_kpts, t_descriptors, scaled_pose)
+                map.add_points(t_frame.id, points_w, t_kpts, t_descriptors, T_tw)
             # ########### Tracking ###########
             else:
                 print("Tracking)")
                 q_frame = keyframes[-1]
                     
-                # Predict next pose using constant velocity
-                pred_pose = predictPose(poses)
-                T_wp = invert_transform(pred_pose)
-    
-                # Find the map points that can be seen in the predicted robot's pose
-                map.view(T_wp, K, pred=True)
-                if map.num_points_in_view < 6:
-                    print(f"Not enough points in view ({map.num_points_in_view}). Expected at least 6 for PnP.")
-                    is_initialized = False
+                # Find the map points that can be seen in the previous frame
+                T_wq = invert_transform(poses[-1])
+                map.view(T_wq, K)
+                if map.num_points_in_view < SETTINGS["keyframe"]["num_tracked_points"]:
+                    print(f"Not enough points in view ({map.num_points_in_view}).")
+                    tracking_fails += 1
+                    if tracking_fails >= 3:
+                        is_initialized = False
                     continue
 
-                # Search the map point of the new frame in a small search window around the projected location
-                map_kpt_dist_pairs = pointAssociation(map, t_frame, T_wp)
-                if len(map_kpt_dist_pairs) < 6:
-                    print(f"Not enough guided descriptor matches ({len(map_kpt_dist_pairs)}). Expected at least 6 for PnP.")
-                    is_initialized = False
+                # Match these map points with the current frame
+                map_t_pairs = pointAssociation(map, t_frame)
+                if len(map_t_pairs) < SETTINGS["point_association"]["num_matches"]:
+                    print("Point association failed!")
+                    tracking_fails += 1
+                    if tracking_fails >= 3:
+                        is_initialized = False
                     continue
 
                 # Estimate the new world pose using PnP (3d-2d)
-                T_wt, num_tracked_points = estimate_relative_pose(map, t_frame, map_kpt_dist_pairs, K)
+                T_wt, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs, K)
                 if T_wt is None:
                     print(f"Warning: solvePnP failed!")
-                    is_initialized = False
+                    tracking_fails += 1
+                    if tracking_fails >= 3:
+                        is_initialized = False
                     continue
                 T_tw = invert_transform(T_wt)
     
-                # Find the map points that can be seen in the actual robot's pose
-                map.view(T_wt, K, pred=True)
-            
                 # Check if this t_frame is a keyframe
                 T_wq = invert_transform(poses[-1])
                 T_tq = T_wq @ T_tw
@@ -196,28 +200,33 @@ def main():
                 # Save the keyframe
                 keyframes.append(t_frame)
                 if debug:
-                    save_image(t_frame.img, results_dir / "keyframes" / f"{i}_rgb.png")
+                    save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 # Do feature matching with the previous keyframe
                 q_frame = keyframes[-2]
-                matches = matchFeatures(q_frame, t_frame, K, "5-raw")
+                matches = matchFeatures(q_frame, t_frame, K, "mapping/0-raw")
                 q_frame.match[t_frame.id]["T"] = T_qt
                 t_frame.match[q_frame.id]["T"] = T_tq
 
                 # Find new keypoints and triangulate them
-                t_points, t_kpts, t_descriptors, new_points_success = triangulateNewPoints(q_frame, t_frame, map, K)
+                (t_old_points, old_kpts, old_descriptors, 
+                 t_new_points, new_kpts, new_descriptors, 
+                 new_points_success) = triangulateNewPoints(q_frame, t_frame, map, K)
                 if new_points_success:
-                    # Transfer the points to the world frame
-                    points_w = transform_points(t_points, T_tw)
+                    # Transfer the new points to the world frame
+                    w_new_points = transform_points(t_new_points, T_tw)
 
                     # Add the triangulated points to the local map
-                    map.add_points(points_w, t_kpts, t_descriptors, T_tw)
+                    map.add_points(t_frame.id, w_new_points, new_kpts, new_descriptors, T_tw)
+
+                    # Update the old triangulated points
+                    map.update_points(t_frame.id, old_kpts, old_descriptors, T_tw)
+
+                # Optimizer the poses using BA
+                plot_trajectory(poses, gt_poses, i)
 
                 # Clean up map points that are not seen anymore
                 map.cull()
-                
-                # Visualize the current state of the map and trajectory
-                plot_trajectory(poses, gt_poses, i)
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)

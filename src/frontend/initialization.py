@@ -5,9 +5,10 @@ from src.others.utils import invert_transform, transform_points
 from src.others.visualize import plot_matches
 from src.others.filtering import enforce_epipolar_constraint, filter_by_reprojection, filter_triangulation_points
 
-from config import results_dir, debug, SETTINGS
+from config import results_dir, SETTINGS
 
 
+debug = SETTINGS["generic"]["debug"]
 MIN_NUM_MATCHES = SETTINGS["matches"]["min"]
 
 
@@ -44,8 +45,8 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
     matches = q_frame.get_matches(t_frame.id)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # ------------------------------------------------------------------------
     # 2. Enforce Epipolar Constraint
@@ -56,6 +57,12 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
         print("[initialize] Failed to apply epipolar constraint..")
         return None, False
 
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / f"matches/initialization/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~epipolar_constraint_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / f"matches/initialization/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[epipolar_constraint_mask], q_frame, t_frame, save_path=match_save_path)
     matches = matches[epipolar_constraint_mask]
     inlier_q_pixels = q_kpt_pixels[epipolar_constraint_mask]
     inlier_t_pixels = t_kpt_pixels[epipolar_constraint_mask]
@@ -83,10 +90,8 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
         reproj_mask = filter_by_reprojection(
             matches, q_frame, t_frame,
             R, t, K,
-            save_path=results_dir / f"matches/2-EH_reprojection/{q_frame.id}_{t_frame.id}.png"
+            save_path=results_dir / f"matches/initialization/2-reprojection"
         )
-        if debug:
-            print(f"\t\t Reprojection filtered {np.sum(mask_pose) - np.sum(reproj_mask)}/{np.sum(mask_pose)} matches!")
     else:
         # Decompose Homography Matrix
         num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(M, K)
@@ -139,13 +144,21 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
             matches,
             q_frame, t_frame,
             R, t, K,
-            save_path=results_dir / f"matches/2-EH_reprojection/{q_frame.id}_{t_frame.id}.png"
+            save_path=results_dir / f"matches/initialization/2-reprojection/"
         )
 
     # If we failed to recover R and t
     if R is None or t is None:
         print("[initialize] Failed to recover a valid pose from either E or H.")
         return None, False
+            
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / "matches/initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~reproj_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / "matches/initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[reproj_mask], q_frame, t_frame, save_path=match_save_path)
+
     matches = matches[reproj_mask]
 
     if debug:
@@ -166,11 +179,6 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
     q_frame.match[t_frame.id]["init_matches"] = matches
     t_frame.initialize(q_frame.id, use_homography, inv_pose)
     t_frame.match[q_frame.id]["init_matches"] = matches
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/1-initialization" / f"{q_frame.id}_{t_frame.id}.png"
-        plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
     return pose, True
       
@@ -190,8 +198,8 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     matches = q_frame.get_init_matches(t_frame.id)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
-    q_kpt_pixels = np.float32([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_kpt_pixels = np.float32([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
+    t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Triangulate
     q_points = triangulate(q_kpt_pixels, t_kpt_pixels, R_qt, t_qt, K) # (N, 3)
@@ -215,6 +223,14 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     if triang_mask is None or triang_mask.sum() < MIN_NUM_MATCHES:
         print("Discarding frame due to insufficient triangulation quality.")
         return None, None, None, False
+            
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / "matches/initialization/4-triangulation" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~triang_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / "matches/initialization/4-triangulation" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[triang_mask], q_frame, t_frame, save_path=match_save_path)
+
     matches = matches[triang_mask]
     q_points = q_points[triang_mask]
     t_points = t_points[triang_mask]
@@ -231,11 +247,6 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     # Save the triangulated points keypoints and descriptors
     t_kpts = np.array([t_frame.keypoints[m.trainIdx] for m in matches])
     t_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in matches])
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/3-triangulation" / f"{q_frame.id}_{t_frame.id}.png"
-        plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
     # Return the initial pose and filtered points
     return t_points, t_kpts, t_descriptors, True
