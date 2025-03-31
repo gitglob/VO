@@ -28,7 +28,7 @@ point_association:
     num_matches: 40
 
 PnP:
-    reprojection_threshold: 2
+    reprojection_threshold: 2.0
     confidence: 0.999
     iterations: 300
     min_inliers: 4
@@ -54,4 +54,4 @@ ba:
     odometry_trans_noise: 1.0  # Std. deviation for the calculated odometry (meters)
     odometry_rot_noise: 2.0    # Std. deviation for the calculated odometry (degrees)
     first_measurement_noise: 0.1  # Std. deviation for the first landmark observation (meters)
-    measurement_noise: 10.0  # Std. deviation for camera measurements (pixels)
+    measurement_noise: 2.0  # Std. deviation for camera measurements (pixels)

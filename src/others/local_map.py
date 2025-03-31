@@ -1,5 +1,6 @@
 from typing import List
 import numpy as np
+import matplotlib.pyplot as plt
 import cv2
 from config import SETTINGS
 
@@ -35,8 +36,8 @@ class mapPoint():
             }
         ]
 
-        self.pos: np.ndarray = pos       # 3D position
-        self.id: int = keypoint.class_id # The unique id of the keypoint
+        self.pos: np.ndarray = pos        # 3D position
+        self.id: int = keypoint.class_id  # The unique id of the keypoint
 
         self.match_counter: int = 0         # Number of times the point was tracked with PnP
         self.obs_counter: int = 0           # Number of times the point was observed in a Frame
@@ -115,7 +116,7 @@ class Map():
         positions = []
         for k,v in self.points.items():
             positions.append(v.pos)
-        positions = np.vstack(positions)
+        positions = np.vstack(positions, dtype=np.float64)
         return positions
 
     @property
@@ -124,7 +125,7 @@ class Map():
         ids = []
         for k,v in self.points.items():
             ids.append(k)
-        ids = np.vstack(ids)
+        ids = np.array(ids, dtype=np.uint16)
         return ids
     
     @property
@@ -171,8 +172,10 @@ class Map():
         """Updates the 3d positions of given map points"""
         if debug:
             print("Updating landmark positions...")
-        point_ids = np.array(point_ids)
-        point_positions = np.array(point_positions)
+
+        prev_point_positions = self.point_positions.copy()
+        point_ids = np.array(point_ids, dtype=np.uint16)
+        point_positions = np.array(point_positions, dtype=np.float64)
 
         # Create a boolean mask: True for IDs that exist in the map
         mask = np.isin(point_ids, self.point_ids)
@@ -183,8 +186,10 @@ class Map():
         
         # Update the positions of the landmarks
         for pid, pos in zip(to_update_point_ids, to_update_positions):
-            # print(f"Updating point {pid} from {self.points[pid].pos} to {pos}")
+            # print(f"Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
             self.points[pid].pos = pos
+
+        # self.show(prev_point_positions, self.point_positions)
 
     def view(self, T_wc: np.ndarray, K: np.ndarray):
         """
@@ -304,7 +309,50 @@ class Map():
             print(f"\t Oldness check removed {len(removed_point_ids2)} points!")
 
         if debug:
-            print(f"\t Removed {len(removed_point_ids) + len(removed_point_ids2)}/{prev_num_points} points from the map!")
+            all_removed_points = removed_point_ids + removed_point_ids1 + removed_point_ids2
+            total_removed = len(removed_point_ids) + len(removed_point_ids1) + len(removed_point_ids2)
+            print(f"\t Removed {total_removed}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None
+
+        return all_removed_points
+
+    def show(self, prev_point_positions, point_positions):
+        """
+        Visualize the map points in 3D.
+        """
+        # Create a new figure and a 3D subplot
+        fig = plt.figure(figsize=(14, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot the previous point positions in red
+        ax.scatter(prev_point_positions[:, 0],
+                prev_point_positions[:, 1],
+                prev_point_positions[:, 2],
+                facecolors='none', edgecolors='r', marker='o', label='Landmarks')
+        
+        # Plot the current point positions in blue
+        ax.scatter(point_positions[:, 0],
+                point_positions[:, 1],
+                point_positions[:, 2],
+                c='b', marker='o', alpha=0.2, label='Optimized Landmarks')
+        
+        # Label the axes
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        
+        # Add a legend to differentiate the point clouds
+        ax.legend()
+        errors = point_positions - prev_point_positions
+        errors_norm = np.linalg.norm(errors, axis=1)
+        ax.set_title("Map Points <-> Error" + 
+                     f"\nTotal: {np.sum(errors):.2f}" +
+                     f", Mean: {np.mean(errors_norm):.2f}" +
+                     f", Median: {np.median(errors_norm):.2f}" +
+                     f"\nMin: {np.min(errors_norm):.2f}" +
+                     f", Max: {np.max(errors_norm):.2f}")
+        
+        # Display the plot
+        plt.show()

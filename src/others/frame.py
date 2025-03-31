@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 from cv2 import DMatch
 from src.others.visualize import plot_keypoints
+from src.others.local_map import Map
 
 from config import results_dir, SETTINGS
 
@@ -47,6 +48,18 @@ class Frame():
 
         if debug:
             self.log_keypoints()
+
+    def keypoints_in_map(self, map: Map):
+        """
+        Returns the keypoints that are in the map.
+        """
+        # Get the keypoints that are in the map
+        kpts_in_map = []
+        for i, kpt in enumerate(self.keypoints):
+            if kpt.class_id in map.point_ids():
+                kpts_in_map.append(kpt.class_id)
+        
+        return np.array(kpts_in_map)
 
     def set_keyframe(self, is_keyframe: bool):
         self.is_keyframe = is_keyframe

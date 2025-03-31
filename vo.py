@@ -11,7 +11,8 @@ from src.frontend.tracking import estimate_relative_pose, is_keyframe, pointAsso
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.others.local_map import Map
-from src.backend.g2o.ba import BA
+# from src.backend.g2o.ba import BA
+from src.backend.gtsam.ba import BA
 
 
 from config import main_dir, data_dir, scene, results_dir, SETTINGS
@@ -157,6 +158,11 @@ def main():
 
                 # Push the triangulated points to the map
                 map.add_points(t_frame.id, points_w, t_kpts, t_descriptors, T_tw)
+
+                # Optimizer the poses using BA
+                poses, landmark_ids, landmark_poses = ba.optimize()
+                map.update_landmarks(landmark_ids, landmark_poses)
+                plot_trajectory(poses, gt_poses, i, ba=True)
             # ########### Tracking ###########
             else:
                 print("Tracking)")
@@ -230,16 +236,15 @@ def main():
                     ba.add_observations(t_frame.id, w_old_points, old_kpts)
                     ba.add_observations(t_frame.id, w_new_points, new_kpts)
 
-                # Clean up map points that are not seen anymore
-                map.cull()
-
                 # Optimizer the poses using BA
                 plot_trajectory(poses, gt_poses, i)
-                if i > 0 and len(keyframes) % opt_freq == 0:
-                    poses, landmark_ids, landmark_poses = ba.optimize()
-                    map.update_landmarks(landmark_ids, landmark_poses)
-                    plot_trajectory(poses, gt_poses, i, ba=True)
-                    continue
+                poses, landmark_ids, landmark_poses = ba.optimize()
+                map.update_landmarks(landmark_ids, landmark_poses)
+                plot_trajectory(poses, gt_poses, i, ba=True)
+
+                # Clean up map points that are not seen anymore
+                removed_landmarks = map.cull()
+                ba.cull(removed_landmarks)
 
     # Perform one final optimization
     poses = ba.finalize()
