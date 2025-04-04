@@ -399,3 +399,12 @@ def plot_reprojection(img: np.ndarray, pxs: np.ndarray, reproj_pxs: np.ndarray, 
 
     path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(path, reproj_img)
+
+def plot_pixels(img: np.ndarray, pixels: np.ndarray, save_path: str):
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    for u, v in pixels:
+        x, y = int(u), int(v)
+        cv2.circle(img, (x, y), 3, (0, 255, 0), 1)  # Draw the keypoint
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(save_path, img)
+    

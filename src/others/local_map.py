@@ -309,14 +309,14 @@ class Map():
             print(f"\t Oldness check removed {len(removed_point_ids2)} points!")
 
         if debug:
-            all_removed_points = removed_point_ids + removed_point_ids1 + removed_point_ids2
+            all_removed_point_ids = removed_point_ids + removed_point_ids1 + removed_point_ids2
             total_removed = len(removed_point_ids) + len(removed_point_ids1) + len(removed_point_ids2)
             print(f"\t Removed {total_removed}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None
 
-        return all_removed_points
+        return all_removed_point_ids
 
     def show(self, prev_point_positions, point_positions):
         """

@@ -11,8 +11,7 @@ from src.frontend.tracking import estimate_relative_pose, is_keyframe, pointAsso
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.others.local_map import Map
-# from src.backend.g2o.ba import BA
-from src.backend.gtsam.ba import BA
+from src.backend.ba import BA
 
 
 from config import main_dir, data_dir, scene, results_dir, SETTINGS
@@ -48,8 +47,8 @@ def main():
     K = data.get_intrinsics()
 
     # Initialize the BA optimizer
-    ba = BA(K)
-    opt_freq = SETTINGS["ba"]["frequency"]
+    ba = BA(K, True)
+    ba_freq = SETTINGS["ba"]["frequency"]
 
     # Initialize the local map
     map = Map()
@@ -81,7 +80,6 @@ def main():
             pose = gt_pose
             assert np.all(np.eye(4) - pose < 1e-6)
 
-            ba.add_pose(pose, t_frame.id, fixed=True)
             gt_poses.append(gt_pose)
             poses.append(pose)
             t_frame.set_pose(pose)
@@ -136,7 +134,7 @@ def main():
                 points_w = transform_points(t_points, T_tw)
 
                 # Add pose and landmarks to the optimizer
-                ba.add_pose(T_tw, t_frame.id)
+                ba.add_pose(t_frame.id, T_tw)
                 ba.add_observations(t_frame.id, points_w, t_kpts)
 
                 # Save the pose and t_frame information
@@ -158,11 +156,6 @@ def main():
 
                 # Push the triangulated points to the map
                 map.add_points(t_frame.id, points_w, t_kpts, t_descriptors, T_tw)
-
-                # Optimizer the poses using BA
-                poses, landmark_ids, landmark_poses = ba.optimize()
-                map.update_landmarks(landmark_ids, landmark_poses)
-                plot_trajectory(poses, gt_poses, i, ba=True)
             # ########### Tracking ###########
             else:
                 print("Tracking)")
@@ -198,7 +191,7 @@ def main():
                     continue
 
                 # Add the new pose to the optimizer
-                ba.add_pose(T_tw, t_frame.id)
+                ba.add_pose(t_frame.id, T_tw)
                 
                 # Save the T_tw and t_frame information
                 gt_poses.append(gt_pose)
@@ -236,18 +229,20 @@ def main():
                     ba.add_observations(t_frame.id, w_old_points, old_kpts)
                     ba.add_observations(t_frame.id, w_new_points, new_kpts)
 
-                # Optimizer the poses using BA
+                # Plot trajectory
                 plot_trajectory(poses, gt_poses, i)
-                poses, landmark_ids, landmark_poses = ba.optimize()
-                map.update_landmarks(landmark_ids, landmark_poses)
-                plot_trajectory(poses, gt_poses, i, ba=True)
+
+                # Optimizer the poses using BA
+                if i%ba_freq == 0:
+                    poses[1:], landmark_ids, landmark_poses = ba.optimize()
+                    # map.update_landmarks(landmark_ids, landmark_poses)
+                    plot_trajectory(poses, gt_poses, i, ba=True)
 
                 # Clean up map points that are not seen anymore
-                removed_landmarks = map.cull()
-                ba.cull(removed_landmarks)
+                # removed_landmark_ids = map.cull()
 
     # Perform one final optimization
-    poses = ba.finalize()
+    poses[1:] = ba.finalize()
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)

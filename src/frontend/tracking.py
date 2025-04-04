@@ -4,8 +4,7 @@ from src.others.local_map import Map, mapPoint
 from src.frontend.initialization import triangulate
 from src.others.frame import Frame
 from src.others.utils import get_yaw, transform_points
-from src.others.visualize import plot_matches, plot_reprojection
-from src.others.filtering import filterMatches
+from src.others.visualize import plot_matches, plot_reprojection, plot_pixels
 from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint, filter_by_reprojection, filter_scale
 from config import SETTINGS, results_dir
 
@@ -50,19 +49,42 @@ def pointAssociation(map: Map, t_frame: Frame):
     if len(matches) < MIN_NUM_MATCHES:
         return []
 
-    # 2) Filter matches
-    matches = filterMatches(matches)
-    if len(matches) < MIN_NUM_MATCHES:
+    # Filter matches
+    # Apply Lowe's ratio test to filter out false matches
+    good_matches = []
+    for m, n in matches:
+        if m.distance < 0.9 * n.distance:
+            good_matches.append(m)
+    if debug:
+        print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+
+    if len(good_matches) < MIN_NUM_MATCHES:
+        return []
+    
+    # Next, ensure uniqueness by keeping only the best match per train descriptor.
+    unique_matches = {}
+    for m in good_matches:
+        # If this train descriptor is not seen yet, or if the current match is better, update.
+        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
+            unique_matches[m.trainIdx] = m
+
+    # Convert the dictionary values to a list of unique matches
+    unique_matches = list(unique_matches.values())
+    if debug:
+        print(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+
+    if len(unique_matches) < MIN_NUM_MATCHES:
         return []
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/tracking/0-point_association" / f"map_{t_frame.id}.png"
-        plot_matches(matches, t_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / "matches/tracking/0-point_association" / f"map_{t_frame.id}_b.png"
+        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
+        plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
     
     # Prepare results
     pairs = []  # list of (map_idx, frame_idx, best_dist)
-    for m in matches:
+    for m in unique_matches:
         pairs.append((map_descriptors_idx[m.queryIdx], m.trainIdx))
 
     if debug:
