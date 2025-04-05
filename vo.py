@@ -47,7 +47,7 @@ def main():
     K = data.get_intrinsics()
 
     # Initialize the BA optimizer
-    ba = BA(K, True)
+    ba = BA(K, verbose=debug)
     ba_freq = SETTINGS["ba"]["frequency"]
 
     # Initialize the local map
@@ -234,7 +234,8 @@ def main():
 
                 # Optimizer the poses using BA
                 if i%ba_freq == 0:
-                    poses[1:], landmark_ids, landmark_poses = ba.optimize()
+                    opt_poses, landmark_ids, landmark_poses = ba.optimize()
+                    poses[-ba_freq:] = opt_poses
                     # map.update_landmarks(landmark_ids, landmark_poses)
                     plot_trajectory(poses, gt_poses, i, ba=True)
 
@@ -242,7 +243,7 @@ def main():
                 # removed_landmark_ids = map.cull()
 
     # Perform one final optimization
-    poses[1:] = ba.finalize()
+    poses[-(i-i)%ba_freq:] = ba.finalize()
 
     # Save final map and trajectory
     plot_trajectory(poses, gt_poses, i)
