@@ -174,12 +174,8 @@ def plot_trajectory_2d(poses, gt_poses, ba_poses=None, save_path=None):
             Rot = ba_poses[i, :3, :3]
             ba_pitch[i] = get_yaw(Rot)
 
-            # Extract the ground truth
-            gt_Rot = gt_poses[i, :3, :3]
-            gt_pitch[i] = get_yaw(gt_Rot)
-
         ba_pitch = np.unwrap(ba_pitch)
-        ax2.plot(np.arange(num_poses), -gt_pitch, 'g-*', label='BA')
+        ax2.plot(np.arange(num_poses), -ba_pitch, 'g-*', label='BA')
 
     ax1.set_xlabel('X')
     ax1.set_ylabel('Z')

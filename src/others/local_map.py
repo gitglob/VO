@@ -125,7 +125,7 @@ class Map():
         ids = []
         for k,v in self.points.items():
             ids.append(k)
-        ids = np.array(ids, dtype=np.uint16)
+        ids = np.array(ids, dtype=int)
         return ids
     
     @property
@@ -168,13 +168,13 @@ class Map():
         if debug:
             print(f"Updating {len(keypoints)} map points.")
         
-    def update_landmarks(self, point_ids: List, point_positions: List):
+    def update_landmarks(self, point_ids: set, point_positions: List):
         """Updates the 3d positions of given map points"""
         if debug:
             print("Updating landmark positions...")
 
         prev_point_positions = self.point_positions.copy()
-        point_ids = np.array(point_ids, dtype=np.uint16)
+        point_ids = np.array(point_ids, dtype=int)
         point_positions = np.array(point_positions, dtype=np.float64)
 
         # Create a boolean mask: True for IDs that exist in the map

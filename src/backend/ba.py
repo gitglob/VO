@@ -45,9 +45,9 @@ class BA:
         # Counters for poses and landmarks keys.
         self.new_pose_ids = []
         self.new_landmark_ids = []
-        self.pose_buffer = {}
         self.obs_buffer = {}
-        self._last_pose = None
+        self._scale_set = False
+        self._frame_anchored = False
 
         # Debugging info
         self.verbose = verbose
@@ -57,9 +57,10 @@ class BA:
         pose3 = gtsam.Pose3(pose)
 
         # Check if this is the first pose to anchor the graph
-        if fixed or len(self.new_pose_ids) == 0:
+        if not self._frame_anchored or fixed:
             factor = gtsam.PriorFactorPose3(X(node_idx), pose3, self.prior_pose_noise)
             self.graph.add(factor)
+            self._frame_anchored = True
             if self.verbose:
                 print(f"Anchoring pose X({node_idx})...")
 
@@ -89,9 +90,10 @@ class BA:
             point3 = gtsam.Point3(pt)
 
             # Add a prior on the first landmark to set the scale
-            if len(self.new_landmark_ids) == 0:
+            if not self._scale_set:
                 factor = gtsam.PriorFactorPoint3(L(l_idx), point3, self.prior_landmark_noise)
                 self.graph.add(factor)
+                self._scale_set = True
                 if self.verbose:
                     print(f"Anchored landmark L({l_idx})")
 
@@ -138,17 +140,16 @@ class BA:
         estimate = self.isam.calculateEstimate()
 
         # Get the optimized robot poses and landmark positions
-        _, opt_poses, _, opt_l_pos = self.get_poses_and_landmarks(estimate)
+        opt_pose_ids, opt_poses, opt_l_ids, opt_l_pos = self.get_poses_and_landmarks(estimate)
 
         # Prepare a new graph
         self.graph.resize(0)
         self.initial_estimates.clear()
         self.obs_buffer = {}
-        self.pose_buffer = {}
         self.new_landmark_ids = []
         self.new_pose_ids = []
 
-        return list(opt_poses), list(opt_l_pos)
+        return opt_pose_ids, list(opt_poses), opt_l_ids, list(opt_l_pos)
     
     def finalize(self):
         """Returns the final estimate"""
@@ -276,7 +277,7 @@ class BA:
         # Print the number of landmarks observed in the pose.
         print(f"Variable {var_symbol} is referenced in {len(factors_for_variable)} factors")
 
-        return len(factors_for_variable) 
+        return factors_for_variable 
     
     def get_landmarks_for_pose(self, pose_key: int) -> int:
         """
