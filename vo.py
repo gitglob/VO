@@ -234,11 +234,11 @@ def main():
 
                 # Optimizer the poses using BA
                 if i%ba_freq == 0:
-                    opt_poses, landmark_ids, landmark_poses = ba.optimize()
-                    poses[-ba_freq:] = opt_poses
+                    opt_poses, landmark_poses = ba.optimize()
+                    opt_poses.insert(0, poses[0])  # Keep the first pose fixed
                     # map.update_landmarks(landmark_ids, landmark_poses)
-                    plot_trajectory(poses, gt_poses, i, ba=True)
-
+                    plot_trajectory(poses, gt_poses, i, ba_poses=opt_poses)
+                    poses = opt_poses
                 # Clean up map points that are not seen anymore
                 # removed_landmark_ids = map.cull()
 

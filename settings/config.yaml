@@ -49,8 +49,6 @@ map:
     max_keyframes_since_last_observation: 10
 
 ba:
-    min_pose_connections: 5
-    min_landmark_observations: 5
     frequency: 10
     first_pose_noise: 1e-9 # Std. deviation for the first robot pose (meters)
     odometry_trans_noise: 1.0  # Std. deviation for the calculated odometry (meters)

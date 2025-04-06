@@ -12,14 +12,12 @@ matplotlib.use('TkAgg')
 
 ############################### Pose Visualization ###############################
 
-def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory", ba=False):
-    if ba:
-        save_path = save_path / f"{i}ba.png"
+def plot_trajectory(poses, gt, i, save_path=results_dir / "trajectory", ba_poses=None):
+    if ba_poses is not None:
+        save_path = save_path / f"{i}_ba.png"
     else:
         save_path = save_path / f"{i}.png"
-    plot_trajectory_2d(poses, gt, save_path)
-    # plot_trajectory_2d(poses, gt, save_path / "2d" / f"{i}.png")
-    # plot_trajectory_6dof(poses, gt, save_path / "6dof" / f"{i}.png")
+    plot_trajectory_2d(poses, gt, save_path=save_path, ba_poses=ba_poses)
 
 def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     num_poses = len(poses)
@@ -130,7 +128,7 @@ def plot_trajectory_6dof(poses, gt_poses, save_path=None):
     
     plt.close(fig)
 
-def plot_trajectory_2d(poses, gt_poses, save_path=None):
+def plot_trajectory_2d(poses, gt_poses, ba_poses=None, save_path=None):
     num_poses = len(poses)
     poses = np.array(poses)
     gt_poses = np.array(gt_poses)
@@ -143,14 +141,7 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r--', label='Ground Truth')
     
     # Mark the start and end points with bubbles
-    ax1.scatter(poses[0,0,3], poses[0,2,3], color='blue', s=100, alpha=0.7, label='Start')
-    ax1.scatter(gt_poses[0,0,3], gt_poses[0,2,3], color='red', s=100, alpha=0.3, label='gt: Start')
-
-    ax1.set_xlabel('X')
-    ax1.set_ylabel('Z')
-    ax1.set_title('XZ')
-    ax1.legend()
-    ax1.grid(True)
+    ax1.scatter(poses[0,0,3], poses[0,2,3], color='black', s=100, alpha=0.7, label='Start')
    
     # Extract Euler angles (roll, pitch, yaw)
     pitch = np.zeros((num_poses, 1))
@@ -171,7 +162,30 @@ def plot_trajectory_2d(poses, gt_poses, save_path=None):
     ax2 = fig.add_subplot(122)
 
     ax2.plot(np.arange(num_poses), -pitch, 'b-', label='-Pitch')
-    ax2.plot(np.arange(num_poses), -gt_pitch, 'm--', label='g.t. -Pitch')
+    ax2.plot(np.arange(num_poses), -gt_pitch, 'r--', label='g.t.')
+
+    # Add the BA poses if provided
+    if ba_poses is not None:
+        ba_poses = np.array(ba_poses)
+        ax1.plot(ba_poses[:, 0, 3], ba_poses[:, 2, 3], 'g-*', label='BA')
+        ba_pitch = np.zeros((num_poses, 1))
+        for i in range(num_poses):
+            # Extract the estimation
+            Rot = ba_poses[i, :3, :3]
+            ba_pitch[i] = get_yaw(Rot)
+
+            # Extract the ground truth
+            gt_Rot = gt_poses[i, :3, :3]
+            gt_pitch[i] = get_yaw(gt_Rot)
+
+        ba_pitch = np.unwrap(ba_pitch)
+        ax2.plot(np.arange(num_poses), -gt_pitch, 'g-*', label='BA')
+
+    ax1.set_xlabel('X')
+    ax1.set_ylabel('Z')
+    ax1.set_title('XZ')
+    ax1.legend()
+    ax1.grid(True)
 
     ax2.set_xlabel('Time')
     ax2.set_ylabel('Degrees')

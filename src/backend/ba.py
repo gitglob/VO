@@ -12,9 +12,6 @@ ODOMETRY_ROT_SIGMA = np.deg2rad(float(SETTINGS["ba"]["odometry_rot_noise"]))
 MEASUREMENT_PRIOR_SIGMA = float(SETTINGS["ba"]["first_measurement_noise"])
 MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
 
-MIN_LANDMARK_OBSERVATIONS = int(SETTINGS["ba"]["min_landmark_observations"])
-MIN_POSE_CONNECTIONS = int(SETTINGS["ba"]["min_pose_connections"])
-
 class BA:
     def __init__(self, K: np.ndarray, verbose=False):
         """
@@ -46,44 +43,14 @@ class BA:
         self.prior_landmark_noise = gtsam.noiseModel.Isotropic.Sigma(3, MEASUREMENT_PRIOR_SIGMA)
         
         # Counters for poses and landmarks keys.
-        self.pose_ids = []
         self.new_pose_ids = []
-        self.landmark_ids = []
         self.new_landmark_ids = []
-        self.obs_buffer = {}
         self.pose_buffer = {}
+        self.obs_buffer = {}
         self._last_pose = None
 
         # Debugging info
         self.verbose = verbose
-
-    # NOT USED
-    def add_odometry(self, T: np.ndarray, node_idx: int):
-        """
-        Add an odometry measurement to the graph.
-
-        Args:
-            pose (np.ndarray): The 4x4 transformation matrix representing the pose.
-            information (np.ndarray): The 6x6 information matrix representing the measurement uncertainty.
-        """
-        # Extract the Rotation and Translation components from the transformation matrix
-        T = gtsam.Pose3(T)
-
-        # Retrieve the new pose
-        new_pose = self._last_pose.compose(T).matrix()
-        
-        # Add a BetweenFactor (edge) between the last pose and the new pose
-        edge = gtsam.BetweenFactorPose3(X(self.new_pose_ids[-1]), 
-                                        X(node_idx), 
-                                        T, 
-                                        self.odometry_noise)
-        self.graph.add(edge)
-        if self.verbose:
-            self.print_x_nodes_in_graph()
-            print(f"Added edge X({self.new_pose_ids[-1]}) ~ X({node_idx})")
-
-        # Insert the new pose into initial estimates
-        self.add_pose(node_idx, new_pose)
 
     def add_pose(self, node_idx: int, pose: np.ndarray, fixed=False):
         """Add a subsequent pose."""
@@ -91,144 +58,15 @@ class BA:
 
         # Check if this is the first pose to anchor the graph
         if fixed or len(self.new_pose_ids) == 0:
-            self.initial_estimates.insert(X(node_idx), pose3)
             factor = gtsam.PriorFactorPose3(X(node_idx), pose3, self.prior_pose_noise)
             self.graph.add(factor)
-        else:
-            # Buffer the pose for later insertion.
             if self.verbose:
-                print(f"Buffering pose X({node_idx})...")
-            self.pose_buffer[node_idx] = {
-                "pose": pose3,
-                "num_connections": 0
-            }
+                print(f"Anchoring pose X({node_idx})...")
+
+        self.initial_estimates.insert(X(node_idx), pose3)
 
         # Store the pose ids that have passed
         self.new_pose_ids.append(node_idx)
-
-    def _check_buffer(self):
-        """
-        Check buffered poses to see if any now have a projection factor linking them
-        with an existing landmark. If so, insert them into the initial estimates.
-        """
-        if not hasattr(self, 'pose_buffer'):
-            return
-        
-        # Keep track of which lanmarks have been observed enough times
-        observed_landmarks = []
-
-        # Iterate over all buffered landmarks
-        for l_idx, l in self.obs_buffer.items():
-            factor_list = l["factor_list"]
-            num_factors = len(factor_list)
-            # Check if the landmark has been observed enough times
-            if num_factors >= MIN_LANDMARK_OBSERVATIONS:
-                observed_landmarks.append(l_idx)
-
-        # Check which of the good landmarks are connected to new poses in the graph
-        connected_to_new_poses_landmarks = []
-
-        # Iterate over the landmarks that have been observed enough times
-        for l_idx in observed_landmarks:
-            factor_list = self.obs_buffer[l_idx]["factor_list"]
-            # Check which factors are connected to existing poses
-            added_factor_indices = []
-            # Iterate over all the landmark factors
-            for i, factor in enumerate(factor_list):
-                # Check if the factor is a projection factor
-                if isinstance(factor, gtsam.GenericProjectionFactorCal3_S2):
-                    # Get the pose key in the factor
-                    pose_symbol = self.get_pose_symbol_in_factor(factor)
-                    # Check if the pose key already exists in the graph
-                    if self.is_key_in_graph(pose_symbol.key()):
-                        # Add the factor to the graph
-                        self.graph.add(factor)
-                        # This factor must be removed from the buffer
-                        added_factor_indices.append(i)
-                    else:
-                        # If the pose key is not in the graph, add it to the list
-                        connected_to_new_poses_landmarks.append(l_idx)
-            # Remove the added factors from the buffer
-            self.obs_buffer[l_idx]["factor_list"] = [
-                f for i, f in enumerate(self.obs_buffer[l_idx]["factor_list"]) if i not in added_factor_indices
-            ]
-
-        # Iterate over observed landmarks that are connected to new poses
-        for l_idx in connected_to_new_poses_landmarks:
-            factor_list = self.obs_buffer[l_idx]["factor_list"]
-            num_factors = len(factor_list)
-            # Iterate over all the factors
-            for factor in factor_list:
-                # Check if the factor is a projection factor
-                if isinstance(factor, gtsam.GenericProjectionFactorCal3_S2):
-                    # Get the pose key in the factor
-                    pose_symbol = self.get_pose_symbol_in_factor(factor)
-                    # Increase the number of connections for the buffered pose
-                    self.pose_buffer[pose_symbol.index()]["num_connections"] += 1
-
-        # Check which buffered poses are connected to landmarks that have been observed enough times
-        good_pose_ids = []
-
-        # Iterate over the buffered poses
-        for pose_idx, p in self.pose_buffer.items():
-            num_connections = p["num_connections"]
-            # Check if the pose is connected to enough landmarks
-            if num_connections > MIN_POSE_CONNECTIONS:
-                good_pose_ids.append(pose_idx)
-                # Add the pose to the initial estimates
-                self.initial_estimates.insert(X(pose_idx), p["pose"])
-
-        # Iterate over observed landmarks that are connected to new poses
-        for l_idx in connected_to_new_poses_landmarks:
-            factor_list = self.obs_buffer[l_idx]["factor_list"]
-            num_factors = len(factor_list)
-            # Check which factors are connected to the good poses
-            added_factor_indices = []
-            # Iterate over all the factors
-            for i, factor in enumerate(factor_list):
-                # Check if the factor is a projection factor
-                if isinstance(factor, gtsam.GenericProjectionFactorCal3_S2):
-                    # Get the pose key in the factor
-                    pose_symbol = self.get_pose_symbol_in_factor(factor)
-                    pose_id = pose_symbol.index()
-                    # Check if this pose is in the good poses list
-                    if pose_id in good_pose_ids:
-                        # Add the factor to the graph
-                        self.graph.add(factor)
-                        # This factor must be removed from the buffer
-                        added_factor_indices.append(i)
-                # Remove the added factors from the buffer
-                self.obs_buffer[l_idx]["factor_list"] = [
-                    f for i, f in enumerate(self.obs_buffer[l_idx]["factor_list"]) if i not in added_factor_indices
-                ]
-
-        # Remove the poses that have been added.
-        for pose_idx in good_pose_ids:
-            del self.pose_buffer[pose_idx]
-
-    def add_landmark(self, l_idx: int, pos: np.ndarray):
-        """Add landmarks.
-        
-        Args:
-            landmarks: A (N, 3) array with landmark positions.
-            landmark_kpts: The corresponding keypoints.
-        """
-        pt = gtsam.Point3(pos)
-
-        # Add a prior on the first landmark to set the scale
-        if len(self.landmark_ids) == 0:
-            factor = gtsam.PriorFactorPoint3(L(l_idx), pt, self.prior_landmark_noise)
-            self.graph.add(factor)
-            if self.verbose:
-                print(f"Added landmark L({l_idx})")
-
-        # We only want to initialize the first landmark observations
-        if l_idx in self.landmark_ids:
-            return
-
-        # Add the landmark to the graph
-        self.initial_estimates.insert(L(l_idx), pt)
-        self.landmark_ids.append(l_idx)
 
     def add_observations(self, pose_idx: int, points: np.ndarray, observations: np.ndarray[cv2.KeyPoint]):
         """
@@ -245,16 +83,19 @@ class BA:
         for i in range(len(observations)):
             # Extract the keypoint id and the corresponding 3D point
             kpt = observations[i]
+            u, v = kpt.pt
             l_idx = kpt.class_id
             pt = points[i]
+            point3 = gtsam.Point3(pt)
 
-            # Possibly initialize the landmark
-            self.add_landmark(l_idx, pt)
+            # Add a prior on the first landmark to set the scale
+            if len(self.new_landmark_ids) == 0:
+                factor = gtsam.PriorFactorPoint3(L(l_idx), point3, self.prior_landmark_noise)
+                self.graph.add(factor)
+                if self.verbose:
+                    print(f"Anchored landmark L({l_idx})")
 
-            # Extract the keypoint pixel coordinates
-            u, v = kpt.pt
-
-            # Add the observation factor to the graph
+            # Create the projection factor
             factor = gtsam.GenericProjectionFactorCal3_S2(
                 gtsam.Point2(u, v),
                 self.measurement_noise,
@@ -266,29 +107,38 @@ class BA:
             # Add the observation factor to the buffer
             if l_idx not in self.obs_buffer.keys():
                 self.obs_buffer[l_idx] = {
-                    "factor_list": [factor],
-                    "count": 1
+                    "factor": factor,
+                    "estimate": point3,
+                    "num_observations": 1
                 }
             else:
-                self.obs_buffer[l_idx]["factor_list"].append(factor)
-                self.obs_buffer[l_idx]["count"] += 1
+                # Check if this is the 2nd observation of this landmark
+                if self.obs_buffer[l_idx]["num_observations"] == 1:
+                    # Add the very first estimate and factor to the graph
+                    point3 = self.obs_buffer[l_idx]["estimate"]
+                    if not self.isam.valueExists(L(l_idx)) and not self.initial_estimates.exists(L(l_idx)):
+                        self.initial_estimates.insert(L(l_idx), point3)
+                    first_factor = self.obs_buffer[l_idx]["factor"]
+                    self.graph.add(first_factor)
 
-        # After adding the observations, check if poses became connected in the graph
-        self._check_buffer()
+                # Add the current factor
+                self.graph.add(factor)
+
+                # Increase the observation count
+                self.obs_buffer[l_idx]["num_observations"] += 1
+
+            # Save the landmark id that have passed
+            if l_idx not in self.new_landmark_ids:
+                self.new_landmark_ids.append(l_idx)
 
     def optimize(self):
         """ Optimize the graph and return the optimized robot poses and landmark positions"""
         # Update iSAM
         self.isam.update(self.graph, self.initial_estimates)
-        self._estimate = self.isam.calculateEstimate()
+        estimate = self.isam.calculateEstimate()
 
         # Get the optimized robot poses and landmark positions
-        optimized_new_poses = self.get_poses()
-        optimized_new_landmark_poses = self.get_landmarks()
-
-        # Extend the pose and landmark ids lists
-        self.pose_ids.extend(self.new_pose_ids)
-        self.landmark_ids.extend(self.new_landmark_ids)
+        _, opt_poses, _, opt_l_pos = self.get_poses_and_landmarks(estimate)
 
         # Prepare a new graph
         self.graph.resize(0)
@@ -298,7 +148,7 @@ class BA:
         self.new_landmark_ids = []
         self.new_pose_ids = []
 
-        return optimized_new_poses, self.landmark_ids, optimized_new_landmark_poses
+        return list(opt_poses), list(opt_l_pos)
     
     def finalize(self):
         """Returns the final estimate"""
@@ -309,58 +159,32 @@ class BA:
 
         return optimized_poses
 
-    def get_poses(self):
-        """
-        Return the trajectory as an array of 3D coordinates.
-
-        Returns:
-            np.ndarray: An Mx3 array with the x, y, z pose coordinates.
-        """
-        # Extract poses
-        poses = []
-
-        # Iterate over all nodes
-        for i, p_idx in enumerate(self.new_pose_ids):
-            # Get the pose for each node
-            try:
-                pose = self._estimate.atPose3(X(p_idx))
-                # Extract translation
-                R = pose.rotation()
-                t = pose.translation()
-                # Append the coordinates to the poses
-                p = np.eye(4)
-                p[:3, :3] = R.matrix()
-                p[:3, 3] = t
-            except:
-                print(f"Pose X({p_idx}) not found in the graph")
-                continue
-    
-        return list(poses)
-
-    def get_landmarks(self):
-        """
-        Return the positions of the landmarks as an array of 3D coordinates and their covariances.
-
-        Returns:
-            Tuple[np.ndarray, List[np.ndarray]]: 
-                - An Nx3 array with the x, y, z coordinates of the landmarks.
-                - A list of covariance matrices for each landmark.
-        """        
-        # Initialize array to store landmark positions
-        positions = []
-
-        # Iterate over all landmarks
-        for i, l_id in enumerate(self.new_landmark_ids):
-            try:
-                # Get the position for each landmark
-                landmark_position = self._estimate.atPoint3(L(l_id))
-                # Store the position in the array
-                positions.append(landmark_position)
-            except:
-                print(f"Landmark L({l_id}) not found in the graph")
-                continue
+    def get_poses_and_landmarks(self, estimate):
+        poses = {}
+        landmarks = {}
         
-        return positions
+        # Iterate over all keys in the gtsam.Values estimate.
+        for key in estimate.keys():
+            symbol = gtsam.Symbol(key)
+            idx = symbol.index()
+            
+            # Extract the pose
+            if symbol.string()[0] == 'x':
+                pose = estimate.atPose3(key)
+                poses[idx] = pose.matrix()
+            # Extract the landmark
+            elif symbol.string()[0] == 'l':
+                point = estimate.atPoint3(key)
+                landmarks[idx] = point
+        
+        # Sort the results by id if desired.
+        pose_ids = sorted(poses.keys())
+        landmark_ids = sorted(landmarks.keys())
+        
+        pose_array = np.array([poses[i] for i in pose_ids])
+        landmark_array = np.array([landmarks[i] for i in landmark_ids])
+        
+        return pose_ids, pose_array, landmark_ids, landmark_array
 
     def cull(self, landmark_ids_to_remove: list[int]):
         """
@@ -523,8 +347,6 @@ class BA:
                             if symbol.string()[0] == 'x':
                                 related_pose_keys.add(key)
 
-        print(f"Landmark {landmark_symbol} is observed in {len(pose_symbol)} poses")
-                                
         # Print all the collected pose keys.
         for pk in related_pose_keys:
             pose_symbol = gtsam.Symbol(pk)
