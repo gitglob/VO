@@ -188,7 +188,7 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     # Vectors from camera centers to each 3D point
     # t_points is (N, 3), so the result is (N, 3)
     vec1 = q_points - C1[None, :]   # shape: (N, 3)
-    vec2 = q_points - C2[None, :]   # shape: (N, 3)
+    vec2 = t_points - C2[None, :]   # shape: (N, 3)
 
     # Compute norms along axis=1 (per row) - distance of each point
     norms1 = np.linalg.norm(vec1, axis=1)  # shape: (N,)
