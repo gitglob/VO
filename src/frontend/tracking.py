@@ -16,7 +16,7 @@ H = SETTINGS["camera"]["height"]
 MIN_NUM_MATCHES = SETTINGS["point_association"]["num_matches"]
 
 
-def pointAssociation(map: Map, t_frame: Frame):
+def pointAssociation(map: Map, t_frame: Frame, K: np.ndarray):
     """
     Matches the map points seen in the previous frame with the current frame.
 
@@ -32,14 +32,17 @@ def pointAssociation(map: Map, t_frame: Frame):
     # Extract the in view descriptors
     map_points = map.points_in_view
     map_descriptors = []
-    map_descriptors_idx = []
+    map_point_idx = []
+    map_pixels = []
     for i, p in enumerate(map_points):
         # Get the descriptors from every observation of a point
         for obs in p.observations:
             map_descriptors.append(obs["descriptor"])
-            map_descriptors_idx.append(i)
+            map_point_idx.append(i)
+            map_pixels.append(obs["keypoint"].pt)
     map_descriptors = np.array(map_descriptors)
-    map_descriptors_idx = np.array(map_descriptors_idx)
+    map_point_idx = np.array(map_point_idx)
+    map_pixels = np.array(map_pixels)
 
     # Create BFMatcher object
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
@@ -53,7 +56,7 @@ def pointAssociation(map: Map, t_frame: Frame):
     # Apply Lowe's ratio test to filter out false matches
     good_matches = []
     for m, n in matches:
-        if m.distance < 0.9 * n.distance:
+        if m.distance < 0.95 * n.distance:
             good_matches.append(m)
     if debug:
         print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
@@ -78,14 +81,28 @@ def pointAssociation(map: Map, t_frame: Frame):
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/tracking/0-point_association" / f"map_{t_frame.id}_b.png"
+        match_save_path = results_dir / "matches/tracking/0-point_association" / f"map_{t_frame.id}.png"
         t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
+    
+    # Finally, filter using the epipolar constraint
+    # q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
+    # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
+    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels, K)
+    # if epipolar_constraint_mask is None:
+    #     print("Failed to apply epipolar constraint..")
+    #     return []
+    # unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
+            
+    # # Save the matches
+    # if debug:
+    #     match_save_path = results_dir / "matches/tracking/1-epipolar_constraint" / f"map_{t_frame.id}.png"
+    #     plot_pixels(t_frame.img, t_pixels, save_path=match_save_path)
     
     # Prepare results
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
-        pairs.append((map_descriptors_idx[m.queryIdx], m.trainIdx))
+        pairs.append((map_point_idx[m.queryIdx], m.trainIdx))
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -126,7 +143,8 @@ def estimate_relative_pose(
     """
     map_points_w = map.points_in_view
     num_points = len(map_t_pairs)
-    print(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")
+    if debug:
+        print(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")
 
     # 1) Build 3D <-> 2D correspondences
     map_points = []
@@ -179,9 +197,11 @@ def estimate_relative_pose(
     t_wc = tvec.flatten()
     R_wc, _ = cv2.Rodrigues(rvec)
     
-    # Invrease the match counter for all matched points
-    for p in map_points[inliers_mask]:
-        p.match_counter += 1
+    # Save the PnP tracked mask to the map
+    tracking_mask = np.zeros(map.num_points, dtype=bool)
+    for i, (map_idx, _) in enumerate(map_t_pairs): 
+        tracking_mask[map_idx] = inliers_mask[i]
+    map.set_tracking_mask(tracking_mask)
 
     # 5) Compute reprojection error
     ## Project the 3D points to 2D using the estimated pose
@@ -212,7 +232,7 @@ def estimate_relative_pose(
 
     return T_wc, num_tracked_points
 
-def is_keyframe(T: np.ndarray, num_tracked_points: int):
+def is_keyframe(T: np.ndarray, num_tracked_points: int = 9999):
     """ Determine if motion expressed by t, R is significant by comparing to tresholds. """
     tx = T[0, 3] # The x component points right
     ty = T[1, 3] # The y component points down
@@ -222,7 +242,7 @@ def is_keyframe(T: np.ndarray, num_tracked_points: int):
     angle = abs(get_yaw(T[:3, :3]))
 
     is_keyframe = num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
-    # is_keyframe = is_keyframe and (trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"])
+    is_keyframe = is_keyframe and (trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"])
     
     if debug:
         print(f"\t Tracked points: {num_tracked_points}, dist: {trans:.3f}, angle: {angle:.3f}")

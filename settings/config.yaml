@@ -20,28 +20,32 @@ orb:
     fast_threshold: 20
     max_num_keypoints: 1500
 
+epipolar_constraint:
+    symmetric_error_threshold: 10.0
+
 triangulation:
-    min_angle: 0.5
+    min_angle: 5.0
     max_ratio_between_max_and_med_angle: 20
+    min_num_init_points: 100 
 
 point_association:
-    num_matches: 40
+    num_matches: 10
 
 PnP:
-    reprojection_threshold: 2.0
-    confidence: 0.999
-    iterations: 300
+    reprojection_threshold: 4.0
+    confidence: 0.99
+    iterations: 3000
     min_inliers: 4
 
 matches:
     min: 20
-    lowe_ratio: 0.8
+    lowe_ratio: 0.9
     xiang_gao_match_ratio: 2
 
 keyframe:
-    distance: 0.5
-    angle: 10
-    num_tracked_points: 20
+    distance: 2.0
+    angle: 10.0
+    num_tracked_points: 5
 
 map:
     match_view_ratio: 0.25
@@ -49,9 +53,8 @@ map:
     max_keyframes_since_last_observation: 10
 
 ba:
+    num_observations: 3
     frequency: 10
     first_pose_noise: 1e-9 # Std. deviation for the first robot pose (meters)
-    odometry_trans_noise: 1.0  # Std. deviation for the calculated odometry (meters)
-    odometry_rot_noise: 2.0    # Std. deviation for the calculated odometry (degrees)
     first_measurement_noise: 0.1  # Std. deviation for the first landmark observation (meters)
     measurement_noise: 2.0  # Std. deviation for camera measurements (pixels)

@@ -90,6 +90,9 @@ class Map():
         # Mask that indicates which of the current points are in the camera view
         self._in_view_mask = None
 
+        # Mask that indicates which of the current points were tracked with PnP
+        self._tracking_mask = None
+
         # The pixel coordinates of the points in the current camera view
         self._u = None
         self._v = None
@@ -123,7 +126,7 @@ class Map():
     def point_ids(self):
         """Returns the points IDs"""
         ids = []
-        for k,v in self.points.items():
+        for k in self.points.keys():
             ids.append(k)
         ids = np.array(ids, dtype=int)
         return ids
@@ -243,13 +246,20 @@ class Map():
         # 6) Combine the z_positive and in_view mask
         self._in_view_mask = z_positive_mask & boundary_mask
 
-        # 7) Increase the view counter for every visible point
-        for p in self.points_arr[self._in_view_mask]:
-            p.obs_counter += 1
-
         if debug:
             print(f"\t Found {self._in_view_mask.sum()} map points in the previous camera pose.")
     
+    def set_tracking_mask(self, mask):
+        """Saves a mask that shows which points were tracked by PnP"""
+        self._tracking_mask = mask
+
+    def update_counters(self):
+        # Increase the view and match counters 
+        for p in self.points_arr[self._in_view_mask]:
+            p.obs_counter += 1
+        for p in self.points_arr[self._tracking_mask]:
+            p.match_counter += 1
+
     def cull(self):
         """
         Args:
@@ -294,7 +304,7 @@ class Map():
         if debug:
             print(f"\t Observability check removed {len(removed_point_ids1)} points!")
 
-        # 2) Remove very old points
+        # 3) Remove points that have not been observed in the last N frames
         removed_point_ids2 = []
         for p_id, p in self.points.items():
             num_kf_passed_since_last_observation = self._kf_counter - p.observations[-1]["kf_number"]
@@ -308,8 +318,8 @@ class Map():
         if debug:
             print(f"\t Oldness check removed {len(removed_point_ids2)} points!")
 
+        all_removed_point_ids = removed_point_ids + removed_point_ids1 + removed_point_ids2
         if debug:
-            all_removed_point_ids = removed_point_ids + removed_point_ids1 + removed_point_ids2
             total_removed = len(removed_point_ids) + len(removed_point_ids1) + len(removed_point_ids2)
             print(f"\t Removed {total_removed}/{prev_num_points} points from the map!")
 

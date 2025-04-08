@@ -9,7 +9,7 @@ from config import results_dir, SETTINGS
 
 
 debug = SETTINGS["generic"]["debug"]
-MIN_NUM_MATCHES = SETTINGS["matches"]["min"]
+MIN_NUM_TRIANG_POINTS = SETTINGS["triangulation"]["min_num_init_points"]
 
 
 def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
@@ -100,7 +100,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
         best_solution = None
         max_front_points = 0
         best_alignment = -1
-        desired_normal = np.array([0, 0, 1])
+        desired_normal = np.array([[0, 0, 1]])
 
         for i in range(num_solutions):
             R_candidate = Rs[i]
@@ -220,7 +220,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
 
     triang_mask = filter_triangulation_points(q_points, t_points, R_qt, t_qt)
     # If too few points or too small median angle, return None
-    if triang_mask is None or triang_mask.sum() < MIN_NUM_MATCHES:
+    if triang_mask is None or triang_mask.sum() < MIN_NUM_TRIANG_POINTS:
         print("Discarding frame due to insufficient triangulation quality.")
         return None, None, None, False
             

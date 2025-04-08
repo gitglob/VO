@@ -93,6 +93,7 @@ def main():
             # ########### Initialization ###########
             if not is_initialized:
                 print("Initialization)")
+                num_tracking_fails = 0
                 # Extract the last keyframe
                 q_frame = keyframes[-1]
 
@@ -120,6 +121,9 @@ def main():
             
                 # Remove scale ambiguity
                 T_tq[:3, 3] *= scale
+                if not is_keyframe(T_tq):
+                    is_initialized = False
+                    continue
 
                 # Apply the scale to the pose and validate it
                 T_tw = poses[-1] @ T_tq
@@ -166,21 +170,27 @@ def main():
                 map.view(T_wq, K)
                 if map.num_points_in_view < SETTINGS["keyframe"]["num_tracked_points"]:
                     print(f"Not enough points in view ({map.num_points_in_view}).")
-                    is_initialized = False
+                    num_tracking_fails += 1
+                    if num_tracking_fails > 3:
+                        is_initialized = False
                     continue
 
                 # Match these map points with the current frame
-                map_t_pairs = pointAssociation(map, t_frame)
+                map_t_pairs = pointAssociation(map, t_frame, K)
                 if len(map_t_pairs) < SETTINGS["point_association"]["num_matches"]:
                     print("Point association failed!")
-                    is_initialized = False
+                    num_tracking_fails += 1
+                    if num_tracking_fails > 3:
+                        is_initialized = False
                     continue
 
                 # Estimate the new world pose using PnP (3d-2d)
                 T_wt, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs, K)
                 if T_wt is None:
                     print(f"Warning: solvePnP failed!")
-                    is_initialized = False
+                    num_tracking_fails += 1
+                    if num_tracking_fails > 3:
+                        is_initialized = False
                     continue
                 T_tw = invert_transform(T_wt)
     
@@ -189,6 +199,9 @@ def main():
                 T_tq = T_wq @ T_tw
                 if not is_keyframe(T_tq, num_tracked_points):
                     continue
+
+                # Update the map observation and match counters
+                map.update_counters()
 
                 # Add the new pose to the optimizer
                 ba.add_pose(t_frame.id, T_tw)
@@ -233,21 +246,23 @@ def main():
                 plot_trajectory(poses, gt_poses, i)
 
                 # Optimizer the poses using BA
-                if i%ba_freq == 0:
-                    _, opt_poses, landmark_ids, landmark_poses = ba.optimize()
-                    opt_poses.insert(0, poses[0])  # Keep the first pose fixed
-                    map.update_landmarks(landmark_ids, landmark_poses)
-                    plot_trajectory(poses, gt_poses, i, ba_poses=opt_poses)
-                    poses = opt_poses
+                if (len(keyframes)-1)%ba_freq == 0:
+                    _, opt_poses, landmark_ids, landmark_poses, ba_success = ba.optimize()
+                    if ba_success:
+                        opt_poses.insert(0, poses[0])  # Keep the first pose fixed
+                        map.update_landmarks(landmark_ids, landmark_poses)
+                        plot_trajectory(poses, gt_poses, i, ba_poses=opt_poses)
+                        poses = opt_poses
                 # Clean up map points that are not seen anymore
                 removed_landmark_ids = map.cull()
 
     # Perform one final optimization
-    poses[-(i-i)%ba_freq:] = ba.finalize()
+    opt_poses = ba.finalize()
+    opt_poses.insert(0, poses[0]) 
 
     # Save final map and trajectory
-    plot_trajectory(poses, gt_poses, i)
-    plot_trajectory_3d(poses)
+    plot_trajectory(poses, gt_poses, i, ba_poses=opt_poses)
+    plot_trajectory_3d(opt_poses)
 
 if __name__ == "__main__":
     main()
