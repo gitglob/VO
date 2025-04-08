@@ -7,7 +7,7 @@ from src.others.utils import save_image, delete_subdirectories, transform_points
 
 from src.frontend.feature_matching import matchFeatures
 from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import estimate_relative_pose, is_keyframe, pointAssociation, triangulateNewPoints
+from src.frontend.tracking import constant_velocity_model, estimate_relative_pose, is_keyframe, localPointAssociation, triangulateNewPoints
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.others.local_map import Map
@@ -58,6 +58,7 @@ def main():
     keyframes = []
     poses = []
     gt_poses = []
+    times = []
 
     # Run the main VO loop
     i = -1
@@ -80,6 +81,7 @@ def main():
             pose = gt_pose
             assert np.all(np.eye(4) - pose < 1e-6)
 
+            times.append(t)
             gt_poses.append(gt_pose)
             poses.append(pose)
             t_frame.set_pose(pose)
@@ -142,6 +144,7 @@ def main():
                 ba.add_observations(t_frame.id, points_w, t_kpts)
 
                 # Save the pose and t_frame information
+                times.append(t)
                 gt_poses.append(gt_pose)
                 poses.append(T_tw)
                 t_frame.set_pose(T_tw)
@@ -175,8 +178,12 @@ def main():
                         is_initialized = False
                     continue
 
+                # Predict the new pose based on a constant velocity model
+                T_wc = constant_velocity_model(t, times, poses)
+
                 # Match these map points with the current frame
-                map_t_pairs = pointAssociation(map, t_frame, K)
+                map_t_pairs = localPointAssociation(map, t_frame, K, T_wc)
+                # map_t_pairs = globalPointAssociation(map, t_frame, K)
                 if len(map_t_pairs) < SETTINGS["point_association"]["num_matches"]:
                     print("Point association failed!")
                     num_tracking_fails += 1
@@ -207,6 +214,7 @@ def main():
                 ba.add_pose(t_frame.id, T_tw)
                 
                 # Save the T_tw and t_frame information
+                times.append(t)
                 gt_poses.append(gt_pose)
                 poses.append(T_tw)
                 t_frame.set_pose(T_tw)

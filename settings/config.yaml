@@ -30,6 +30,8 @@ triangulation:
 
 point_association:
     num_matches: 10
+    search_window: 10
+    hamming_threshold: 50
 
 PnP:
     reprojection_threshold: 4.0
