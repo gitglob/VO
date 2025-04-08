@@ -6,6 +6,7 @@ from config import results_dir, SETTINGS
 
 debug = SETTINGS["generic"]["debug"]
 LOWE_RATIO = SETTINGS["matches"]["lowe_ratio"]
+SYM_ERROR_THRESHOLD = SETTINGS["epipolar_constraint"]["symmetric_error_threshold"]
 REPROJECTION_THREHSOLD = SETTINGS["PnP"]["reprojection_threshold"]
 SCALE_FACTOR = SETTINGS["orb"]["scale_factor"]
 N_LEVELS = SETTINGS["orb"]["level_pyramid"]
@@ -80,7 +81,7 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
 
     return epipolar_constraint_mask, M, use_homography
 
-def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', K=None, threshold=4.0):
+def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', K=None):
     """
     Computes the symmetric transfer error for a set of corresponding keypoints using
     either an Essential matrix or a Homography matrix. This function is used to evaluate 
@@ -106,36 +107,77 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
     num_inliers = 0
 
     if matrix_type == 'E':
-        F = np.linalg.inv(K.T) @ E_or_H @ np.linalg.inv(K)
+        if K is None:
+            raise ValueError("Camera intrinsic matrix K must be provided when using an essential matrix.")
+        try:
+            K_inv = np.linalg.inv(K)
+        except np.linalg.LinAlgError:
+            raise ValueError("Provided homography is non-invertible.")
+        
+        # Compute fundamental matrix F from the essential matrix
+        # The fundamental matrix maps pixels in one image to an epiline in the other image
+        F = K_inv.T @ E_or_H @ K_inv
+        
+        for q_px, t_px in zip(q_kpt_pixels, t_kpt_pixels):
+            # Convert pixel coordinates to homogeneous coordinates
+            qp = np.array([q_px[0], q_px[1], 1.0])
+            tp = np.array([t_px[0], t_px[1], 1.0])
+            # Compute the epipolar lines in the other image
+            # That means that the q_pixels will be found in the t)image on the t_line and the t_pixels on the q_image on the q_line
+            # A line is in the form of ax + by + c, where [x,y] are the pixel coordinates
+            q_line = F @ tp   # Line in query image corresponding to tp
+            t_line = F.T @ qp # Line in train image corresponding to qp
+            
+            # Normalize the lines using the norm of the first two components
+            q_line_norm = np.hypot(q_line[0], q_line[1])
+            t_line_norm = np.hypot(t_line[0], t_line[1])
+            if q_line_norm == 0 or t_line_norm == 0:
+                continue
+            q_line_normalized = q_line / q_line_norm
+            t_line_normalized = t_line / t_line_norm
+
+            # Compute the perpendicular distances from the points to the lines
+            dq = abs(np.dot(qp, q_line_normalized))
+            dt = abs(np.dot(tp, t_line_normalized))
+            error = dq + dt
+            errors.append(error)
+            if error < SYM_ERROR_THRESHOLD:
+                num_inliers += 1
+    elif matrix_type == 'H':
+        # For homography, compute the symmetric reprojection error.
+        # The Homography matrix in general maps points from the train image to the query image: p1 = H @ p2
+        H = E_or_H  # H: mapping from target to query image
+        try:
+            H_inv = np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            raise ValueError("Provided homography is non-invertible.")
+        
+        for q_px, t_px in zip(q_kpt_pixels, t_kpt_pixels):
+            # Convert pixel coordinates to homogeneous coordinates
+            qp = np.array([q_px[0], q_px[1], 1.0])
+            tp = np.array([t_px[0], t_px[1], 1.0])
+            
+            # Map train points to the query image
+            qp_est = H @ tp
+            if np.isclose(qp_est[2], 0):
+                continue
+            qp_est = qp_est / qp_est[2]
+            
+            # Map query points to the train image
+            tp_est = H_inv @ qp
+            if np.isclose(tp_est[2], 0):
+                continue
+            tp_est = tp_est / tp_est[2]
+            
+            # Compute reprojection errors in both directions (Euclidean distances)
+            d1 = np.linalg.norm(tp - tp_est)
+            d2 = np.linalg.norm(qp - qp_est)
+            error = d1 + d2
+            errors.append(error)
+            if error < SYM_ERROR_THRESHOLD:
+                num_inliers += 1
     else:
-        F = np.linalg.inv(K) @ E_or_H @ K
-
-    # Loop over paired keypoints
-    for pt_target, pt_query in zip(t_kpt_pixels, q_kpt_pixels):
-        # Convert to homogeneous coordinates
-        p1 = np.array([pt_target[0], pt_target[1], 1.0])
-        p2 = np.array([pt_query[0], pt_query[1], 1.0])
-
-        # Compute the corresponding epipolar lines
-        l2 = F @ p1    # Epipolar line in the query image corresponding to p1
-        l1 = F.T @ p2  # Epipolar line in the target image corresponding to p2
-
-        # Normalize the lines using the Euclidean norm of the first two coefficients
-        norm_l1 = np.hypot(l1[0], l1[1])
-        norm_l2 = np.hypot(l2[0], l2[1])
-        if norm_l1 == 0 or norm_l2 == 0:
-            continue
-        l1_normalized = l1 / norm_l1
-        l2_normalized = l2 / norm_l2
-
-        # Compute perpendicular distances (absolute value of point-line dot product)
-        d1 = abs(np.dot(p1, l1_normalized))
-        d2 = abs(np.dot(p2, l2_normalized))
-        error = d1 + d2
-
-        errors.append(error)
-        if error < threshold:
-            num_inliers += 1
+        raise ValueError("matrix_type must be either 'E' (essential matrix) or 'H' (homography)")
 
     mean_error = np.mean(errors) if errors else float('inf')
     return mean_error, num_inliers
@@ -207,9 +249,6 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     # Convert to angles in degrees
     angles = np.degrees(np.arccos(cos_angles))  # shape: (N,)
 
-    # Calculate median angle
-    median_angle = np.median(angles)
-
     # Filter out points with too small triangulation angle
     valid_angles_mask = angles >= SETTINGS["triangulation"]["min_angle"]
     filtered_angles = angles[valid_angles_mask]
@@ -220,13 +259,15 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
         print(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{cheirality_mask.sum()} points!")
 
     # Filter out points with very high angle compared to the median
+    median_angle = np.median(filtered_angles)
     max_med_angles_mask = filtered_angles / median_angle < SETTINGS["triangulation"]["max_ratio_between_max_and_med_angle"]
     filtered_angles = filtered_angles[max_med_angles_mask]
     triang_mask[triang_mask==True] = max_med_angles_mask
 
     # Check conditions to decide whether to discard
     if debug:
-        print(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points! Median angle: {median_angle:.3f} deg.")
+        print(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points!",
+              f"Median angle: {median_angle:.3f} deg.")
 
     return triang_mask # (N,)
 
