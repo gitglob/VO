@@ -67,7 +67,7 @@ class ConvisibilityGraph(Graph):
         # Loop closure edges added from separate loop detection.
         self.loop_closure_edges = {}
 
-    def add_keyframe(self, keyframe: Frame):
+    def add_keyframe(self, keyframe: Frame, map: Map):
         """
         Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
 
@@ -76,12 +76,16 @@ class ConvisibilityGraph(Graph):
             map_points (iterable): Collection of map point identifiers observed in the keyframe.
         """
         if keyframe.id in self.nodes.keys():
-            print(f"Keyframe {keyframe.id} already exists.")
+            print(f"Keyframe {keyframe.id} already exists!")
             return
         
         # Store the new keyframe observations (convert to set for easy intersection)
-        kf_map_pt_ids = keyframe.keypoints_in_map()
+        kf_map_pt_ids = keyframe.keypoints_in_map(map)
+        if len(kf_map_pt_ids) == 0:
+            print(f"Keyframe {keyframe.id} observes 0 map points!")
+            return
         self.add_node(keyframe.id, kf_map_pt_ids)
+        self.spanning_tree.add_node(keyframe.id, kf_map_pt_ids)
         
         # Spanning tree connections
         best_parent_id = None
@@ -92,7 +96,7 @@ class ConvisibilityGraph(Graph):
             if other_kf_id == keyframe.id:
                 continue
 
-            # Compute the number of num_shared_points map points with the current keyframe.
+            # Compute the number of shared map points with the current keyframe.
             num_shared_points = np.intersect1d(other_kf_map_point_ids, kf_map_pt_ids).size()
             
             # For the covisibility graph, we only add an edge if num_shared_points observations >= threshold.
@@ -120,6 +124,24 @@ class ConvisibilityGraph(Graph):
             # All the spanning tree edges go to the Essential Graph too
             self.essential_graph.add_edge(best_parent_id, keyframe.id, max_shared)
             
+    def get_connected_nodes_and_their_points(self, kf_id: int) -> tuple[set, set]:
+        """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
+        # Keep the connected nodes and points
+        connected_kf_ids = set()
+        connected_kf_point_ids = set()
+        # Iterate over all the edges
+        for (kf1_id, kf2_id) in self.nodes.keys():
+            # Check if this node is part of this edge
+            # If it is, the other node and its points are of interest
+            if kf_id == kf1_id:
+                connected_kf_ids.add(kf2_id)
+                connected_kf_point_ids.add(self.nodes[kf2_id])
+            elif kf_id == kf2_id:
+                connected_kf_ids.add(kf1_id)
+                connected_kf_point_ids.add(self.nodes[kf1_id])
+
+        return connected_kf_ids, connected_kf_point_ids
+
     def remove_keyframe(self, keyframe: Frame):
         """
         Removes a keyframe from the graph and updates any edges associated with it.
