@@ -2,43 +2,187 @@ import numpy as np
 
 from src.others.frame import Frame
 from src.others.local_map import Map
+from config import SETTINGS
 
 
+THETA_MIN = SETTINGS["convisibility"]["min_common_edges"]
+ESSENTIAL_THETA_MIN = SETTINGS["convisibility"]["essential_common_edges"]
 
-class convisibilityGraph:
-    """
-    Class to represent a convisibility graph for the vSLAM system.
 
-    Each node is a keyframe and an edge between two keyframes exists 
-    if they share observations of the same map points (at least 15).
-    """
+"""
+Convisibility Graph: Contains 2 things:
+                     1. All keyframe poses
+                     2. Edges (pose connections) with weight >= 15
+                        (weight == common landmark observations)
+Spanning Tree: Minimalistic Convisibility Graph. Contains 2 things:
+               1. All keyframe poses
+               2. Edges only with the previous keyframe that shares the most observations
+Essential Graph: Constains 3 things:
+                 1. The Spanning Tree
+                 2. Convisibility Edges with weight >= 100
+                 3. Loop Closure edges
+"""
+
+class Graph:
     def __init__(self):
-        self.nodes: dict[tuple[Frame, Frame, np.ndarray]] = {}
-        self.n = 0
+        self.nodes = {} # Dictionary keyframe_id -> observed map_point_ids
+        self.edges = {} # Dictionary (kf_id1, kf_id2) -> weight (common map points)
 
-    def add_node(self, keyframe: Frame, map: Map):
-        # Iterate over the keyframe keypoints that are in the current map
-        kpts_in_map = keyframe.keypoints_in_map(map)
+    def add_node(self, kf_id: int, mp_ids: set):
+        self.nodes[kf_id] = mp_ids
 
-        self.nodes[keyframe.id] = []
-        # Iterate over all keyframes
-        for node_id, v in self.nodes[:-1]:
-            # Extract the convisibility info
-            (neigh_keyframe, neigh_keyframe, neigh_common_pts) = v
-            # Extract the map points from the keyframe
-            other_kpts_in_map = neigh_keyframe.keypoints_in_map(map)
+    def add_edge(self, kf_id1: int, kf_id2: int, weight: int):
+        edge_id = tuple(sorted((kf_id1, kf_id2)))
+        self.edges[edge_id] = weight
 
-            # Get the number of common keypoints
-            common_kpts_mask = np.isin(kpts_in_map, other_kpts_in_map)
-            common_kpt_ids = kpts_in_map[common_kpts_mask]
+    def remove_node(self, kf_id: int):
+        del self.nodes[kf_id]
 
-            # Check if there are enough common keypoints
-            num_common_kpts = common_kpts_mask.sum()
-            if num_common_kpts >= 15:
-                # Add an edge between the two keyframes
-                self.add_edge(keyframe.id, neigh_keyframe.id)
+    def remove_edges_with(self, kf_id: int):
+        edges_to_remove = [edge_id for edge_id in self.edges.keys() if kf_id in edge_id]
+        for edge_id in edges_to_remove:
+            del self.edges[edge_id]
 
-                # Add a new keyframe to the graph
-                self.nodes[keyframe.id].append((keyframe, neigh_keyframe, common_kpt_ids))
+    def remove_edge(self, kf_id1: int, kf_id2: int):
+        edge_id = tuple(sorted((kf_id1, kf_id2)))
+        del self.edges[edge_id]
 
-        self.n += 1
+    def reset(self):
+        self.nodes = {}
+        self.edges = {}
+
+class ConvisibilityGraph(Graph):
+    def __init__(self):
+        """
+        Initialize the Covisibility Graph.
+        
+        Args:
+            min_common_points (int): Minimum number of common map points to form an edge in the covisibility graph.
+            essential_theta_min (int): Threshold for covisibility edge weight to be included in the Essential Graph.
+        """
+        # Spanning tree edges: built incrementally when keyframes are added.
+        self.spanning_tree = Graph()
+        # Essential Graph
+        self.essential_graph = Graph()
+        # Loop closure edges added from separate loop detection.
+        self.loop_closure_edges = {}
+
+    def add_keyframe(self, keyframe: Frame):
+        """
+        Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
+
+        Args:
+            keyframe: Unique identifier for the keyframe.
+            map_points (iterable): Collection of map point identifiers observed in the keyframe.
+        """
+        if keyframe.id in self.nodes.keys():
+            print(f"Keyframe {keyframe.id} already exists.")
+            return
+        
+        # Store the new keyframe observations (convert to set for easy intersection)
+        kf_map_pt_ids = keyframe.keypoints_in_map()
+        self.add_node(keyframe.id, kf_map_pt_ids)
+        
+        # Spanning tree connections
+        best_parent_id = None
+        max_shared = -1
+        
+        # Loop over existing keyframes (if any) to update graph edges.
+        for other_kf_id, other_kf_map_point_ids in self.nodes.items():
+            if other_kf_id == keyframe.id:
+                continue
+
+            # Compute the number of num_shared_points map points with the current keyframe.
+            num_shared_points = np.intersect1d(other_kf_map_point_ids, kf_map_pt_ids).size()
+            
+            # For the covisibility graph, we only add an edge if num_shared_points observations >= threshold.
+            if num_shared_points >= THETA_MIN:
+                edge_id = tuple(sorted((other_kf_id, keyframe.id)))
+                # If the edge already exists, we update it with the maximum num_shared_points count observed.
+                if edge_id in self.edges.keys():
+                    weight = max(self.edges[edge_id], num_shared_points)
+                else:
+                    weight = num_shared_points
+                self.add_edge(other_kf_id, keyframe.id, weight)
+
+                # If the weight is >= 100, add to the Essential Graph
+                if weight >= ESSENTIAL_THETA_MIN:
+                    self.essential_graph.add_edge(other_kf_id, keyframe.id, weight)
+            
+            # For the spanning tree, choose the keyframe that shares the most map points.
+            if num_shared_points > max_shared:
+                best_parent_id = other_kf_id
+                max_shared = num_shared_points
+        
+        # If there is a valid parent keyframe, add the connection in the spanning tree.
+        if best_parent_id is not None:
+            self.spanning_tree.add_edge(best_parent_id, keyframe.id, max_shared)
+            # All the spanning tree edges go to the Essential Graph too
+            self.essential_graph.add_edge(best_parent_id, keyframe.id, max_shared)
+            
+    def remove_keyframe(self, keyframe: Frame):
+        """
+        Removes a keyframe from the graph and updates any edges associated with it.
+
+        Args:
+            keyframe.id: The identifier of the keyframe to be removed.
+        """
+        if keyframe.id not in self.nodes:
+            print(f"Keyframe {keyframe.id} does not exist.")
+            return
+        
+        self.remove_node(keyframe.id)
+        self.remove_edges_with(keyframe.id)
+        
+        self.spanning_tree.remove_node(keyframe.id)
+        self.spanning_tree.remove_edges_with(keyframe.id)
+        
+        self.essential_graph.remove_node(keyframe.id)
+        self.essential_graph.remove_edges_with(keyframe.id)
+        
+        # Remove loop closure edges that involve the removed keyframe.
+        edges_to_remove = [edge for edge in self.loop_closure_edges if keyframe.id in edge]
+        for edge in edges_to_remove:
+            del self.loop_closure_edges[edge]
+        
+        # Note: In a fully featured system you might want to re-compute or update the spanning tree
+        # to ensure full connectivity, but for simplicity we are only removing associated edges here.
+
+    def add_loop_edge(self, keyframe_id1, keyframe_id2, weight):
+        """
+        Adds an edge corresponding to a loop closure.
+
+        Args:
+            keyframe_id1: First keyframe identifier.
+            keyframe_id2: Second keyframe identifier.
+            weight (int): The weight (e.g., number of common observations) for the loop closure edge.
+        """
+        if keyframe_id1 not in self.nodes or keyframe_id2 not in self.nodes:
+            print("One or both keyframes do not exist.")
+            return
+        
+        edge_id = tuple(sorted((keyframe_id1, keyframe_id2)))
+        self.loop_closure_edges[edge_id] = weight
+
+        # Add it to the essential graph
+        self.essential_graph.add_edge(keyframe_id1, keyframe_id2, weight)
+
+    def print_graphs(self):
+        """
+        Prints the current covisibility graph, spanning tree, loop closure edges, and the computed essential graph.
+        """
+        print("=== Covisibility Graph Edges ===")
+        for edge, weight in self.edges.items():
+            print(f"{edge}: {weight}")
+        
+        print("\n=== Spanning Tree Edges ===")
+        for edge, weight in self.spanning_tree.edges.items():
+            print(f"{edge}: {weight}")
+        
+        print("\n=== Loop Closure Edges ===")
+        for edge, weight in self.loop_closure_edges.items():
+            print(f"{edge}: {weight}")
+        
+        print("\n=== Essential Graph Edges ===")
+        for edge, weight in self.essential_graph.edges.items():
+            print(f"{edge}: {weight}")
