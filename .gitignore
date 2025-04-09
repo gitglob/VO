@@ -32,4 +32,8 @@ g2o
 g2o-pymem
 g2opy
 
+# Dont ignore the backend g2o and gtsam folders
+!src/backend/g2o
+!src/backend/gtsam
+
 **/.gitkeep

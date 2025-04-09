@@ -143,26 +143,26 @@ class BA:
         """ Optimize the graph and return the optimized robot poses and landmark positions"""
         print("Bundle Adjustment)")
         # Perform the first optimization using Levenberg-Marquardt
-        if not self._is_initialized:
-            if len(self.new_pose_ids) < 20:
-                print("Not enough poses to initialize iSAM2")
-                return None, None, None, None, False
+        # if not self._is_initialized:
+        #     if len(self.new_pose_ids) < 20:
+        #         print("Not enough poses to initialize iSAM2")
+        #         return None, None, None, None, False
             
-            optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.initial_estimates)
-            estimate = optimizer.optimize()
-            self._is_initialized = True
-        # Switch to iSAM2 for incremental optimization
-        else:
-            try:
-                self.isam.update(self.graph, self.initial_estimates)
-                self.isam.update()
-            except Exception as e:
-                print(f"Error updating iSAM: {e}")
-                self.sanity_check()
-                return None, None, None, None, False
-            
-            # Extract the optimized estimate
-            estimate = self.isam.calculateEstimate()
+        #     optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.initial_estimates)
+        #     estimate = optimizer.optimize()
+        #     self._is_initialized = True
+        # # Switch to iSAM2 for incremental optimization
+        # else:
+        try:
+            self.isam.update(self.graph, self.initial_estimates)
+            self.isam.update()
+        except Exception as e:
+            print(f"Error updating iSAM: {e}")
+            self.sanity_check()
+            return None, None, None, None, False
+        
+        # Extract the optimized estimate
+        estimate = self.isam.calculateEstimate()
 
         # Get the optimized robot poses and landmark positions
         opt_pose_ids, opt_poses, opt_l_ids, opt_l_pos = self.get_poses_and_landmarks(estimate)
