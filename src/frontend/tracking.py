@@ -378,7 +378,7 @@ def is_keyframe(T: np.ndarray, num_tracked_points: int = 9999):
     angle = abs(get_yaw(T[:3, :3]))
 
     is_keyframe = num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
-    is_keyframe = is_keyframe and (trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"])
+    # is_keyframe = is_keyframe and (trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"])
     
     if debug:
         print(f"\t Tracked points: {num_tracked_points}, dist: {trans:.3f}, angle: {angle:.3f}")

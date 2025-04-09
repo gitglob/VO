@@ -30,8 +30,8 @@ triangulation:
 
 point_association:
     num_matches: 10
-    search_window: 10
-    hamming_threshold: 50
+    search_window: 20
+    hamming_threshold: 100
 
 PnP:
     reprojection_threshold: 4.0
@@ -54,9 +54,11 @@ map:
     min_observations: 3
     max_keyframes_since_last_observation: 10
 
+convisibility:
+    min_common_edges: 15
+    essential_common_edges: 100
+
 ba:
     num_observations: 3
-    frequency: 10
-    first_pose_noise: 1e-9 # Std. deviation for the first robot pose (meters)
-    first_measurement_noise: 0.1  # Std. deviation for the first landmark observation (meters)
+    frequency: 5
     measurement_noise: 2.0  # Std. deviation for camera measurements (pixels)

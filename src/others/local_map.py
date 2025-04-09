@@ -2,6 +2,7 @@ from typing import List
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+from src.others.frame import Frame
 from config import SETTINGS
 
 
@@ -21,16 +22,14 @@ debug = SETTINGS["generic"]["debug"]
 class mapPoint():
     def __init__(self, 
                  kf_number: int,
-                 kf_id: int, 
-                 cam_pose: np.ndarray, 
+                 kf: Frame, 
                  pos: np.ndarray, 
                  keypoint: cv2.KeyPoint, 
                  desc: np.ndarray):
         self.observations = [
             { 
                 "kf_number": kf_number, # The keyframe number (not ID!) when it was obsrved
-                "keyframe": kf_id,    # The id of the keyframe that observed it
-                "cam_pose": cam_pose, # Camera pose in that keyframe
+                "keyframe": kf,    # The keyframe that observed it
                 "keypoint": keypoint, # ORB keypoint
                 "descriptor": desc    # ORB descriptor
             }
@@ -43,15 +42,14 @@ class mapPoint():
         self.obs_counter: int = 0           # Number of times the point was observed in a Frame
 
     def observe(self,
-                kf_number, kf_id: int, 
-                cam_pose: np.ndarray, 
+                kf_number: int, 
+                kf: Frame, 
                 keypoint: cv2.KeyPoint, 
                 desc: np.ndarray):
         
         new_observation = {
             "kf_number": kf_number,
-            "keyframe": kf_id,    
-            "cam_pose": cam_pose, 
+            "keyframe": kf,    
             "keypoint": keypoint, 
             "descriptor": desc
         }
@@ -65,13 +63,13 @@ class mapPoint():
     def mean_view_ray(self):
         view_rays = []
         for obs in self.observations:
-            v = self.view_ray(obs["cam_pose"][:3, 3])
+            v = self.view_ray(obs["keyframe"].pose[:3, 3])
             view_rays.append(v)
 
         return np.mean(view_rays, axis=0)
 
     def getScaleInvarianceLimits(self):
-        cam_pos = self.observations[-1]["cam_pose"][:3, 3]
+        cam_pos = self.observations[-1]["keyframe"].pose[:3, 3]
         level = self.observations[-1]["keypoint"].octave
 
         dist = np.linalg.norm(self.pos - cam_pos)
@@ -143,15 +141,14 @@ class Map():
         return self.points_arr[self._in_view_mask]
     
     def add_points(self, 
-                   kf_id: int,
+                   kf: Frame,
                    points_pos: np.ndarray, 
                    keypoints: List[cv2.KeyPoint], 
-                   descriptors: np.ndarray,
-                   T_cw: np.ndarray):
+                   descriptors: np.ndarray):
         # Iterate over the new points
         for i in range(len(points_pos)):
             kpt_id = keypoints[i].class_id
-            p = mapPoint(self._kf_counter, kf_id, T_cw, points_pos[i], keypoints[i], descriptors[i])
+            p = mapPoint(self._kf_counter, kf, points_pos[i], keypoints[i], descriptors[i])
             self.points[kpt_id] = p
         self._kf_counter += 1
 
@@ -159,14 +156,13 @@ class Map():
             print(f"Adding {len(points_pos)} points to the Map. Total: {len(self.points)} points.")
 
     def update_points(self, 
-                      kf_id: int,
+                      kf: Frame,
                       keypoints: List[cv2.KeyPoint], 
-                      descriptors: np.ndarray,
-                      T_cw: np.ndarray):
+                      descriptors: np.ndarray):
         for i in range(len(keypoints)):
             kpt_id = keypoints[i].class_id
             p = self.points[kpt_id]
-            p.observe(self._kf_counter, kf_id, T_cw, keypoints[i], descriptors[i])
+            p.observe(self._kf_counter, kf, keypoints[i], descriptors[i])
 
         if debug:
             print(f"Updating {len(keypoints)} map points.")
@@ -193,6 +189,11 @@ class Map():
             self.points[pid].pos = pos
 
         # self.show(prev_point_positions, self.point_positions)
+
+    def get_points(self, point_ids: set[int]) -> list:
+        """Returns the points that correspond to the given point ids"""
+        points = [self.points[idx] for idx in point_ids]
+        return points
 
     def view(self, T_wc: np.ndarray, K: np.ndarray):
         """
@@ -259,6 +260,21 @@ class Map():
             p.obs_counter += 1
         for p in self.points_arr[self._tracking_mask]:
             p.match_counter += 1
+
+    def get_keyframes_that_see(self, point_ids: set[int]) -> set[int]:
+        """Returns all the keyframes that see a set of points"""
+        keyframe_observers_ids = set()
+
+        # Iterate over the points
+        for pid in point_ids:
+            point = self.points[pid]
+            # Iterate over all the point observations
+            for obs in point.observations:
+                # Extract the keyframe of that observation
+                kf = obs["keyframe"]
+                keyframe_observers_ids.add(kf.id)
+
+        return keyframe_observers_ids
 
     def cull(self):
         """

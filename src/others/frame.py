@@ -15,14 +15,14 @@ class Frame():
     # This is a class-level (static) variable that all Frame instances share.
     _keypoint_id_counter = -1
 
-    def __init__(self, id: int, img: np.ndarray, bow=None):
+    def __init__(self, id: int, img: np.ndarray, is_initialized: bool, bow=None):
         self.id: int = id                    # The frame id
         self.img: np.ndarray = img.copy()    # The BW image
         self.bow = bow                       # The bag of words of that image
 
         self.keypoints: Tuple                # The extracted ORB keypoints
         self.descriptors: np.ndarray         # The extracted ORB descriptors
-        self._extract_features()             # Extract ORB features from the image
+        self._extract_features(is_initialized)  # Extract ORB features from the image
 
         self.pose: np.ndarray = None         # The world -> camera pose transformation matrix
         
@@ -49,17 +49,14 @@ class Frame():
         if debug:
             self.log_keypoints()
 
-    def keypoints_in_map(self, map: Map):
-        """
-        Returns the keypoints that are in the map.
-        """
-        # Get the keypoints that are in the map
-        kpts_in_map = []
-        for i, kpt in enumerate(self.keypoints):
+    def keypoints_in_map(self, map: Map) -> set:
+        """Returns the keypoints that are in the map as a set."""
+        kpts_in_map = set()
+        for kpt in self.keypoints:
             if kpt.class_id in map.point_ids():
-                kpts_in_map.append(kpt.class_id)
+                kpts_in_map.add(kpt.class_id)
         
-        return np.array(kpts_in_map)
+        return kpts_in_map
 
     def set_keyframe(self, is_keyframe: bool):
         self.is_keyframe = is_keyframe
@@ -102,7 +99,7 @@ class Frame():
     def set_pose(self, pose: np.ndarray):
         self.pose = pose
     
-    def _extract_features(self):
+    def _extract_features(self, is_initialized):
         """
         Extract image features using ORB.
         
@@ -119,10 +116,14 @@ class Frame():
         """
         # Initialize the ORB detector
         orb_settings = SETTINGS["orb"]
+
+        # During initialization, we only extract features in the finest scale
+        levels = 1 if not is_initialized else orb_settings["level_pyramid"]
+        
         orb = cv2.ORB_create(
             nfeatures=orb_settings["num_keypoints"],
             scaleFactor=orb_settings["scale_factor"],
-            nlevels=orb_settings["level_pyramid"],
+            nlevels=levels,
             edgeThreshold=orb_settings["edge_threshold"],
             firstLevel=orb_settings["first_level"],
             WTA_K=orb_settings["WTA_K"],
