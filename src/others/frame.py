@@ -15,10 +15,10 @@ class Frame():
     # This is a class-level (static) variable that all Frame instances share.
     _keypoint_id_counter = -1
 
-    def __init__(self, id: int, img: np.ndarray, is_initialized: bool, bow=None):
+    def __init__(self, id: int, img: np.ndarray, is_initialized: bool):
         self.id: int = id                    # The frame id
         self.img: np.ndarray = img.copy()    # The BW image
-        self.bow = bow                       # The bag of words of that image
+        self.bow_hist = None                 # The histogram of bag of visual words of that image
 
         self.keypoints: Tuple                # The extracted ORB keypoints
         self.descriptors: np.ndarray         # The extracted ORB descriptors
@@ -101,7 +101,7 @@ class Frame():
     
     def _extract_features(self, is_initialized):
         """
-        Extract image features using ORB.
+        Extract image features using ORB and BoW histogram.
         
         keypoints: The detected keypoints. A 1-by-N structure array with the following fields:
             - pt: pixel coordinates of the keypoint [x,y]
@@ -120,7 +120,7 @@ class Frame():
         # During initialization, we only extract features in the finest scale
         levels = 1 if not is_initialized else orb_settings["level_pyramid"]
         
-        orb = cv2.ORB_create(
+        self._detector = cv2.ORB_create(
             nfeatures=orb_settings["num_keypoints"],
             scaleFactor=orb_settings["scale_factor"],
             nlevels=levels,
@@ -133,7 +133,7 @@ class Frame():
         )
         
         # Detect keypoints and compute descriptors
-        kp, desc = orb.detectAndCompute(self.img, None)
+        kp, desc = self._detector.detectAndCompute(self.img, None)
         
         # Assign a unique class_id to each keypoint
         for k in kp:
@@ -143,7 +143,22 @@ class Frame():
             k.class_id = Frame._keypoint_id_counter
         
         self.keypoints = kp
-        self.descriptors = desc        
+        self.descriptors = desc
+        
+    def extract_bow_hist(self, vocab, bow_db: list):
+        # Create the descriptor matcher
+        matcher = cv2.BFMatcher()
+
+        # Create the BoW extractor
+        bow_extractor = cv2.BOWImgDescriptorExtractor(self._detector, matcher)
+        bow_extractor.setVocabulary(vocab)
+
+        # Compute the BoW histogram using the extractor (which needs the vocabulary set)
+        self.bow_hist = bow_extractor.compute(self.img, self.keypoints)
+
+        # Add the histogram to the databse
+        entry = {"frame_id": self.id, "hist": self.bow_hist}
+        bow_db.append(entry)
 
     ############################################# LOGGING #############################################
 

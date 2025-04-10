@@ -36,4 +36,7 @@ g2opy
 !src/backend/g2o
 !src/backend/gtsam
 
+# Ignore the vocablary
+vocabulary
+
 **/.gitkeep

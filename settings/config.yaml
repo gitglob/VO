@@ -62,3 +62,8 @@ ba:
     num_observations: 3
     frequency: 5
     measurement_noise: 2.0  # Std. deviation for camera measurements (pixels)
+
+place_recognition:
+    vocab_size: 1000
+    similarity_threshold: 0.8
+    
