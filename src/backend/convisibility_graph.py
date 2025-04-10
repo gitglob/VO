@@ -28,26 +28,26 @@ class Graph:
         self.nodes = {} # Dictionary keyframe_id -> observed map_point_ids
         self.edges = {} # Dictionary (kf_id1, kf_id2) -> weight (common map points)
 
-    def add_node(self, kf_id: int, mp_ids: set):
+    def _add_node(self, kf_id: int, mp_ids: set):
         self.nodes[kf_id] = mp_ids
 
-    def add_edge(self, kf_id1: int, kf_id2: int, weight: int):
+    def _add_edge(self, kf_id1: int, kf_id2: int, weight: int):
         edge_id = tuple(sorted((kf_id1, kf_id2)))
         self.edges[edge_id] = weight
 
-    def remove_node(self, kf_id: int):
+    def _remove_node(self, kf_id: int):
         del self.nodes[kf_id]
 
-    def remove_edges_with(self, kf_id: int):
+    def _remove_edges_with(self, kf_id: int):
         edges_to_remove = [edge_id for edge_id in self.edges.keys() if kf_id in edge_id]
         for edge_id in edges_to_remove:
             del self.edges[edge_id]
 
-    def remove_edge(self, kf_id1: int, kf_id2: int):
+    def _remove_edge(self, kf_id1: int, kf_id2: int):
         edge_id = tuple(sorted((kf_id1, kf_id2)))
         del self.edges[edge_id]
 
-    def reset(self):
+    def _reset(self):
         self.nodes = {}
         self.edges = {}
 
@@ -84,8 +84,8 @@ class ConvisibilityGraph(Graph):
         if len(kf_map_pt_ids) == 0:
             print(f"Keyframe {keyframe.id} observes 0 map points!")
             return
-        self.add_node(keyframe.id, kf_map_pt_ids)
-        self.spanning_tree.add_node(keyframe.id, kf_map_pt_ids)
+        self._add_node(keyframe.id, kf_map_pt_ids)
+        self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
         
         # Spanning tree connections
         best_parent_id = None
@@ -107,11 +107,11 @@ class ConvisibilityGraph(Graph):
                     weight = max(self.edges[edge_id], num_shared_points)
                 else:
                     weight = num_shared_points
-                self.add_edge(other_kf_id, keyframe.id, weight)
+                self._add_edge(other_kf_id, keyframe.id, weight)
 
                 # If the weight is >= 100, add to the Essential Graph
                 if weight >= ESSENTIAL_THETA_MIN:
-                    self.essential_graph.add_edge(other_kf_id, keyframe.id, weight)
+                    self.essential_graph._add_edge(other_kf_id, keyframe.id, weight)
             
             # For the spanning tree, choose the keyframe that shares the most map points.
             if num_shared_points > max_shared:
@@ -120,9 +120,9 @@ class ConvisibilityGraph(Graph):
         
         # If there is a valid parent keyframe, add the connection in the spanning tree.
         if best_parent_id is not None:
-            self.spanning_tree.add_edge(best_parent_id, keyframe.id, max_shared)
+            self.spanning_tree._add_edge(best_parent_id, keyframe.id, max_shared)
             # All the spanning tree edges go to the Essential Graph too
-            self.essential_graph.add_edge(best_parent_id, keyframe.id, max_shared)
+            self.essential_graph._add_edge(best_parent_id, keyframe.id, max_shared)
             
     def get_connected_nodes_and_their_points(self, kf_id: int) -> tuple[set, set]:
         """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
@@ -153,14 +153,14 @@ class ConvisibilityGraph(Graph):
             print(f"Keyframe {keyframe.id} does not exist.")
             return
         
-        self.remove_node(keyframe.id)
-        self.remove_edges_with(keyframe.id)
+        self._remove_node(keyframe.id)
+        self._remove_edges_with(keyframe.id)
         
-        self.spanning_tree.remove_node(keyframe.id)
-        self.spanning_tree.remove_edges_with(keyframe.id)
+        self.spanning_tree._remove_node(keyframe.id)
+        self.spanning_tree._remove_edges_with(keyframe.id)
         
-        self.essential_graph.remove_node(keyframe.id)
-        self.essential_graph.remove_edges_with(keyframe.id)
+        self.essential_graph._remove_node(keyframe.id)
+        self.essential_graph._remove_edges_with(keyframe.id)
         
         # Remove loop closure edges that involve the removed keyframe.
         edges_to_remove = [edge for edge in self.loop_closure_edges if keyframe.id in edge]
@@ -187,7 +187,7 @@ class ConvisibilityGraph(Graph):
         self.loop_closure_edges[edge_id] = weight
 
         # Add it to the essential graph
-        self.essential_graph.add_edge(keyframe_id1, keyframe_id2, weight)
+        self.essential_graph._add_edge(keyframe_id1, keyframe_id2, weight)
 
     def print_graphs(self):
         """
