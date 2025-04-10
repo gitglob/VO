@@ -7,10 +7,11 @@ from src.others.utils import save_image, delete_subdirectories, transform_points
 
 from src.frontend.feature_matching import matchFeatures
 from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import constant_velocity_model, estimate_relative_pose, is_keyframe, localPointAssociation, triangulateNewPoints
+from src.frontend.tracking import constant_velocity_model, estimate_relative_pose, is_keyframe
+from src.frontend.tracking import localPointAssociation, globalPointAssociation, triangulateNewPoints
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
-from src.place_recognition.bow import load_vocabulary
+from src.place_recognition.bow import load_vocabulary, query_recognition_candidate
 
 from src.others.local_map import Map
 # from src.backend.gtsam.ba import BA
@@ -48,7 +49,7 @@ def main():
     # Read the vocabulary and initialize the BoW database
     if use_loop_closures:
         vocab = load_vocabulary("dbow")
-        bow_db = []
+        bow_db: list[dict] = [] # contains visual_word_id -> keyframe_that_sees_it dicts
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
@@ -149,9 +150,6 @@ def main():
                 # Add the keyframe to the convisibility graph
                 cgraph.add_keyframe(t_frame, map)
 
-                # Compute the BOW representation of the keyframe
-                t_frame.compute_bow()
-
                 # Triangulate the 3D points using the initial pose
                 t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, K, scale)
                 if not is_initialized:
@@ -209,7 +207,6 @@ def main():
                 # Match these map points with the current frame
                 W = SETTINGS["point_association"]["search_window"]
                 map_t_pairs = localPointAssociation(map, t_frame, K, T_wc, W)
-                # map_t_pairs = globalPointAssociation(map, t_frame, K)
                 while len(map_t_pairs) < SETTINGS["point_association"]["num_matches"]:
                     print(f"Point association failed with W={W}! Only {len(map_t_pairs)} matches found!")
                     W = W * 2
@@ -220,19 +217,57 @@ def main():
                     continue
 
                 # Estimate the new world pose using PnP (3d-2d)
+                global_reloc = False
                 T_wt, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs, K)
                 if T_wt is None:
+                    global_reloc = True
+                    pnp_success = False
                     print(f"Warning: solvePnP failed!")
-                    num_tracking_fails += 1
-                    if num_tracking_fails > 3:
+
+                    # Compute the BOW representation of the keyframe
+                    t_frame.compute_bow(vocab, bow_db)
+
+                    # Find keyframe candidates from the BoW database for global relocalization
+                    print("Performing global relocalization!")
+                    kf_candidate_ids = query_recognition_candidate(t_frame, bow_db)
+
+                    # Iterate over all candidates
+                    print(f"Iterating over {len(kf_candidate_ids)} keyframe candidates!")
+                    for j, kf_id in enumerate(kf_candidate_ids):
+                        # Extract the candidate keyframe
+                        cand_frame = keyframes[kf_id]
+                        # Perform global point association with each candidates
+                        map_cand_pairs = globalPointAssociation(map, cand_frame, K)
+                        # Estimate the new world pose using PnP (3d-2d)
+                        T_wt, num_tracked_points = estimate_relative_pose(map, cand_frame, map_cand_pairs, K)
+                        if T_wt is not None:
+                            print(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
+                            pnp_success = True
+                            break
+                        T_tw = invert_transform(T_wt)
+                    
+                    # If PnP failed with every candidate too, we need to restart initialization
+                    if not pnp_success:
                         is_initialized = False
-                    continue
-                T_tw = invert_transform(T_wt)
+                        continue
+                
+                # Temporarily keep new pose and keep the frame as keyframe
+                poses.append(T_tw)
+                keyframes[i] = cand_frame if global_reloc else t_frame
+
+                # Perform pose optimization
+                ba = BA(K, verbose=debug, type="pose")
+                ba.add_poses(keyframes.keys(), poses)
+                ba.add_observations(map)
+                _, opt_poses, _, _, ba_success = ba.optimize()
+                if ba_success:
+                    poses = opt_poses
     
                 # Check if this t_frame is a keyframe
                 T_wq = invert_transform(poses[-1])
                 T_tq = T_wq @ T_tw
                 if not is_keyframe(T_tq, num_tracked_points):
+                    del keyframes[i]
                     continue
 
                 # Set the pose in the current frame
@@ -241,9 +276,6 @@ def main():
 
                 # Add the keyframe to the convisibility graph
                 cgraph.add_keyframe(t_frame, map)
-
-                # Compute the BOW representation of the keyframe
-                t_frame.compute_bow()
 
                 # Update the map observation and match counters
                 map.update_counters()
@@ -275,9 +307,7 @@ def main():
                 # Bookkeping
                 times.append(t)
                 gt_poses.append(gt_pose)
-                poses.append(T_tw)
                 cgraph.add_keyframe(t_frame, map)
-                keyframes[i] = t_frame
 
                 # Plot trajectory
                 plot_trajectory(poses, gt_poses, i)

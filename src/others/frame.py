@@ -145,7 +145,7 @@ class Frame():
         self.keypoints = kp
         self.descriptors = desc
         
-    def compute_bow(self, vocab, bow_db: list):
+    def compute_bow(self, vocab, bow_db: list[dict]):
         # Create the descriptor matcher
         matcher = cv2.BFMatcher()
 
@@ -153,12 +153,23 @@ class Frame():
         bow_extractor = cv2.BOWImgDescriptorExtractor(self._detector, matcher)
         bow_extractor.setVocabulary(vocab)
 
-        # Compute the BoW histogram using the extractor (which needs the vocabulary set)
+        # Compute the BoW histogram using the extractor
+        # The histogram is typically a NumPy array of shape (1, vocab_size)
         self.bow_hist = bow_extractor.compute(self.img, self.keypoints)
+        if self.bow_hist is None:
+            print(f"Frame {self.id}: No BoW histogram computed!")
+            return
 
-        # Add the histogram to the databse
-        entry = {"frame_id": self.id, "hist": self.bow_hist}
-        bow_db.append(entry)
+        # Loop over each visual word (i.e., each bin in the histogram)
+        # and add this frame's ID to the database for every visual word that occurs in the image.
+        for visual_word in range(self.bow_hist.shape[1]):
+            # Check if the histogram count for this visual word is greater than zero
+            if self.bow_hist[0, visual_word] > 0:
+                # If this visual word is not yet in the database, add it with an empty list.
+                if visual_word not in bow_db:
+                    bow_db[visual_word] = []
+                # Append the current frame's ID to the list for this visual word.
+                bow_db[visual_word].append(self.id)
 
     ############################################# LOGGING #############################################
 

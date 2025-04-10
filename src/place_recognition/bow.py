@@ -19,7 +19,7 @@ def load_vocabulary(type: Literal["dbow", "cv2"]):
     else:
         raise(ValueError(f"Vocabulary {vocab_path} does not exist!"))
 
-def find_loop_closure(frame: Frame, database: list):
+def query_recognition_candidate(frame: Frame, database: list):
     """
     Compute the BoW descriptor for a new image and compare it against all descriptors in the database.
     Returns the best matching frame id and the similarity score if the highest similarity exceeds the threshold.
@@ -29,7 +29,8 @@ def find_loop_closure(frame: Frame, database: list):
         print("No BoW descriptor computed for the new image.")
         return None
 
-    best_match = None
+    candidates_ids = set()
+    best_match_id = None
     best_similarity = 0.0
 
     # Compare the new histogram with each entry in the database.
@@ -43,12 +44,14 @@ def find_loop_closure(frame: Frame, database: list):
         print(f"Comparing to frame {entry['frame_id']}, similarity score: {score:.3f}")
         if score > best_similarity:
             best_similarity = score
-            best_match = entry
+            best_match_id = entry["frame_id"]
 
-    # If the best similarity exceeds the threshold, declare a loop closure
-    if best_similarity >= SIM_THRESHOLD:
-        print(f"Loop closure candidate found: Frame {best_match['frame_id']} with similarity {best_similarity:.3f}")
-        return best_match["frame_id"], best_similarity
-    else:
-        print(f"No loop closure candidate found! Best similarity: {best_similarity:.3f}")
-        return None
+        # Find recognition candidates_ids
+        if score > SIM_THRESHOLD:
+            print(f"Recognition candidate: Frame {entry['frame_id']} with similarity {best_similarity:.3f}")
+            candidates_ids.add(entry["frame_id"])
+
+    if len(candidates_ids) == 0:
+        print(f"Recognition candidate not found! Keyframe {best_match_id} with similarity: {best_similarity:.3f}")
+
+    return candidates_ids
