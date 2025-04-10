@@ -29,14 +29,14 @@ class mapPoint():
         self.observations = [
             { 
                 "kf_number": kf_number, # The keyframe number (not ID!) when it was obsrved
-                "keyframe": kf,    # The keyframe that observed it
-                "keypoint": keypoint, # ORB keypoint
-                "descriptor": desc    # ORB descriptor
+                "keyframe": kf,         # The keyframe that observed it
+                "keypoint": keypoint,   # ORB keypoint
+                "descriptor": desc      # ORB descriptor
             }
         ]
 
-        self.pos: np.ndarray = pos        # 3D position
-        self.id: int = keypoint.class_id  # The unique id of the keypoint
+        self.pos: np.ndarray = pos          # 3D position
+        self.id: int = keypoint.class_id    # The unique id of the keypoint
 
         self.match_counter: int = 0         # Number of times the point was tracked with PnP
         self.obs_counter: int = 0           # Number of times the point was observed in a Frame
@@ -54,6 +54,40 @@ class mapPoint():
             "descriptor": desc
         }
         self.observations.append(new_observation)
+
+    @property
+    def best_descriptor(self):
+        """
+        The descriptor whose hamming distance is minimum with respect to all other 
+        associated descriptors in the keyframes in which the point is observed.
+        Basically the mean descriptor.
+        """
+        # Iterate over all observations
+        min_dist = np.inf
+        best_obs_idx = 0
+        for i, obs in enumerate(self.observations):
+            # Get the descriptor
+            desc = obs["descriptor"]
+            dist_sum = 0
+            # Iterate over all other observations
+            for j, other_obs in enumerate(self.observations):
+                if i == j:
+                    continue
+                # Calculate the distance with their descriptor
+                else:
+                    other_desc = other_obs["descriptor"]
+                    dist = cv2.norm(desc, other_desc, cv2.NORM_HAMMING)
+                    dist_sum += dist
+
+            # Find the minimum distance
+            if dist_sum < min_dist:
+                min_dist = dist_sum
+                best_obs_idx = i
+
+        # Keep the descriptor of the observation with the minimum distance to the others
+        best_desc = self.observations[best_obs_idx]["descriptor"]
+        
+        return best_desc
 
     def view_ray(self, cam_pos):
         v = self.pos - cam_pos
@@ -341,8 +375,6 @@ class Map():
 
         # Reset the in-view mask
         self._in_view_mask = None
-
-        return all_removed_point_ids
 
     def show(self, prev_point_positions, point_positions):
         """
