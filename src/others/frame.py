@@ -145,7 +145,7 @@ class Frame():
         self.keypoints = kp
         self.descriptors = desc
         
-    def extract_bow_hist(self, vocab, bow_db: list):
+    def compute_bow(self, vocab, bow_db: list):
         # Create the descriptor matcher
         matcher = cv2.BFMatcher()
 

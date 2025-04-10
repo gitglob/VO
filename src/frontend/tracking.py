@@ -15,7 +15,6 @@ MIN_INLIERS = SETTINGS["PnP"]["min_inliers"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
 MIN_NUM_MATCHES = SETTINGS["point_association"]["num_matches"]
-SEARCH_WINDOW = SETTINGS["point_association"]["search_window"]
 HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
 
 
@@ -72,7 +71,7 @@ def project_point(p_w: np.ndarray, T_wc: np.ndarray, K: np.ndarray):
 
     return (p_proj[0], p_proj[1])
 
-def localPointAssociation(map: Map, t_frame: Frame, K: np.ndarray, T_wc: np.ndarray):
+def localPointAssociation(map: Map, t_frame: Frame, K: np.ndarray, T_wc: np.ndarray, search_window: int=None):
     """
     Associates map points with current frame keypoints by searching only within a local window
     around the predicted pixel location.
@@ -118,8 +117,8 @@ def localPointAssociation(map: Map, t_frame: Frame, K: np.ndarray, T_wc: np.ndar
         candidates = []
         for j, kp in enumerate(t_frame.keypoints):
             kp_pt = kp.pt
-            if (abs(kp_pt[0] - pred_px[0]) <= SEARCH_WINDOW//2 and
-                abs(kp_pt[1] - pred_px[1]) <= SEARCH_WINDOW//2):
+            if (abs(kp_pt[0] - pred_px[0]) <= search_window//2 and
+                abs(kp_pt[1] - pred_px[1]) <= search_window//2):
                 candidates.append(j)
         
         # If no keypoints are found in the window, skip to the next map point.

@@ -10,6 +10,8 @@ from src.frontend.initialization import initialize_pose, triangulate_points
 from src.frontend.tracking import constant_velocity_model, estimate_relative_pose, is_keyframe, localPointAssociation, triangulateNewPoints
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
+from src.place_recognition.bow import load_vocabulary
+
 from src.others.local_map import Map
 # from src.backend.gtsam.ba import BA
 from src.backend.g2o.ba import BA
@@ -34,6 +36,7 @@ BA_FREQ = SETTINGS["ba"]["frequency"]
 def main():
     use_dist = False
     cleanup = True
+    use_loop_closures = False
 
     # Clean previous results
     if cleanup:
@@ -41,6 +44,11 @@ def main():
 
     # Read the data
     data = Dataset(data_dir, scene, use_dist)
+
+    # Read the vocabulary and initialize the BoW database
+    if use_loop_closures:
+        vocab = load_vocabulary("dbow")
+        bow_db = []
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
@@ -138,6 +146,12 @@ def main():
                 t_frame.set_pose(T_tw)
                 t_frame.set_keyframe(True)
 
+                # Add the keyframe to the convisibility graph
+                cgraph.add_keyframe(t_frame, map)
+
+                # Compute the BOW representation of the keyframe
+                t_frame.compute_bow()
+
                 # Triangulate the 3D points using the initial pose
                 t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, K, scale)
                 if not is_initialized:
@@ -193,12 +207,15 @@ def main():
                 T_wc = constant_velocity_model(t, times, poses)
 
                 # Match these map points with the current frame
-                map_t_pairs = localPointAssociation(map, t_frame, K, T_wc)
+                W = SETTINGS["point_association"]["search_window"]
+                map_t_pairs = localPointAssociation(map, t_frame, K, T_wc, W)
                 # map_t_pairs = globalPointAssociation(map, t_frame, K)
-                if len(map_t_pairs) < SETTINGS["point_association"]["num_matches"]:
-                    print("Point association failed!")
-                    num_tracking_fails += 1
-                    if num_tracking_fails > 3:
+                while len(map_t_pairs) < SETTINGS["point_association"]["num_matches"]:
+                    print(f"Point association failed with W={W}! Only {len(map_t_pairs)} matches found!")
+                    W = W * 2
+                    map_t_pairs = localPointAssociation(map, t_frame, K, T_wc)
+                    if W > 32:
+                        print(f"Point association failed!")
                         is_initialized = False
                     continue
 
@@ -221,6 +238,12 @@ def main():
                 # Set the pose in the current frame
                 t_frame.set_pose(T_tw)
                 t_frame.set_keyframe(True)
+
+                # Add the keyframe to the convisibility graph
+                cgraph.add_keyframe(t_frame, map)
+
+                # Compute the BOW representation of the keyframe
+                t_frame.compute_bow()
 
                 # Update the map observation and match counters
                 map.update_counters()
@@ -273,7 +296,7 @@ def main():
                         poses = opt_poses
 
                 # Clean up map points that are not seen anymore
-                # removed_landmark_ids = map.cull()
+                map.cull()
 
     # Perform one final optimization
     opt_poses = ba.finalize()
