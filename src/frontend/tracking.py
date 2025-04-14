@@ -1,11 +1,10 @@
 import numpy as np
 import cv2
-from scipy.linalg import expm, logm
-from src.others.local_map import Map, mapPoint
+from src.others.local_map import Map
 from src.frontend.initialization import triangulate
 from src.others.frame import Frame
-from src.others.utils import get_yaw, transform_points, invert_transform
-from src.others.visualize import plot_matches, plot_reprojection, plot_pixels
+from src.others.utils import get_yaw, transform_points
+from src.others.visualize import plot_matches, plot_reprojection
 from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint, filter_by_reprojection, filter_scale
 from config import SETTINGS, results_dir
 
@@ -17,232 +16,6 @@ H = SETTINGS["camera"]["height"]
 MIN_NUM_MATCHES = SETTINGS["point_association"]["num_matches"]
 HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
 
-
-def constant_velocity_model(t: float, times: list, poses: list):
-    # Find how much time has passed
-    dt_c = t - times[-1]
-
-    # Find the previous dr
-    dt_tq = times[-1] - times[-2]
-
-    # Find the previous relative transformation
-    T_wq = np.linalg.inv(poses[-2])
-    T_tw = poses[-1]
-    T_tq = T_wq @ T_tw
-
-    # Use the matrix logarithm to obtain the twist (in se(3)) corresponding to T_rel.
-    twist_matrix = logm(T_tq)
-    
-    # Scale the twist for the prediction time interval.
-    scaled_twist = twist_matrix * (dt_c / dt_tq)
-    
-    # Obtain the predicted incremental transformation via the matrix exponential.
-    T_ct = expm(scaled_twist)
-    
-    # The predicted current pose is T_last followed by the predicted incremental transformation.
-    T_cw = T_tw @ T_ct
-    T_wc = invert_transform(T_cw)
-
-    return T_wc
-
-def project_point(p_w: np.ndarray, T_wc: np.ndarray, K: np.ndarray):
-    """
-    Projects a 3D point from world coordinates into the image given a camera pose and intrinsic matrix.
-    
-    Args:
-        p_w: A 3-element iterable representing the 3D point (e.g. np.array([x,y,z])).
-        T_wc: A 4x4 homogeneous transformation matrix mapping world coordinates to camera coordinates.
-        K:   The 3x3 camera intrinsic matrix.
-    
-    Returns:
-        A tuple (u, v) representing the predicted pixel coordinate or None if the point projects behind the camera.
-    """
-    # Convert point to homogeneous coordinates (4-vector).
-    p_w_hom = np.array([p_w[0], p_w[1], p_w[2], 1.0])
-    # Transform into camera coordinate system.
-    p_cam = T_wc @ p_w_hom
-    # Check if the point is in front of the camera.
-    if p_cam[2] <= 0:
-        return None
-    # Normalize to obtain (x/z, y/z, 1).
-    p_cam_norm = p_cam[:3] / p_cam[2]
-    # Project to pixel coordinates.
-    p_proj = K @ p_cam_norm
-
-    return (p_proj[0], p_proj[1])
-
-def localPointAssociation(map: Map, t_frame: Frame, K: np.ndarray, T_wc: np.ndarray, search_window: int=None):
-    """
-    Associates map points with current frame keypoints by searching only within a local window
-    around the predicted pixel location.
-
-    For each map point (from map.points_in_view), its 3D location (assumed to be stored in p.pt) is
-    projected into the current frame using the predicted camera pose T_wc and the intrinsic matrix K.
-    Then, the current frame keypoints (t_frame.keypoints) are scanned to find candidates that fall
-    inside a (2*search_window x 2*search_window) region around the predicted pixel.
-    Among those candidates, the best match is chosen based on descriptor similarity.
-
-    Args:
-        map: The local map object. It must have:
-             - map.points_in_view: a list of map points.
-             - Each map point should have:
-                     .pt - its 3D world coordinate (e.g. a numpy array [x,y,z])
-                     .observations - a list of observation dictionaries, where each observation has a
-                                    "descriptor" key.
-        t_frame: The current frame, which has:
-                 - t_frame.keypoints: a list of keypoints (each with a .pt attribute, e.g. (u,v)).
-                 - t_frame.descriptors: an array of descriptors for those keypoints.
-        K: The camera intrinsic matrix.
-        T_wc: The predicted current camera pose (4x4 homogeneous transformation), mapping world
-              coordinates to camera coordinates.
-
-    Returns:
-        pairs: A list of tuples (map_idx, frame_idx) indicating the association of map points
-               to current frame keypoints.
-    """
-    pairs = []
-
-    # Loop over all map points that are expected to be in view.
-    for i, map_point in enumerate(map.points_in_view):
-        # Project the map point's 3D location into the current frame.
-        pred_px = project_point(map_point.pos, T_wc, K)
-        if pred_px is None:
-            continue  # Skip points that project behind the camera.
-        
-        # We choose the last descriptor to represent the map point
-        map_desc = map_point.observations[-1]["descriptor"]
-        
-        # Collect candidate current frame keypoints whose pixel coordinates fall within 
-        # a window around the predicted pixel
-        candidates = []
-        for j, kp in enumerate(t_frame.keypoints):
-            kp_pt = kp.pt
-            if (abs(kp_pt[0] - pred_px[0]) <= search_window//2 and
-                abs(kp_pt[1] - pred_px[1]) <= search_window//2):
-                candidates.append(j)
-        
-        # If no keypoints are found in the window, skip to the next map point.
-        if not candidates:
-            continue
-        
-        # For each candidate, compute the descriptor distance using the Hamming norm.
-        best_dist = np.inf
-        best_idx = None
-        for j in candidates:
-            candidate_desc = t_frame.descriptors[j]
-            # Compute Hamming distance.
-            d = cv2.norm(np.array(map_desc), np.array(candidate_desc), cv2.NORM_HAMMING)
-            if d < best_dist:
-                best_dist = d
-                best_idx = j
-        
-        # Accept the match only if the best distance is below the threshold.
-        if best_idx is not None and best_dist < HAMMING_THRESHOLD:
-            pairs.append((i, best_idx))
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/tracking/0-point_association" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.keypoints[p[1]].pt for p in pairs], dtype=np.float64)
-        plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
-    
-    if debug:
-        print(f"\t Found {len(pairs)} Point Associations!")
-
-    return pairs
-
-def globalPointAssociation(map: Map, t_frame: Frame, K: np.ndarray):
-    """
-    Matches the map points seen in previous frames with the current frame.
-
-    Args:
-        map: The local map
-        t_frame: The current t_frame, which has .keypoints and .descriptors
-        T_wc: The predicted camera pose
-        search_window: half-size of the bounding box (in pixels) around (u,v).
-
-    Returns:
-        pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
-    """
-    # Extract the in view descriptors
-    map_points = map.points_in_view
-    map_descriptors = []
-    map_point_idx = []
-    map_pixels = []
-    for i, p in enumerate(map_points):
-        # Get the descriptors from every observation of a point
-        for obs in p.observations:
-            map_descriptors.append(obs["descriptor"])
-            map_point_idx.append(i)
-            map_pixels.append(obs["keypoint"].pt)
-    map_descriptors = np.array(map_descriptors)
-    map_point_idx = np.array(map_point_idx)
-    map_pixels = np.array(map_pixels)
-
-    # Create BFMatcher object
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING)
-    
-    # Match descriptors
-    matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
-    if len(matches) < MIN_NUM_MATCHES:
-        return []
-
-    # Filter matches
-    # Apply Lowe's ratio test to filter out false matches
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.95 * n.distance:
-            good_matches.append(m)
-    if debug:
-        print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
-
-    if len(good_matches) < MIN_NUM_MATCHES:
-        return []
-    
-    # Next, ensure uniqueness by keeping only the best match per train descriptor.
-    unique_matches = {}
-    for m in good_matches:
-        # If this train descriptor is not seen yet, or if the current match is better, update.
-        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
-            unique_matches[m.trainIdx] = m
-
-    # Convert the dictionary values to a list of unique matches
-    unique_matches = list(unique_matches.values())
-    if debug:
-        print(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
-
-    if len(unique_matches) < MIN_NUM_MATCHES:
-        return []
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/tracking/0-point_association" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-        plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
-    
-    # Finally, filter using the epipolar constraint
-    # q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
-    # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels, K)
-    # if epipolar_constraint_mask is None:
-    #     print("Failed to apply epipolar constraint..")
-    #     return []
-    # unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
-            
-    # # Save the matches
-    # if debug:
-    #     match_save_path = results_dir / "matches/tracking/1-epipolar_constraint" / f"map_{t_frame.id}.png"
-    #     plot_pixels(t_frame.img, t_pixels, save_path=match_save_path)
-    
-    # Prepare results
-    pairs = []  # list of (map_idx, frame_idx, best_dist)
-    for m in unique_matches:
-        pairs.append((map_point_idx[m.queryIdx], m.trainIdx))
-
-    if debug:
-        print(f"\t Found {len(pairs)} Point Associations!")
-
-    return pairs
 
 # Function to estimate the relative pose using solvePnP
 def estimate_relative_pose(
@@ -276,7 +49,7 @@ def estimate_relative_pose(
 
         If the function fails, returns (None, None).
     """
-    map_points_w = map.points_in_view
+    map_points_w = map.get_points_in_view(t_frame)
     num_points = len(map_t_pairs)
     if debug:
         print(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")

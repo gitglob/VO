@@ -12,7 +12,8 @@ matplotlib.use('TkAgg')
 
 ############################### Pose Visualization ###############################
 
-def plot_trajectory(poses, gt_poses, i, save_path=results_dir / "trajectory", ba_poses=None):
+def plot_trajectory(frames, gt_poses, i, save_path=results_dir / "trajectory", ba_poses=None):
+    poses = [f.pose for f in list(frames.values())]
     if ba_poses is not None:
         save_path = save_path / f"{i}_ba.png"
     else:
@@ -86,8 +87,8 @@ def plot_trajectory(poses, gt_poses, i, save_path=results_dir / "trajectory", ba
 
     plt.close(fig)
 
-def plot_trajectory_3d(poses, save_path=results_dir / "vo" / "final_trajectory.png"):
-    poses = np.array(poses)
+def plot_trajectory_3d(frames, save_path=results_dir / "vo" / "final_trajectory.png"):
+    poses = np.array([f.pose for f in list(frames.values())])
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     

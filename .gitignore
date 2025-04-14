@@ -39,4 +39,7 @@ g2opy
 # Ignore the vocablary
 vocabulary
 
+# Ignore logs
+logs
+
 **/.gitkeep

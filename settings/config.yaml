@@ -30,7 +30,7 @@ triangulation:
 
 point_association:
     num_matches: 10
-    search_window: 20
+    search_window: 200
     hamming_threshold: 100
 
 PnP:

@@ -124,24 +124,62 @@ class ConvisibilityGraph(Graph):
             # All the spanning tree edges go to the Essential Graph too
             self.essential_graph._add_edge(best_parent_id, keyframe.id, max_shared)
             
-    def get_connected_nodes_and_their_points(self, kf_id: int) -> tuple[set, set]:
+    def get_frame_points(self, kf_id: int):
+        """Returns the points seen by a keyframe"""
+        return self.nodes[kf_id]
+    
+    def get_connected_frames_and_their_points(self, kf_id: int) -> tuple[set[int], set[int]]:
         """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
         # Keep the connected nodes and points
         connected_kf_ids = set()
         connected_kf_point_ids = set()
         # Iterate over all the edges
-        for (kf1_id, kf2_id) in self.nodes.keys():
+        for (kf1_id, kf2_id) in self.edges.keys():
             # Check if this node is part of this edge
             # If it is, the other node and its points are of interest
-            if kf_id == kf1_id:
+            if kf1_id == kf_id:
                 connected_kf_ids.add(kf2_id)
                 connected_kf_point_ids.add(self.nodes[kf2_id])
-            elif kf_id == kf2_id:
+            elif kf2_id == kf_id:
                 connected_kf_ids.add(kf1_id)
                 connected_kf_point_ids.add(self.nodes[kf1_id])
 
         return connected_kf_ids, connected_kf_point_ids
+    
+    def get_reference_frame(self, kf_id: int) -> int:
+        """Returns the keyframe connected to a given keyframe that shares the most map points"""
+        ref_frame_id = -1
+        max_weight = -1
+        # Iterate over all the edges
+        for (kf1_id, kf2_id), weight in self.edges.items():
+            # Check if this node is part of this edge
+            if kf1_id == kf_id:
+                if weight > max_weight:
+                    max_weight = weight
+                    ref_frame_id = kf1_id
+            elif kf2_id == kf_id:
+                if weight > max_weight:
+                    max_weight = weight
+                    ref_frame_id = kf2_id
 
+        return ref_frame_id
+    
+    def get_neighbor_frames_and_their_points(self, kf_ids: set) -> tuple[set[int], set[int]]:
+        """Returns all the neighboring keyframes"""
+        neighbors = set()
+        neighbor_points = set()
+        # Iterate over all the edges
+        for (kf1_id, kf2_id) in self.edges.keys():
+            # Search for a neighbor
+            if kf1_id in kf_ids and kf2_id not in kf_ids:
+                neighbors.add(kf2_id)
+                neighbor_points.add(self.nodes[kf2_id])
+            elif kf1_id not in kf_ids and kf2_id in kf_ids:
+                neighbors.add(kf1_id)
+                neighbor_points.add(self.nodes[kf1_id])
+
+        return neighbors, neighbor_points
+    
     def remove_keyframe(self, keyframe: Frame):
         """
         Removes a keyframe from the graph and updates any edges associated with it.

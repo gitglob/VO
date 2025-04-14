@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from src.others.frame import Frame
+from src.backend.convisibility_graph import ConvisibilityGraph
+from src.others.utils import invert_transform
 from config import SETTINGS
 
 
@@ -115,6 +117,29 @@ class mapPoint():
 
         return (dmin, dmax)
 
+    def project2frame(self, frame: Frame, K: np.ndarray) -> tuple[int]:
+        """Projects a point into a frame"""
+        # Get the world2frame coord
+        T_wf = invert_transform(frame.pose)
+        
+        # Convert the world coordinates to frame coordinates
+        pos_c = T_wf @ self.pos
+
+        # Convert the xyz coordinates to pixels
+        fx = K[0,0]
+        fy = K[1,1]
+        cx = K[2,0]
+        cy = K[2,1]
+        x, y, z = pos_c
+        u = int(fx * x / z + cx)
+        v = int(fy * y / z + cy)
+
+        # Ensure it is inside the image bounds
+        if u < 0 or u > W or v < 0 or v > H:
+            return None
+        else:
+            return (u, v)
+
 class Map():
     def __init__(self):
         self.points: dict = {}   # Dictionary with id<->mapPoint pairs
@@ -162,17 +187,13 @@ class Map():
             ids.append(k)
         ids = np.array(ids, dtype=int)
         return ids
-    
-    @property
-    def num_points_in_view(self):
-        """Returns the number of points that are currently in view"""
-        if self._in_view_mask is None:
-            return 0
-        return self._in_view_mask.sum()
-    
-    @property
-    def points_in_view(self):
-        return self.points_arr[self._in_view_mask]
+       
+    def get_points_in_view(self, t_frame: Frame, cgraph: ConvisibilityGraph):
+        """Returns the points that are in the view of a given frame"""
+        points = []
+        for p_id in cgraph.nodes[t_frame.id]:
+            points.append[self.points[p_id]]
+        return points
     
     def add_points(self, 
                    kf: Frame,
@@ -229,61 +250,6 @@ class Map():
         points = [self.points[idx] for idx in point_ids]
         return points
 
-    def view(self, T_wc: np.ndarray, K: np.ndarray):
-        """
-        Calculates the points and descriptors that are in a view.
-
-        Args:
-            T_wc: The transform from the world to the current camera coordinate frame
-            K: The camera intrinsics matrix
-        """
-        if debug:
-            print("Getting points in the current view...")
-
-        # No map points at all
-        if self.num_points == 0:
-            return
-
-        # 0) Collect ALL points and descriptors from the map
-        point_positions = self.point_positions     # (M, 3)
-        assert(len(point_positions) == self.num_points)
-        
-        # 1) Convert map points to homogeneous: (X, Y, Z, 1).
-        ones = np.ones((len(point_positions), 1))
-        point_positions_hom = np.hstack([point_positions, ones])  # (M, 4)
-
-        # 2) Transform points to camera coords:
-        points_c_hom = (T_wc @ point_positions_hom.T).T # (M, 4)
-        points_c = points_c_hom[:, :3]           # (M, 3)
-
-        # 3) Keep only points in front of the camera (z > 0).
-        z_positive_mask = points_c[:, 2] > 0
-
-        # 4) Project into pixel coordinates using K.
-        x_cam = points_c[:, 0]
-        y_cam = points_c[:, 1]
-        z_cam = points_c[:, 2]
-
-        fx = K[0, 0]
-        fy = K[1, 1]
-        cx = K[0, 2]
-        cy = K[1, 2]
-
-        self._u = fx * x_cam / z_cam + cx
-        self._v = fy * y_cam / z_cam + cy
-
-        # 5) Check if the projected points lie within image boundaries.
-        boundary_mask = (
-            (self._u >= 0) & (self._u < W) &
-            (self._v >= 0) & (self._v < H)
-        )
-
-        # 6) Combine the z_positive and in_view mask
-        self._in_view_mask = z_positive_mask & boundary_mask
-
-        if debug:
-            print(f"\t Found {self._in_view_mask.sum()} map points in the previous camera pose.")
-    
     def set_tracking_mask(self, mask):
         """Saves a mask that shows which points were tracked by PnP"""
         self._tracking_mask = mask
@@ -309,6 +275,36 @@ class Map():
                 keyframe_observers_ids.add(kf.id)
 
         return keyframe_observers_ids
+
+    def create_local_map(self, frame: Frame, cgraph: ConvisibilityGraph):
+        """
+        Projects the map into a given frame and returns a local map.
+        This local map contains: 
+        - The frames that share map points with the current frame -> K1
+        - The neighboring frames of K1 in the convisibility graph -> K2
+        - A reference frame Kref in K1 which shares the most points with the current frame
+        """
+        # Find the points of the current frame
+        frame_point_ids = cgraph.get_frame_points(frame.id)
+
+        # Find the frames that share map points and their points
+        K1_frame_ids, K1_point_ids = cgraph.get_connected_frames_and_their_points(frame.id)
+
+        # Find neighboring frames to K1 and their points
+        K2_frame_ids, K2_point_ids = cgraph.get_neighbor_frames_and_their_points(frame.id)
+
+        # Find a reference frame
+        ref_frame_id = cgraph.get_reference_frame(frame.id)
+
+        # Merge the point ids
+        local_map_point_ids = K1_point_ids + K2_point_ids
+
+        # Create a local map with the K1 and K2 points
+        local_map = Map()
+        for p_id in local_map_point_ids:
+            local_map.points[p_id] = self.points[p_id]
+
+        return local_map
 
     def cull(self):
         """
@@ -370,7 +366,7 @@ class Map():
 
         all_removed_point_ids = removed_point_ids + removed_point_ids1 + removed_point_ids2
         if debug:
-            total_removed = len(removed_point_ids) + len(removed_point_ids1) + len(removed_point_ids2)
+            total_removed = len(all_removed_point_ids)
             print(f"\t Removed {total_removed}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask

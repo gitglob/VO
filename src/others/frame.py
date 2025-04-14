@@ -9,6 +9,7 @@ from config import results_dir, SETTINGS
 
 
 debug = SETTINGS["generic"]["debug"]
+ORB_SETTINGS = SETTINGS["orb"]
 
 
 class Frame():
@@ -22,11 +23,11 @@ class Frame():
 
         self.keypoints: Tuple                # The extracted ORB keypoints
         self.descriptors: np.ndarray         # The extracted ORB descriptors
-        self._extract_features(is_initialized)  # Extract ORB features from the image
-
+        self.scale_factors: np.ndarray       # The per-octave scale factors
         self.pose: np.ndarray = None         # The world -> camera pose transformation matrix
-        
         self.match: Dict = {}                # The matches between this frame's keypoints and others'
+
+        
         """
         The match dictionary looks like this:
         {
@@ -46,8 +47,19 @@ class Frame():
         }
         """
 
+
+        # During initialization, we only extract features in the finest scale
+        self.orb_n_levels = 1 if not is_initialized else ORB_SETTINGS["level_pyramid"]
+
+        self._calc_scale_factors()  # Calculate the per octave scale factors
+        self._extract_features()    # Extract ORB features from the image
         if debug:
             self.log_keypoints()
+
+    def _calc_scale_factors(self):
+        self.scale_factors = np.ones(self.orb_n_levels)
+        for i in range (1, len(self.scale_factors)):
+            self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
 
     def keypoints_in_map(self, map: Map) -> set:
         """Returns the keypoints that are in the map as a set."""
@@ -99,7 +111,7 @@ class Frame():
     def set_pose(self, pose: np.ndarray):
         self.pose = pose
     
-    def _extract_features(self, is_initialized):
+    def _extract_features(self):
         """
         Extract image features using ORB and BoW histogram.
         
@@ -114,22 +126,17 @@ class Frame():
             Output concatenated vectors of descriptors. Each descriptor is a 32-element vector, as returned by cv.ORB.descriptorSize, 
             so the total size of descriptors will be numel(keypoints) * obj.descriptorSize(), i.e a matrix of size N-by-32 of class uint8, one row per keypoint.
         """
-        # Initialize the ORB detector
-        orb_settings = SETTINGS["orb"]
-
-        # During initialization, we only extract features in the finest scale
-        levels = 1 if not is_initialized else orb_settings["level_pyramid"]
         
         self._detector = cv2.ORB_create(
-            nfeatures=orb_settings["num_keypoints"],
-            scaleFactor=orb_settings["scale_factor"],
-            nlevels=levels,
-            edgeThreshold=orb_settings["edge_threshold"],
-            firstLevel=orb_settings["first_level"],
-            WTA_K=orb_settings["WTA_K"],
+            nfeatures=ORB_SETTINGS["num_keypoints"],
+            scaleFactor=ORB_SETTINGS["scale_factor"],
+            nlevels=self.orb_n_levels,
+            edgeThreshold=ORB_SETTINGS["edge_threshold"],
+            firstLevel=ORB_SETTINGS["first_level"],
+            WTA_K=ORB_SETTINGS["WTA_K"],
             scoreType=cv2.ORB_HARRIS_SCORE,
-            patchSize=orb_settings["patch_size"],
-            fastThreshold=orb_settings["fast_threshold"]
+            patchSize=ORB_SETTINGS["patch_size"],
+            fastThreshold=ORB_SETTINGS["fast_threshold"]
         )
         
         # Detect keypoints and compute descriptors
