@@ -7,7 +7,8 @@ from src.others.utils import save_image, delete_subdirectories, transform_points
 
 from src.frontend.feature_matching import matchFeatures
 from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import estimate_relative_pose, is_keyframe, triangulateNewPoints
+from src.frontend.tracking import estimate_relative_pose, triangulateNewPoints
+from src.frontend.keyframe import is_keyframe
 from src.frontend.point_association import constant_velocity_model, localPointAssociation
 from src.frontend.point_association import mapPointAssociation, bowPointAssociation
 from src.frontend.scale import estimate_depth_scale, validate_scale
@@ -268,8 +269,8 @@ def main():
 
                 # Optimize the camera pose with all the map points found in the frame
                 ba = poseBA(verbose=debug)
-                ba.add_frames(keyframes)
-                ba.add_observations(map)
+                ba.add_frame(t_frame)
+                ba.add_observations(map, map_t_pairs)
                 ba.optimize()
     
                 # Check if this t_frame is a keyframe

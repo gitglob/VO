@@ -91,7 +91,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     # Extract candidate map points
     map_points = cgraph.get_frustum_points(cand_frame, map)
     map_descriptors = []
-    map_point_idx = []
+    map_point_ids = []
     map_pixels = []
     for p in map_points:
         # Get the descriptors from every observation of a point
@@ -161,7 +161,8 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     # Prepare results
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
-        pairs.append((map_point_ids[m.queryIdx], m.trainIdx))
+        feature = t_frame.features[m.trainIdx]
+        pairs.append((map_point_ids[m.queryIdx], feature.class_id))
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -244,11 +245,11 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         # a window around the predicted pixel
         radius = search_window // 2 if search_window else theta * t_frame.scale_factors[kp.octave]
         candidates = []
-        for j, kp in enumerate(t_frame.keypoints):
+        for kp in enumerate(t_frame.keypoints):
             kp_pt = kp.pt
             if (abs(kp_pt[0] - u) <= radius and
                 abs(kp_pt[1] - v) <= radius):
-                candidates.append(j)
+                candidates.append(kp.id)
         
         # If no keypoints are found in the window, skip to the next map point.
         if not candidates:
@@ -256,18 +257,18 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         
         # For each candidate, compute the descriptor distance using the Hamming norm.
         best_dist = np.inf
-        best_feature_idx = None
-        for j in candidates:
-            candidate_desc = t_frame.descriptors[j]
+        best_feature_id = None
+        for kpt_id in candidates:
+            candidate_desc = t_frame.features[kpt_id].desc
             # Compute Hamming distance.
             d = cv2.norm(np.array(map_desc), np.array(candidate_desc), cv2.NORM_HAMMING)
             if d < best_dist:
                 best_dist = d
-                best_feature_idx = j
+                best_feature_id = kpt_id
         
         # Accept the match only if the best distance is below the threshold.
-        if best_feature_idx is not None and best_dist < HAMMING_THRESHOLD:
-            pairs.append((map_point.id, best_feature_idx))
+        if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
+            pairs.append((map_point.id, best_feature_id))
             
     # Save the matches
     if debug:
@@ -423,13 +424,13 @@ def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int
         octave_idx = bisect.bisect_left(t_frame.scale_factors, scale)
         radius = theta * t_frame.scale_factors[octave_idx]
         candidates = []
-        for j, kp in enumerate(t_frame.keypoints):
+        for kp in t_frame.keypoints:
             if kp.class_id in matched_kpt_ids:
                 continue
             kp_pt = kp.pt
             if (abs(kp_pt[0] - u) <= radius and
                 abs(kp_pt[1] - v) <= radius):
-                candidates.append(j)
+                candidates.append(kp.id)
         
         # If no keypoints are found in the window, skip to the next map point.
         if len(candidates) == 0:
@@ -438,13 +439,13 @@ def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int
         # For each candidate, compute the descriptor distance using the Hamming norm.
         best_dist = np.inf
         best_feature_idx = None
-        for j in candidates:
-            candidate_desc = t_frame.descriptors[j]
+        for kpt_id in candidates:
+            candidate_desc = t_frame.features[kpt_id].desc
             # Compute Hamming distance.
             d = cv2.norm(np.array(D), np.array(candidate_desc), cv2.NORM_HAMMING)
             if d < best_dist:
                 best_dist = d
-                best_feature_idx = j
+                best_feature_idx = kpt_id
                 pairs.append((point.id, best_feature_idx))
 
     return pairs

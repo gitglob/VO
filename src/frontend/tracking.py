@@ -3,7 +3,7 @@ import cv2
 from src.others.local_map import Map
 from src.frontend.initialization import triangulate
 from src.others.frame import Frame
-from src.others.utils import get_yaw, transform_points
+from src.others.utils import transform_points
 from src.others.visualize import plot_matches, plot_reprojection
 from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint, filter_by_reprojection, filter_scale
 from config import SETTINGS, results_dir
@@ -139,27 +139,6 @@ def estimate_relative_pose(
     T_wc[:3, 3] = t_wc
 
     return T_wc, num_tracked_points
-
-def is_keyframe(T: np.ndarray, num_tracked_points: int = 9999):
-    """ Determine if motion expressed by t, R is significant by comparing to tresholds. """
-    tx = T[0, 3] # The x component points right
-    ty = T[1, 3] # The y component points down
-    tz = T[2, 3] # The z component points forward
-
-    trans = np.sqrt(tx**2 + ty**2 + tz**2)
-    angle = abs(get_yaw(T[:3, :3]))
-
-    is_keyframe = num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
-    # is_keyframe = is_keyframe and (trans > SETTINGS["keyframe"]["distance"] or angle > SETTINGS["keyframe"]["angle"])
-    
-    if debug:
-        print(f"\t Tracked points: {num_tracked_points}, dist: {trans:.3f}, angle: {angle:.3f}")
-        if is_keyframe:
-            print("\t\t Keyframe!")
-        else:
-            print("\t\t Not a keyframe!")
-
-    return is_keyframe
 
 def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
     """

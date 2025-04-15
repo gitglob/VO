@@ -13,6 +13,11 @@ W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
 
 
+class orbFeature():
+    def __init__(self, kpt: cv2.KeyPoint, desc: np.ndarray):
+        self.kpt = kpt
+        self.desc = desc
+
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
     _keypoint_id_counter = -1
@@ -132,16 +137,18 @@ class Frame():
         )
         
         # Detect keypoints and compute descriptors
-        kp, desc = self._detector.detectAndCompute(self.img, None)
+        kpts, desc = self._detector.detectAndCompute(self.img, None)
         
         # Assign a unique class_id to each keypoint
-        for k in kp:
+        self.features = {}
+        for i, k in enumerate(kpts):
             # Increment the class-level counter
             Frame._keypoint_id_counter += 1
             # Assign the keypoint's class_id
             k.class_id = Frame._keypoint_id_counter
+            self.features[k.class_id] = orbFeature(k, desc[i])
         
-        self.keypoints = kp
+        self.keypoints = kpts
         self.descriptors = desc
         
     def compute_bow(self, vocab, bow_db: list[dict]):
