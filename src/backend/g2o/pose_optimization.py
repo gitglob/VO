@@ -55,7 +55,29 @@ class poseBA:
         self.measurement_information = np.eye(2) * (1.0 / (self.measurement_sigma ** 2))
 
         # The keyframes to optimize
+        self.frame: Frame = None
         self.frames: dict[int, Frame] = None
+
+    def add_frame(self, frame: Frame):
+        """
+        Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
+        The first pose is fixed to anchor the graph.
+        """
+        p_id = frame.id
+        p = frame.pose
+
+        # Convert the 4x4 pose matrix into an SE3Quat.
+        R = p[:3, :3]
+        t = p[:3, 3]
+        se3 = g2o.SE3Quat(R, t)
+        vertex = g2o.VertexSE3Expmap()
+        vertex.set_id(X(p_id))
+        vertex.set_estimate(se3)
+        
+        # Add the vertex to the graph
+        self.optimizer.add_vertex(vertex)
+
+        self.frame = frame
 
     def add_frames(self, frames: dict[int, Frame]):
         """
@@ -68,7 +90,7 @@ class poseBA:
             print(f"Adding {len(frames)} poses...")
 
         # Iterate over all poses
-        for i, f in enumerate(frames):
+        for f in frames:
             p_id = f.id
             p = f.pose
 
@@ -82,6 +104,58 @@ class poseBA:
             
             # Add the vertex to the graph
             self.optimizer.add_vertex(vertex)
+
+    def add_observations(self, map: Map, map_t_pairs: list[tuple]):
+        """Add landmarks as vertices and reprojection observations as edges based on a pairing map."""
+        if self.verbose:
+            print(f"Adding {map.num_points} landmarks...")
+
+        # Extract the map point ids
+        map_point_ids = {p[1] for p in map_t_pairs}
+
+        # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
+        # (since the measurement is 2D) so that errors above this threshold are down–weighted.
+        delta = np.sqrt(5.991)
+
+        # Iterate over all map points
+        for pid, kpt_id in map_point_ids:
+            pt = map.points[pid]
+            pos = pt.pos      # 3D position of landmark
+            l_idx = pt.id     # landmark id
+            assert pid == l_idx
+
+            # Create landmark vertex
+            v_landmark = g2o.VertexPointXYZ()
+            v_landmark.set_id(L(l_idx))
+            v_landmark.set_estimate(pos)
+            v_landmark.set_marginalized(True)
+            
+            # In motion-only optimization, we fix the landmarks
+            v_landmark.set_fixed(True)
+                    
+            # Add landmark vertex
+            self.optimizer.add_vertex(v_landmark)
+
+            # Iterate over all map point observations
+            pose_idx = self.frame.id               # id of keyframe that observed the landmark
+            kpt = self.frame.features[kpt_id].kpt  # keypoint of the observation
+            u, v = kpt.pt                          # pixels of the keypoint
+
+            # Create the reprojection edge.
+            edge = g2o.EdgeProjectXYZ2UV()
+            # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
+            edge.set_vertex(0, v_landmark)
+            edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
+            edge.set_measurement([u, v])
+            edge.set_information(self.measurement_information)
+            # Add a Huber kernel to lessen the effect of outliers
+            robust_kernel = g2o.RobustKernelHuber(delta)
+            edge.set_robust_kernel(robust_kernel)
+            # Link the camera parameters (parameter id 0)
+            edge.set_parameter_id(0, 0)
+
+            # Add observation edge
+            self.optimizer.add_edge(edge)
 
     def add_observations(self, map: Map):
         """Add landmarks as vertices and reprojection observations as edges."""
@@ -192,7 +266,11 @@ class poseBA:
             if isinstance(vertex, g2o.VertexSE3Expmap):
                 # Update poses
                 frame_id = X_inv(vertex.id())
-                self.frames[frame_id].pose = vertex.estimate().matrix()
+                if self.frame is not None:
+                    self.frame.pose = vertex.estimate().matrix()
+                    continue
+                else:
+                    self.frames[frame_id].pose = vertex.estimate().matrix()
 
     def print_x_nodes_in_graph(self):
         """
