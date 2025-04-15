@@ -153,6 +153,15 @@ class ConvisibilityGraph(Graph):
 
         return connected_kf_ids, connected_kf_point_ids
     
+    def get_frames_that_observe(self, pid: int) -> set[int]:
+        """Returns the keyframes that observe a specific point"""
+        observing_kf_ids = set()
+        for kf_id, point_ids in self.nodes:
+            if pid in point_ids:
+                observing_kf_ids.add(kf_id)
+
+        return observing_kf_ids
+
     def get_reference_frame(self, kf_id: int) -> int:
         """Returns the keyframe connected to a given keyframe that shares the most map points"""
         ref_frame_id = -1
