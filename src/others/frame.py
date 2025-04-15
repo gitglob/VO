@@ -15,8 +15,10 @@ H = SETTINGS["camera"]["height"]
 
 class orbFeature():
     def __init__(self, kpt: cv2.KeyPoint, desc: np.ndarray):
+        self.id = kpt.class_id
         self.kpt = kpt
         self.desc = desc
+        self.tracked = False
 
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
@@ -32,6 +34,7 @@ class Frame():
         self.scale_factors: np.ndarray       # The per-octave scale factors
         self.pose: np.ndarray = None         # The camera -> world pose transformation matrix
         self.match: Dict = {}                # The matches between this frame's keypoints and others'
+        self.relocalization: bool = False    # Whether global relocalization using vBoW was performed
 
         
         """
@@ -61,6 +64,22 @@ class Frame():
         self._extract_features()    # Extract ORB features from the image
         if debug:
             self.log_keypoints()
+
+    @property
+    def num_tracked_points(self):
+        count = 0
+        for f in self.features:
+            if f.tracked:
+                count += 1
+        return count
+    
+    @property
+    def tracked_points(self):
+        tracked_point_ids = set()
+        for f in self.features:
+            if f.tracked:
+                tracked_point_ids.add(f.id)
+        return tracked_point_ids
 
     def _calc_scale_factors(self):
         self.scale_factors = np.ones(self.orb_n_levels)
@@ -176,6 +195,8 @@ class Frame():
                     bow_db[visual_word] = []
                 # Append the current frame's ID to the list for this visual word.
                 bow_db[visual_word].append(self.id)
+
+        self.relocalization = True
 
     ############################################# LOGGING #############################################
 

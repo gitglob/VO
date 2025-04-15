@@ -277,7 +277,7 @@ def main():
                 T_w2q = invert_transform(q_frame.pose)
                 T_t2w = invert_transform(T_w2t)
                 T_t2q = T_w2q @ T_t2w
-                if not is_keyframe(T_t2q, num_tracked_points):
+                if not is_keyframe(t_frame, keyframes, local_map):
                     del keyframes[i]
                     continue
 

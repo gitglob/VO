@@ -162,7 +162,8 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
         feature = t_frame.features[m.trainIdx]
-        pairs.append((map_point_ids[m.queryIdx], feature.class_id))
+        pairs.append((map_point_ids[m.queryIdx], feature.id))
+        t_frame.features[m.trainIdx].tracked = True
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -269,6 +270,7 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         # Accept the match only if the best distance is below the threshold.
         if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
             pairs.append((map_point.id, best_feature_id))
+            t_frame.features[best_feature_id].tracked = True
             
     # Save the matches
     if debug:
@@ -368,6 +370,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
         pairs.append((map_point_ids[m.queryIdx], m.trainIdx))
+        t_frame.features[m.trainIdx].tracked = True
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -376,7 +379,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
 
 def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int = 15):
     """
-    Projects all un-matched map points to a frame and searched more correspondances.
+    Projects all un-matched map points to a frame and searches more correspondances.
 
     Returns:
         pairs: A list of tuples (map_idx, frame_idx) indicating the association of map points
@@ -446,6 +449,9 @@ def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int
             if d < best_dist:
                 best_dist = d
                 best_feature_idx = kpt_id
-                pairs.append((point.id, best_feature_idx))
+        
+        pairs.append((point.id, best_feature_idx))
+        t_frame.features[best_feature_idx].tracked = True
+
 
     return pairs

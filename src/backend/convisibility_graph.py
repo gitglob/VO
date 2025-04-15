@@ -239,7 +239,7 @@ class ConvisibilityGraph(Graph):
         local_map_point_ids = K1_point_ids + K2_point_ids
 
         # Create a local map with the K1 and K2 points
-        local_map = Map()
+        local_map = Map(ref_frame_id)
         for p_id in local_map_point_ids:
             local_map.points[p_id] = map.points[p_id]
 

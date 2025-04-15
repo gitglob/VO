@@ -140,7 +140,7 @@ class mapPoint():
             return (u, v)
 
 class Map():
-    def __init__(self):
+    def __init__(self, ref_frame_id: int = None):
         self.points: dict = {}   # Dictionary with id<->mapPoint pairs
 
         # Mask that indicates which of the current points are in the camera view
@@ -155,6 +155,10 @@ class Map():
 
         # Frame counter
         self._kf_counter = 0
+
+        # Reference frame
+        if ref_frame_id is not None:
+            self.ref_frame_id = ref_frame_id
 
     @property
     def num_points(self):
