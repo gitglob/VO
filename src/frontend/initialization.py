@@ -5,14 +5,14 @@ from src.others.utils import invert_transform, transform_points
 from src.others.visualize import plot_matches
 from src.others.filtering import enforce_epipolar_constraint, filter_by_reprojection, filter_triangulation_points
 
-from config import results_dir, SETTINGS
+from config import results_dir, SETTINGS, K
 
 
 debug = SETTINGS["generic"]["debug"]
 MIN_NUM_TRIANG_POINTS = SETTINGS["triangulation"]["min_num_init_points"]
 
 
-def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
+def initialize_pose(q_frame: Frame, t_frame: Frame):
     """
     Initializes the camera pose by estimating the relative rotation and translation 
     between two consecutive frames using feature matches.
@@ -52,7 +52,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
     # 2. Enforce Epipolar Constraint
     # ------------------------------------------------------------------------
 
-    epipolar_constraint_mask, M, use_homography = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K)
+    epipolar_constraint_mask, M, use_homography = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
     if epipolar_constraint_mask is None:
         print("[initialize] Failed to apply epipolar constraint..")
         return None, False
@@ -75,7 +75,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
     R, t, reproj_mask = None, None, None
     if not use_homography:
         # Decompose Essential Matrix
-        _, R_est, t_est, mask_pose = cv2.recoverPose(M, inlier_q_pixels, inlier_t_pixels, K)
+        _, R_est, t_est, mask_pose = cv2.recoverPose(M, inlier_q_pixels, inlier_t_pixels)
 
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
@@ -89,12 +89,12 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
         # Reprojection filter
         reproj_mask = filter_by_reprojection(
             matches, q_frame, t_frame,
-            R, t, K,
+            R, t,
             save_path=results_dir / f"matches/initialization/2-reprojection"
         )
     else:
         # Decompose Homography Matrix
-        num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(M, K)
+        num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(M)
 
         # Select the best solution based on criteria
         best_solution = None
@@ -143,7 +143,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
         reproj_mask = filter_by_reprojection(
             matches,
             q_frame, t_frame,
-            R, t, K,
+            R, t,
             save_path=results_dir / f"matches/initialization/2-reprojection/"
         )
 
@@ -182,7 +182,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame, K: np.ndarray):
 
     return pose, True
       
-def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int):
+def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     if debug:
         print(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
     # Extract the Rotation and Translation arrays between the 2 frames
@@ -202,7 +202,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Triangulate
-    q_points = triangulate(q_kpt_pixels, t_kpt_pixels, R_qt, t_qt, K) # (N, 3)
+    q_points = triangulate(q_kpt_pixels, t_kpt_pixels, R_qt, t_qt) # (N, 3)
     if q_points is None or len(q_points) == 0:
         print("[initialize] Triangulation returned no 3D points.")
         return None, None, None, False
@@ -251,7 +251,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, K: np.ndarray, scale: int
     # Return the initial pose and filtered points
     return t_points, t_kpts, t_descriptors, True
       
-def triangulate(q_frame_pixels, t_frame_pixels, R, t, K):
+def triangulate(q_frame_pixels, t_frame_pixels, R, t):
     # Compute projection matrices for triangulation
     q_M = K @ np.eye(3,4)  # First camera at origin
     t_M = K @ np.hstack((R, t))  # Second camera at R, t

@@ -2,9 +2,9 @@ from typing import Literal
 import numpy as np
 import g2o
 from config import SETTINGS
-from src.backend.convisibility_graph import ConvisibilityGraph
-from src.others.local_map import Map, mapPoint
+from src.others.local_map import Map
 from src.others.frame import Frame
+from config import K
 
 # Set parameters from the config
 MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
@@ -26,12 +26,11 @@ def L_inv(idx: int):
 # Bundle Adjustment class using g2o.
 # -----------------------------------------------------------------------------
 class poseBA:
-    def __init__(self, K: np.ndarray, verbose=False):
+    def __init__(self, verbose=False):
         """
         Initializes BA_g2o with a g2o optimizer and camera intrinsics.
         
         Args:
-            K: Camera intrinsics matrix.
             verbose: If True, print debug information.
         """
         self.verbose = verbose

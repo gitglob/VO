@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from src.others.visualize import plot_reprojection
 
-from config import results_dir, SETTINGS
+from config import results_dir, SETTINGS, K
 
 debug = SETTINGS["generic"]["debug"]
 LOWE_RATIO = SETTINGS["matches"]["lowe_ratio"]
@@ -41,11 +41,11 @@ def filterMatches(matches):
 
 ############################### Keypoints ###############################
 
-def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
+def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     # Compute Essential & Homography matrices
 
     ## Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, prob=0.999, threshold=1.0)
     mask_E = mask_E.ravel().astype(bool)
 
     ## Compute the Homography Matrix
@@ -55,10 +55,10 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
     # Compute symmetric transfer errors & decide which model to use
 
     ## Compute symmetric transfer error for Essential Matrix
-    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E', K=K)
+    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E')
 
     ## Compute symmetric transfer error for Homography Matrix
-    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H', K=K)
+    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H')
         
     if num_inliers_E == 0 and num_inliers_H == 0:
         print("0 Inliers. All keypoint pairs yield errors > threshold..")
@@ -81,7 +81,7 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
 
     return epipolar_constraint_mask, M, use_homography
 
-def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', K=None):
+def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E'):
     """
     Computes the symmetric transfer error for a set of corresponding keypoints using
     either an Essential matrix or a Homography matrix. This function is used to evaluate 
@@ -271,7 +271,7 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
 
     return triang_mask # (N,)
 
-def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, save_path):
+def filter_by_reprojection(matches, q_frame, t_frame, R, t, save_path):
     """
     Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
 
@@ -299,7 +299,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, K, save_path):
 
     # Reproject points into the second (current) camera
     t_points = (R @ q_points_3d.T + t).T
-    points_proj2, _ = cv2.projectPoints(t_points, np.zeros(3), np.zeros(3), K, None)
+    points_proj2, _ = cv2.projectPoints(t_points, np.zeros(3), np.zeros(3), None)
     points_proj_px = points_proj2.reshape(-1, 2)
 
     # Compute reprojection errors

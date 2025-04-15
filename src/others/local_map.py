@@ -3,9 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from src.others.frame import Frame
-from src.backend.convisibility_graph import ConvisibilityGraph
 from src.others.utils import invert_transform
-from config import SETTINGS
+from config import SETTINGS, K
 
 
 scale_factor = SETTINGS["orb"]["scale_factor"]
@@ -117,7 +116,7 @@ class mapPoint():
 
         return (dmin, dmax)
 
-    def project2frame(self, frame: Frame, K: np.ndarray) -> tuple[int]:
+    def project2frame(self, frame: Frame) -> tuple[int]:
         """Projects a point into a frame"""
         # Get the world2frame coord
         T_wf = invert_transform(frame.pose)
@@ -188,13 +187,18 @@ class Map():
         ids = np.array(ids, dtype=int)
         return ids
        
-    def get_points_in_view(self, t_frame: Frame, cgraph: ConvisibilityGraph):
-        """Returns the points that are in the view of a given frame"""
-        points = []
-        for p_id in cgraph.nodes[t_frame.id]:
-            points.append[self.points[p_id]]
-        return points
-    
+    def get_frustum_point_ids(self, keyframe: Frame):
+        """Returns the points that originated from a given frame"""
+        kf_pt_ids = set()
+        for kpt in keyframe.keypoints:
+            if kpt.class_id in self.point_ids():
+                kf_pt_ids.add(kpt.class_id)
+
+        return kf_pt_ids
+   
+    def discard_point(self, point_id: int):
+        del self.points[point_id]
+
     def add_points(self, 
                    kf: Frame,
                    points_pos: np.ndarray, 
@@ -276,41 +280,10 @@ class Map():
 
         return keyframe_observers_ids
 
-    def create_local_map(self, frame: Frame, cgraph: ConvisibilityGraph):
-        """
-        Projects the map into a given frame and returns a local map.
-        This local map contains: 
-        - The frames that share map points with the current frame -> K1
-        - The neighboring frames of K1 in the convisibility graph -> K2
-        - A reference frame Kref in K1 which shares the most points with the current frame
-        """
-        # Find the points of the current frame
-        frame_point_ids = cgraph.get_frame_points(frame.id)
-
-        # Find the frames that share map points and their points
-        K1_frame_ids, K1_point_ids = cgraph.get_connected_frames_and_their_points(frame.id)
-
-        # Find neighboring frames to K1 and their points
-        K2_frame_ids, K2_point_ids = cgraph.get_neighbor_frames_and_their_points(frame.id)
-
-        # Find a reference frame
-        ref_frame_id = cgraph.get_reference_frame(frame.id)
-
-        # Merge the point ids
-        local_map_point_ids = K1_point_ids + K2_point_ids
-
-        # Create a local map with the K1 and K2 points
-        local_map = Map()
-        for p_id in local_map_point_ids:
-            local_map.points[p_id] = self.points[p_id]
-
-        return local_map
-
     def cull(self):
         """
         Args:
             T_wc: Transformation from world to camera coordinate frame
-            K: Intrinsics matrix
 
         Remove map points that are 
             (1) rarely matches in PnP

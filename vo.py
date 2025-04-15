@@ -8,7 +8,8 @@ from src.others.utils import save_image, delete_subdirectories, transform_points
 from src.frontend.feature_matching import matchFeatures
 from src.frontend.initialization import initialize_pose, triangulate_points
 from src.frontend.tracking import estimate_relative_pose, is_keyframe, triangulateNewPoints
-from src.frontend.point_association import constant_velocity_model, localPointAssociation, bowPointAssociation
+from src.frontend.point_association import constant_velocity_model, localPointAssociation
+from src.frontend.point_association import mapPointAssociation, bowPointAssociation
 from src.frontend.scale import estimate_depth_scale, validate_scale
 
 from src.place_recognition.bow import load_vocabulary, query_recognition_candidate
@@ -114,7 +115,7 @@ def main():
                 num_tracking_fails = 0
 
                 # Feature matching
-                matches = matchFeatures(q_frame, t_frame, K, "initialization/0-raw") # (N) : N < M
+                matches = matchFeatures(q_frame, t_frame, "initialization/0-raw") # (N) : N < M
 
                 # Check if there are enough matches
                 if len(matches) < SETTINGS["matches"]["min"]:
@@ -122,7 +123,7 @@ def main():
                     continue
 
                 # Extract the initial pose using the Essential or Homography matrix (2d-2d)
-                T_qt, is_initialized = initialize_pose(q_frame, t_frame, K)
+                T_qt, is_initialized = initialize_pose(q_frame, t_frame)
                 if not is_initialized:
                     print("Pose initialization failed!")
                     continue
@@ -153,7 +154,7 @@ def main():
                 cgraph.add_keyframe(t_frame, map)
 
                 # Triangulate the 3D points using the initial pose
-                t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, K, scale)
+                t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, scale)
                 if not is_initialized:
                     print("Triangulation failed!")
                     continue
@@ -192,15 +193,15 @@ def main():
             else:
                 print("Tracking)")    
                 if tracking_success:
-                    global_reloc = False
+                    # ########### Track from Previous Frame ###########
                     # Predict the new pose based on a constant velocity model
                     T_w2t = constant_velocity_model(t, times, keyframes)
 
                     # Match these map points with the current frame
-                    map_t_pairs = localPointAssociation(map, t_frame, K, T_w2t, theta=15)
+                    map_t_pairs = localPointAssociation(map, t_frame, T_w2t, theta=15)
                     if len(map_t_pairs) < MIN_ASSOCIATIONS:
                         print(f"Scale-based Point association failed! Only {len(map_t_pairs)} matches found!")
-                        map_t_pairs = localPointAssociation(map, t_frame, K, T_w2t, search_window=SEARCH_WINDOW_SIZE)
+                        map_t_pairs = localPointAssociation(map, t_frame, T_w2t, search_window=SEARCH_WINDOW_SIZE)
                         if len(map_t_pairs) < MIN_ASSOCIATIONS:
                             print(f"Window-based Point association failed! Only {len(map_t_pairs)} matches found!")
                             is_initialized = False
@@ -217,8 +218,8 @@ def main():
                     keyframes[i] = cand_frame
                     tracking_success = True
                 else:
-                    print("Performing global relocalization!")
-                    global_reloc = True
+                    # ########### Relocalization ###########
+                    print("Performing Relocalization!")
 
                     # Compute the BOW representation of the keyframe
                     t_frame.compute_bow(vocab, bow_db)
@@ -232,9 +233,9 @@ def main():
                         # Extract the candidate keyframe
                         cand_frame = keyframes[kf_id]
                         # Perform point association of its map points with the current frame
-                        map_t_pairs = bowPointAssociation(map, cand_frame, t_frame, cgraph, K)
+                        map_t_pairs = bowPointAssociation(map, cand_frame, t_frame, cgraph)
                         # Estimate the new world pose using PnP (3d-2d)
-                        T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs, K)
+                        T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs)
                         if T_w2t is not None:
                             print(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
 
@@ -242,7 +243,7 @@ def main():
                             keyframes[i] = cand_frame
 
                             # Perform pose optimization
-                            ba = poseBA(K, verbose=debug)
+                            ba = poseBA(verbose=debug)
                             ba.add_frames(keyframes)
                             ba.add_observations(map)
                             ba.optimize()
@@ -256,8 +257,17 @@ def main():
                         is_initialized = False
                         continue
                 
-                # Perform pose optimization
-                ba = poseBA(K, verbose=debug)
+                # ########### Track Local Map ###########
+                print("Tracking local map...")
+
+                # Extract a local map from the map
+                local_map = cgraph.create_local_map()
+
+                # Project the local map to the frame and search more correspondances
+                map_t_pairs = mapPointAssociation(map_t_pairs, local_map, t_frame)
+
+                # Optimize the camera pose with all the map points found in the frame
+                ba = poseBA(verbose=debug)
                 ba.add_frames(keyframes)
                 ba.add_observations(map)
                 ba.optimize()
@@ -286,14 +296,14 @@ def main():
 
                 # Do feature matching with the previous keyframe
                 q_frame = list(keyframes.values())[-2]
-                matches = matchFeatures(q_frame, t_frame, K, "mapping/0-raw")
+                matches = matchFeatures(q_frame, t_frame, "mapping/0-raw")
                 q_frame.match[t_frame.id]["T"] = T_qt
                 t_frame.match[q_frame.id]["T"] = T_t2q
 
                 # Find new keypoints and triangulate them
                 (t_old_points, old_kpts, old_descriptors, 
                  t_new_points, new_kpts, new_descriptors, 
-                 new_points_success) = triangulateNewPoints(q_frame, t_frame, map, K)
+                 new_points_success) = triangulateNewPoints(q_frame, t_frame, map)
                 if new_points_success:
                     # Transfer the new points to the world frame
                     w_new_points = transform_points(t_new_points, T_t2w)

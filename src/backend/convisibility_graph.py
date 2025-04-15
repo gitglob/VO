@@ -80,7 +80,7 @@ class ConvisibilityGraph(Graph):
             return
         
         # Store the new keyframe observations (convert to set for easy intersection)
-        kf_map_pt_ids = keyframe.keypoints_in_map(map)
+        kf_map_pt_ids = map.get_frustum_point_ids(keyframe)
         if len(kf_map_pt_ids) == 0:
             print(f"Keyframe {keyframe.id} observes 0 map points!")
             return
@@ -123,10 +123,17 @@ class ConvisibilityGraph(Graph):
             self.spanning_tree._add_edge(best_parent_id, keyframe.id, max_shared)
             # All the spanning tree edges go to the Essential Graph too
             self.essential_graph._add_edge(best_parent_id, keyframe.id, max_shared)
-            
-    def get_frame_points(self, kf_id: int):
-        """Returns the points seen by a keyframe"""
+
+    def get_frustum_point_ids(self, kf_id: int):
+        """Returns the map points seen by a keyframe"""
         return self.nodes[kf_id]
+    
+    def get_frustum_points(self, t_frame: Frame, map: Map):
+        """Returns the points that are in the view of a given frame"""
+        points = set()
+        for p_id in self.nodes[t_frame.id]:
+            points.add[map.points[p_id]]
+        return points
     
     def get_connected_frames_and_their_points(self, kf_id: int) -> tuple[set[int], set[int]]:
         """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
@@ -207,6 +214,36 @@ class ConvisibilityGraph(Graph):
         
         # Note: In a fully featured system you might want to re-compute or update the spanning tree
         # to ensure full connectivity, but for simplicity we are only removing associated edges here.
+
+    def create_local_map(self, frame: Frame, map: Map):
+        """
+        Projects the map into a given frame and returns a local map.
+        This local map contains: 
+        - The frames that share map points with the current frame -> K1
+        - The neighboring frames of K1 in the convisibility graph -> K2
+        - A reference frame Kref in K1 which shares the most points with the current frame
+        """
+        # Find the points of the current frame
+        frame_point_ids = self.get_frustum_point_ids(frame.id)
+
+        # Find the frames that share map points and their points
+        K1_frame_ids, K1_point_ids = self.get_connected_frames_and_their_points(frame.id)
+
+        # Find neighboring frames to K1 and their points
+        K2_frame_ids, K2_point_ids = self.get_neighbor_frames_and_their_points(frame.id)
+
+        # Find a reference frame
+        ref_frame_id = self.get_reference_frame(frame.id)
+
+        # Merge the point ids
+        local_map_point_ids = K1_point_ids + K2_point_ids
+
+        # Create a local map with the K1 and K2 points
+        local_map = Map()
+        for p_id in local_map_point_ids:
+            local_map.points[p_id] = map.points[p_id]
+
+        return local_map
 
     def add_loop_edge(self, keyframe_id1, keyframe_id2, weight):
         """

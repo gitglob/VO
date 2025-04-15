@@ -49,7 +49,7 @@ def estimate_relative_pose(
 
         If the function fails, returns (None, None).
     """
-    map_points_w = map.get_points_in_view(t_frame)
+    map_points_w = map.get_frustum_points(t_frame)
     num_points = len(map_t_pairs)
     if debug:
         print(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")
@@ -57,9 +57,9 @@ def estimate_relative_pose(
     # 1) Build 3D <-> 2D correspondences
     map_points = []
     image_pxs = []
-    for (map_idx, frame_idx) in map_t_pairs:
-        map_points.append(map_points_w[map_idx])  # 3D in world coords
-        kp = t_frame.keypoints[frame_idx]
+    for (point_id, feature_idx) in map_t_pairs:
+        map_points.append(map.points[point_id])  # 3D in world coords
+        kp = t_frame.keypoints[feature_idx]
         image_pxs.append(kp.pt)                   # 2D pixel (u, v)
 
     map_points = np.array(map_points, dtype=object)   
@@ -113,7 +113,7 @@ def estimate_relative_pose(
 
     # 5) Compute reprojection error
     ## Project the 3D points to 2D using the estimated pose
-    projected_world_pxs, _ = cv2.projectPoints(map_point_positions, rvec, t_wc, K, dist_coeffs)
+    projected_world_pxs, _ = cv2.projectPoints(map_point_positions, rvec, t_wc, dist_coeffs)
     projected_world_pxs = projected_world_pxs.squeeze()
     
     ## Calculate the per-point reprojection error (Euclidean distance)
@@ -161,7 +161,7 @@ def is_keyframe(T: np.ndarray, num_tracked_points: int = 9999):
 
     return is_keyframe
 
-def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray):
+def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
     """
     Identifies and triangulates new 3D points from feature matches between two frames.
 
@@ -199,7 +199,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     # 2. Enforce Epipolar Constraint
     # ------------------------------------------------------------------------
 
-    epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K)
+    epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
     if epipolar_constraint_mask is None:
         print("[Tracking] Failed to apply epipolar constraint..")
         return None, None, None, None, None, None, False
@@ -224,7 +224,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
 
     reproj_mask = filter_by_reprojection(
         matches, q_frame, t_frame,
-        R_qt, t_qt, K,
+        R_qt, t_qt,
         save_path= results_dir / f"matches/mapping/2-reprojection"
     )
     
@@ -245,7 +245,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map, K: np.ndarray
     t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Triangulate
-    q_points = triangulate(q_pxs, t_pxs, R_qt, t_qt, K)
+    q_points = triangulate(q_pxs, t_pxs, R_qt, t_qt)
     if q_points is None or len(q_points) == 0:
         print("Triangulation returned no 3D points.")
         return None, None, None, None, None, None, False

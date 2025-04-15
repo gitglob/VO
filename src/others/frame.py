@@ -3,13 +3,14 @@ import numpy as np
 import cv2
 from cv2 import DMatch
 from src.others.visualize import plot_keypoints
-from src.others.local_map import Map
 
 from config import results_dir, SETTINGS
 
 
 debug = SETTINGS["generic"]["debug"]
 ORB_SETTINGS = SETTINGS["orb"]
+W = SETTINGS["camera"]["width"]
+H = SETTINGS["camera"]["height"]
 
 
 class Frame():
@@ -24,7 +25,7 @@ class Frame():
         self.keypoints: Tuple                # The extracted ORB keypoints
         self.descriptors: np.ndarray         # The extracted ORB descriptors
         self.scale_factors: np.ndarray       # The per-octave scale factors
-        self.pose: np.ndarray = None         # The world -> camera pose transformation matrix
+        self.pose: np.ndarray = None         # The camera -> world pose transformation matrix
         self.match: Dict = {}                # The matches between this frame's keypoints and others'
 
         
@@ -60,15 +61,6 @@ class Frame():
         self.scale_factors = np.ones(self.orb_n_levels)
         for i in range (1, len(self.scale_factors)):
             self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
-
-    def keypoints_in_map(self, map: Map) -> set:
-        """Returns the keypoints that are in the map as a set."""
-        kpts_in_map = set()
-        for kpt in self.keypoints:
-            if kpt.class_id in map.point_ids():
-                kpts_in_map.add(kpt.class_id)
-        
-        return kpts_in_map
 
     def set_keyframe(self, is_keyframe: bool):
         self.is_keyframe = is_keyframe

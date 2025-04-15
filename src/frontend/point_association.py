@@ -1,3 +1,4 @@
+import bisect
 import numpy as np
 import cv2
 from scipy.linalg import expm, logm
@@ -6,7 +7,7 @@ from src.backend.convisibility_graph import ConvisibilityGraph
 from src.others.frame import Frame
 from src.others.utils import invert_transform
 from src.others.visualize import plot_pixels
-from config import SETTINGS, results_dir
+from config import SETTINGS, results_dir, K
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -47,7 +48,7 @@ def constant_velocity_model(t: float, times: list, frames: list):
 
     return T_wc
 
-def project_point(p_w: np.ndarray, T_wc: np.ndarray, K: np.ndarray):
+def project_point(p_w: np.ndarray, T_wc: np.ndarray):
     """
     Projects a 3D point from world coordinates into the image given a camera pose and intrinsic matrix.
     
@@ -73,7 +74,7 @@ def project_point(p_w: np.ndarray, T_wc: np.ndarray, K: np.ndarray):
 
     return (p_proj[0], p_proj[1])
 
-def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: ConvisibilityGraph, K: np.ndarray):
+def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: ConvisibilityGraph):
     """
     Matches the map points seen in a candidate frame with the current frame.
 
@@ -88,19 +89,18 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
     """
     # Extract candidate map points
-    map_point_ids = cgraph.get_frame_points(cand_frame.id)
-    map_points = map.get_points(map_point_ids)
+    map_points = cgraph.get_frustum_points(cand_frame, map)
     map_descriptors = []
     map_point_idx = []
     map_pixels = []
-    for i, p in enumerate(map_points):
+    for p in map_points:
         # Get the descriptors from every observation of a point
         for obs in p.observations:
             map_descriptors.append(obs["descriptor"])
-            map_point_idx.append(i)
+            map_point_ids.append(p.id)
             map_pixels.append(obs["keypoint"].pt)
     map_descriptors = np.array(map_descriptors)
-    map_point_idx = np.array(map_point_idx)
+    map_point_ids = np.array(map_point_ids)
     map_pixels = np.array(map_pixels)
 
     # Create BFMatcher object
@@ -147,7 +147,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     # Finally, filter using the epipolar constraint
     # q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
     # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels, K)
+    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels)
     # if epipolar_constraint_mask is None:
     #     print("Failed to apply epipolar constraint..")
     #     return []
@@ -161,7 +161,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     # Prepare results
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
-        pairs.append((map_point_idx[m.queryIdx], m.trainIdx))
+        pairs.append((map_point_ids[m.queryIdx], m.trainIdx))
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -169,7 +169,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     return pairs
 
 def localPointAssociation(cgraph: ConvisibilityGraph, map: Map, 
-                          t_frame: Frame, K: np.ndarray, 
+                          t_frame: Frame, 
                           T_wc: np.ndarray, theta: int = None, search_window: int=None):
     """
     Associates map points with current frame keypoints by searching only within a local window
@@ -228,11 +228,14 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
     pairs = []
 
     # Loop over all map points that are expected to be in view.
-    for i, map_point in enumerate(map.get_points_in_view(t_frame, cgraph)):
+    frustum_points: set[mapPoint] = cgraph.get_frustum_points(t_frame, map)
+    for map_point in frustum_points:
         # Project the map point's 3D location into the current frame.
-        pred_px = project_point(map_point.pos, T_wc, K)
+        pred_px = project_point(map_point.pos, T_wc)
         if pred_px is None:
             continue  # Skip points that project behind the camera.
+        else:
+            u, v = pred_px
         
         # We choose the last descriptor to represent the map point
         map_desc = map_point.observations[-1]["descriptor"]
@@ -243,8 +246,8 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         candidates = []
         for j, kp in enumerate(t_frame.keypoints):
             kp_pt = kp.pt
-            if (abs(kp_pt[0] - pred_px[0]) <= radius and
-                abs(kp_pt[1] - pred_px[1]) <= radius):
+            if (abs(kp_pt[0] - u) <= radius and
+                abs(kp_pt[1] - v) <= radius):
                 candidates.append(j)
         
         # If no keypoints are found in the window, skip to the next map point.
@@ -253,18 +256,18 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         
         # For each candidate, compute the descriptor distance using the Hamming norm.
         best_dist = np.inf
-        best_idx = None
+        best_feature_idx = None
         for j in candidates:
             candidate_desc = t_frame.descriptors[j]
             # Compute Hamming distance.
             d = cv2.norm(np.array(map_desc), np.array(candidate_desc), cv2.NORM_HAMMING)
             if d < best_dist:
                 best_dist = d
-                best_idx = j
+                best_feature_idx = j
         
         # Accept the match only if the best distance is below the threshold.
-        if best_idx is not None and best_dist < HAMMING_THRESHOLD:
-            pairs.append((i, best_idx))
+        if best_feature_idx is not None and best_dist < HAMMING_THRESHOLD:
+            pairs.append((map_point.id, best_feature_idx))
             
     # Save the matches
     if debug:
@@ -277,7 +280,7 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
 
     return pairs
 
-def globalPointAssociation(map: Map, t_frame: Frame, K: np.ndarray):
+def globalPointAssociation(map: Map, t_frame: Frame):
     """
     Matches the map points seen in previous frames with the current frame.
 
@@ -291,18 +294,18 @@ def globalPointAssociation(map: Map, t_frame: Frame, K: np.ndarray):
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
     """
     # Extract the in view descriptors
-    map_points = map.get_points_in_view(t_frame)
+    map_points = map.get_frustum_points(t_frame, map)
     map_descriptors = []
-    map_point_idx = []
+    map_point_ids = []
     map_pixels = []
-    for i, p in enumerate(map_points):
+    for p in map_points:
         # Get the descriptors from every observation of a point
         for obs in p.observations:
             map_descriptors.append(obs["descriptor"])
-            map_point_idx.append(i)
+            map_point_ids.append(p.id)
             map_pixels.append(obs["keypoint"].pt)
     map_descriptors = np.array(map_descriptors)
-    map_point_idx = np.array(map_point_idx)
+    map_point_ids = np.array(map_point_ids)
     map_pixels = np.array(map_pixels)
 
     # Create BFMatcher object
@@ -349,7 +352,7 @@ def globalPointAssociation(map: Map, t_frame: Frame, K: np.ndarray):
     # Finally, filter using the epipolar constraint
     # q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
     # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels, K)
+    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels)
     # if epipolar_constraint_mask is None:
     #     print("Failed to apply epipolar constraint..")
     #     return []
@@ -363,10 +366,85 @@ def globalPointAssociation(map: Map, t_frame: Frame, K: np.ndarray):
     # Prepare results
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
-        pairs.append((map_point_idx[m.queryIdx], m.trainIdx))
+        pairs.append((map_point_ids[m.queryIdx], m.trainIdx))
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
 
     return pairs
 
+def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int = 15):
+    """
+    Projects all un-matched map points to a frame and searched more correspondances.
+
+    Returns:
+        pairs: A list of tuples (map_idx, frame_idx) indicating the association of map points
+               to current frame keypoints.      
+    """
+    # Extract the already matched features
+    matched_kpt_ids: set = {p[1] for p in pairs}
+
+    # Iterate over all the map points
+    point: mapPoint
+    for point in map.points:
+        # 1) Compute the map point projection x in the current 
+        # frame. Discard if it lays out of the image bounds.
+        x = point.project2frame(t_frame)
+        if x is None:
+            continue
+        else:
+            u, v = x
+        
+        # 2) Compute the angle between the current viewing ray v
+        # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
+        v = point.view_ray(t_frame)
+        n = point.mean_view_ray()
+        if v * n < np.cos(np.deg2rad(60)):
+            continue
+
+        # 3) Compute the distance d from map point to cameracenter. 
+        # Discard if it is out of the scale invariance region
+        # of the map point [dmin , dmax ].
+        d = np.norm(point.pos - t_frame.pose[:3, 3])
+        d_min, d_max = point.getScaleInvarianceLimits()
+        if d < d_min or d > d_max:
+            continue
+
+        # 4) Compute the scale in the frame by the ration d/d_min
+        scale = d / d_min
+
+        # 5) Compare the representative descriptor D of the map point with the 
+        # still unmatched ORB features in the frame, at the predicted scale, 
+        # and near x, and associate the map point with the best match.
+        D = point.best_descriptor
+
+        # Collect candidate current frame un-matched keypoints whose pixel coordinates 
+        # fall within a window around the predicted pixel
+        octave_idx = bisect.bisect_left(t_frame.scale_factors, scale)
+        radius = theta * t_frame.scale_factors[octave_idx]
+        candidates = []
+        for j, kp in enumerate(t_frame.keypoints):
+            if kp.class_id in matched_kpt_ids:
+                continue
+            kp_pt = kp.pt
+            if (abs(kp_pt[0] - u) <= radius and
+                abs(kp_pt[1] - v) <= radius):
+                candidates.append(j)
+        
+        # If no keypoints are found in the window, skip to the next map point.
+        if len(candidates) == 0:
+            continue
+        
+        # For each candidate, compute the descriptor distance using the Hamming norm.
+        best_dist = np.inf
+        best_feature_idx = None
+        for j in candidates:
+            candidate_desc = t_frame.descriptors[j]
+            # Compute Hamming distance.
+            d = cv2.norm(np.array(D), np.array(candidate_desc), cv2.NORM_HAMMING)
+            if d < best_dist:
+                best_dist = d
+                best_feature_idx = j
+                pairs.append((point.id, best_feature_idx))
+
+    return pairs

@@ -5,7 +5,7 @@ from src.others.frame import Frame
 from src.others.filtering import filterMatches
 from src.others.visualize import plot_matches
 
-from config import results_dir, SETTINGS
+from config import results_dir, SETTINGS, K
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -14,7 +14,7 @@ debug = SETTINGS["generic"]["debug"]
 ############################### Feature Matching ##########################################
 
 
-def matchFeaturesXG(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
+def matchFeaturesXG(q_frame: Frame, t_frame: Frame, stage: str):
     """
     Matches features between two frames.
     
@@ -86,7 +86,7 @@ def matchFeaturesXG(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
 
     return matches
 
-def matchFeatures(q_frame: Frame, t_frame: Frame, K: np.ndarray, stage: str):
+def matchFeatures(q_frame: Frame, t_frame: Frame, stage: str):
     """
     Matches features between two frames.
     
