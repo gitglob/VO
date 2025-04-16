@@ -7,7 +7,7 @@ from src.others.utils import save_image, delete_subdirectories, transform_points
 
 from src.initialization.feature_matching import matchFeatures
 from src.initialization.initialization import initialize_pose, triangulate_points
-from src.initialization.scale import estimate_depth_scale, validate_scale
+from src.others.scale import estimate_depth_scale, validate_scale
 from src.tracking.pnp import estimate_relative_pose, triangulateNewPoints
 from src.tracking.point_association import constant_velocity_model, localPointAssociation
 from src.tracking.point_association import mapPointAssociation, bowPointAssociation
@@ -322,8 +322,8 @@ def main():
                         map.update_landmarks(landmark_ids, landmark_poses)
                         plot_trajectory(keyframes, gt_poses, i, ba_poses=opt_poses)
 
-                # Clean up map points that are not seen anymore
-                map.cull()
+                # Clean up map points that are not seen anymore and redundant frames
+                map.cull(keyframes, t_frame, cgraph)
 
                 q_frame = t_frame            
 

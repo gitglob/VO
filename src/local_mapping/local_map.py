@@ -310,6 +310,10 @@ class Map():
         return count
 
     def create_points(self, cgraph, t_frame, keyframes, bow_db):
+        """
+        Creates and adds new points to the map, by triangulating matches in so far
+        un-matched points in connected keyframes.
+        """
         # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
         pairs = [] # (frame1_id, feature1_id, frame2_id, feature2_id)
 
@@ -383,7 +387,49 @@ class Map():
             new_w_point = transform_points(new_t_point, t_frame.pose)
             self.add_point(new_w_point)
 
-    def cull(self, cgraph):
+        # TODO:
+        # Initially a map point is observed from two keyframes but
+        # it could be matched in others, so it is projected in the rest
+        # of connected keyframes, and correspondences are searched
+
+    def cull(self, keyframes, frame, cgraph):
+        self._cull_points(self, cgraph)
+        self._cull_frames(self, keyframes, frame, cgraph)
+
+    def _cull_frames(self, keyframes, frame, cgraph):
+        """
+        Discard all the connected keyframes whose 90% of the
+        map points have been seen in at least other three keyframes in
+        the same or finer scale.
+        """
+        # Get the neighbor keyframes in the convisibility graph
+        neighbor_kf_ids = cgraph.get_connected_frames(frame.id)
+
+        # Iterate over all connected keyframes
+        for kf_id in neighbor_kf_ids:
+            kf = keyframes[kf_id]
+            # Extract their map points
+            kf_point_ids = cgraph.get_frustum_point_ids(kf_id)
+            num_points = len(kf_point_ids)
+            # Count the number of co-observing points
+            count_coobserving_points = 0
+            # Iterate over all the points
+            for pid in kf_point_ids:
+                # Extract their scale
+                scale = kf.features[pid].kpt.octave
+                # Get how many keyframes observe the same point in the same or finer scale
+                observing_frame_ids = cgraph.get_frames_that_observe(pid, keyframes, scale)
+                num_observing_frame_ids = len(observing_frame_ids)
+                # Check if at least 3 keyframes observe this point
+                if num_observing_frame_ids >= 3:
+                    count_coobserving_points += 1
+
+            # Calculate the percentage of co-observing points
+            if count_coobserving_points / num_points > 0.9:
+                # Remove keyframe
+                cgraph.remove(kf_id)
+
+    def _cull_points(self, cgraph):
         """
         A point must fulfill these two conditions during the first three keyframes after creation:
 

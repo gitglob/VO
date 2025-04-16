@@ -177,6 +177,22 @@ class ConvisibilityGraph(Graph):
 
         return observing_kf_ids
 
+    def get_frames_that_observe(self, pid: int, keyframes: list[Frame], scale: int) -> set[int]:
+        """Returns the keyframes that observe a specific point at the same or a finer scale"""
+        observing_kf_ids = set()
+        # Iterate over all frames
+        for kf_id, point_ids in self.nodes:
+            # Check if they see the same point
+            if pid in point_ids:
+                # Check at what scale they see the point
+                kf = keyframes[kf_id]
+                octave = kf.features[pid].kpt.octave
+                # Compare the observing octave with the desired one
+                if octave <= scale:
+                    observing_kf_ids.add(kf_id)
+
+        return observing_kf_ids
+
     def get_reference_frame(self, kf_id: int) -> int:
         """Returns the keyframe connected to a given keyframe that shares the most map points"""
         ref_frame_id = -1
@@ -211,28 +227,28 @@ class ConvisibilityGraph(Graph):
 
         return neighbors, neighbor_points
     
-    def remove_keyframe(self, keyframe: Frame):
+    def remove_keyframe(self, kf_id: int):
         """
         Removes a keyframe from the graph and updates any edges associated with it.
 
         Args:
             keyframe.id: The identifier of the keyframe to be removed.
         """
-        if keyframe.id not in self.nodes:
-            print(f"Keyframe {keyframe.id} does not exist.")
+        if kf_id not in self.nodes:
+            print(f"Keyframe {kf_id} does not exist.")
             return
         
-        self._remove_node(keyframe.id)
-        self._remove_edges_with(keyframe.id)
+        self._remove_node(kf_id)
+        self._remove_edges_with(kf_id)
         
-        self.spanning_tree._remove_node(keyframe.id)
-        self.spanning_tree._remove_edges_with(keyframe.id)
+        self.spanning_tree._remove_node(kf_id)
+        self.spanning_tree._remove_edges_with(kf_id)
         
-        self.essential_graph._remove_node(keyframe.id)
-        self.essential_graph._remove_edges_with(keyframe.id)
+        self.essential_graph._remove_node(kf_id)
+        self.essential_graph._remove_edges_with(kf_id)
         
         # Remove loop closure edges that involve the removed keyframe.
-        edges_to_remove = [edge for edge in self.loop_closure_edges if keyframe.id in edge]
+        edges_to_remove = [edge for edge in self.loop_closure_edges if kf_id in edge]
         for edge in edges_to_remove:
             del self.loop_closure_edges[edge]
         
