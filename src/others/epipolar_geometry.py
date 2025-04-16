@@ -1,42 +1,9 @@
 import numpy as np
 import cv2
 from src.others.linalg import skew_symmetric
-from config import K, SETTINGS
+from config import K
 
 
-SCALE_FACTOR = SETTINGS["orb"]["scale_factor"]
-N_LEVELS = SETTINGS["orb"]["level_pyramid"]
-
-
-def get_scale_invariance_limits(dist, level):
-    # Extract the ORB scale invariance limits for point
-    minLevelScaleFactor = SCALE_FACTOR**level
-    maxLlevelScaleFactor = SCALE_FACTOR**(N_LEVELS - 1 - level)
-
-    dmin = (1 / SCALE_FACTOR) * dist / minLevelScaleFactor
-    dmax = SCALE_FACTOR * dist * maxLlevelScaleFactor
-
-    return dist, dmin, dmax
-
-def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
-    num_points = len(points)
-    cam_center = T_cw[:3, 3]
-
-    # Iterate over all points
-    scale_mask = np.ones(num_points, dtype=bool)
-    for i in range(num_points):
-        pos = points[i]
-        kpt = kpts[i]
-    
-        # Get map point distance
-        dist = np.linalg.norm(pos - cam_center)
-        dmin, dmax = get_scale_invariance_limits(dist, kpt.octave)
-
-        # Check if the map_point distance is in the scale invariance region
-        if dist < dmin or dist > dmax:
-            scale_mask[i] = False
-
-    return scale_mask
 
 def reprojection_error(pxs1, pxs2, T):
     """

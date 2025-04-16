@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from src.others.scale import get_scale_invariance_limits
 from src.others.visualize import plot_reprojection
 
 from config import results_dir, SETTINGS, K
@@ -318,6 +319,9 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, save_path):
     return reproj_mask
 
 def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
+    """
+    Filters a set of 3D points based on scale invariance thresholds derived from the corresponding keypoints.
+    """
     num_points = len(points)
     cam_center = T_cw[:3, 3]
 
@@ -326,15 +330,10 @@ def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
     for i in range(num_points):
         pos = points[i]
         kpt = kpts[i]
-
-        # Extract the ORB scale invariance limits for point
+    
+        # Get map point distance
         dist = np.linalg.norm(pos - cam_center)
-        level = kpt.octave
-        minLevelScaleFactor = SCALE_FACTOR**level
-        maxLlevelScaleFactor = SCALE_FACTOR**(N_LEVELS - 1 - level)
-
-        dmin = (1 / SCALE_FACTOR) * dist / minLevelScaleFactor
-        dmax = SCALE_FACTOR * dist * maxLlevelScaleFactor
+        dmin, dmax = get_scale_invariance_limits(dist, kpt.octave)
 
         # Check if the map_point distance is in the scale invariance region
         if dist < dmin or dist > dmax:
@@ -343,4 +342,5 @@ def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
     # Check conditions to decide whether to discard
     if debug:
         print(f"\t\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
+
     return scale_mask

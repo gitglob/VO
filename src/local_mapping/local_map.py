@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 import cv2
 from src.others.frame import Frame
 from src.others.linalg import invert_transform, transform_points
-from src.others.epipolar_geometry import get_scale_invariance_limits, dist_epipolar_line, compute_F12, compute_T12, triangulate, triangulation_angles, reprojection_error
+from src.others.epipolar_geometry import dist_epipolar_line, compute_F12, compute_T12, triangulate, triangulation_angles, reprojection_error
+from src.others.scale import get_scale_invariance_limits
 from config import SETTINGS, K
 
 

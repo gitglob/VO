@@ -4,6 +4,8 @@ from src.others.utils import isnan
 from config import SETTINGS
 
 
+SCALE_FACTOR = SETTINGS["orb"]["scale_factor"]
+N_LEVELS = SETTINGS["orb"]["level_pyramid"]
 debug = SETTINGS["generic"]["debug"]
 
 
@@ -47,7 +49,6 @@ def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.nd
         print(f"\t\tScale factor: {scale_factor:.2f}")
 
     return scale_factor
-
 
 ####################################################################################################
 
@@ -141,3 +142,25 @@ def get_common_match_indices(frame: Frame, frame1: Frame, frame2: Frame):
 
 def euclidean_distance(p1: np.ndarray, p2: np.ndarray):
     return np.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2)
+
+###############################
+
+def get_scale_invariance_limits(dist, level):
+    """
+    Computes the scale invariance limits (minimum and maximum distances) for an ORB feature,
+    based on the feature's distance from the camera and its octave (scale level).
+
+    Given a point at a distance 'dist' and detected at a particular octave 'level',
+    the function uses the ORB scale factor properties to compute:
+        - dmin: the minimum expected distance such that the point is not too close relative to its scale.
+        - dmax: the maximum expected distance such that the point is not too far relative to its scale.    
+    """
+    # Extract the ORB scale invariance limits for point
+    minLevelScaleFactor = SCALE_FACTOR**level
+    maxLlevelScaleFactor = SCALE_FACTOR**(N_LEVELS - 1 - level)
+
+    dmin = (1 / SCALE_FACTOR) * dist / minLevelScaleFactor
+    dmax = SCALE_FACTOR * dist * maxLlevelScaleFactor
+
+    return dist, dmin, dmax
+

@@ -3,9 +3,10 @@ import cv2
 from src.local_mapping.local_map import Map
 from src.initialization.initialization import triangulate
 from src.others.frame import Frame
-from src.others.utils import transform_points
+from src.others.linalg import transform_points
 from src.others.visualize import plot_matches, plot_reprojection
-from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint, filter_by_reprojection, filter_scale
+from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint
+from src.others.filtering import filter_by_reprojection, filter_scale
 from config import SETTINGS, results_dir
 
 
