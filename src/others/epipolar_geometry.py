@@ -1,21 +1,122 @@
 import numpy as np
 import cv2
 from src.others.linalg import skew_symmetric
-from config import K
+from config import K, SETTINGS
 
 
-def triangulate(q_frame_pixels, t_frame_pixels, T):
-    # Compute projection matrices for triangulation
-    q_M = K @ np.eye(3,4)  # First camera at origin
-    t_M = K @ T[:3, :]  # Second camera at R, t
+SCALE_FACTOR = SETTINGS["orb"]["scale_factor"]
+N_LEVELS = SETTINGS["orb"]["level_pyramid"]
+
+
+def get_scale_invariance_limits(dist, level):
+    # Extract the ORB scale invariance limits for point
+    minLevelScaleFactor = SCALE_FACTOR**level
+    maxLlevelScaleFactor = SCALE_FACTOR**(N_LEVELS - 1 - level)
+
+    dmin = (1 / SCALE_FACTOR) * dist / minLevelScaleFactor
+    dmax = SCALE_FACTOR * dist * maxLlevelScaleFactor
+
+    return dist, dmin, dmax
+
+def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
+    num_points = len(points)
+    cam_center = T_cw[:3, 3]
+
+    # Iterate over all points
+    scale_mask = np.ones(num_points, dtype=bool)
+    for i in range(num_points):
+        pos = points[i]
+        kpt = kpts[i]
+    
+        # Get map point distance
+        dist = np.linalg.norm(pos - cam_center)
+        dmin, dmax = get_scale_invariance_limits(dist, kpt.octave)
+
+        # Check if the map_point distance is in the scale invariance region
+        if dist < dmin or dist > dmax:
+            scale_mask[i] = False
+
+    return scale_mask
+
+def reprojection_error(pxs1, pxs2, T):
+    """
+    Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
+
+    Args:
+        pxs1: Pixel coordinates in frame 1.
+        pxs2: Pixel coordinates in frame 2.
+        T: relative pose from from O1 to O2.
+
+    Returns:
+        np.array: Updated boolean mask with matches having large reprojection errors filtered out.
+    """
+    R = T[:3, :3]
+    t = T[:3, 3]
+    
+    # Projection matrices
+    M1 = K @ np.eye(3,4)        # Reference frame (identity)
+    M2 = K @ np.hstack((R, t))  # Current frame
 
     # Triangulate points
-    q_frame_points_4d_hom = cv2.triangulatePoints(q_M, t_M, q_frame_pixels.T, t_frame_pixels.T)
+    pts1_4d = cv2.triangulatePoints(M1, M2, pxs1, pxs2)
+    pts1_3d = (pts1_4d[:3] / pts1_4d[3]).T
+
+    # Reproject points into the second (current) camera
+    pts1_proj2 = (R @ pts1_3d.T + t).T
+
+    # Compute reprojection errors
+    errors = np.linalg.norm(pts1_proj2 - pxs2, axis=1)
+
+    return errors
+
+def triangulation_angles(points1, points2, T):
+    """Calculates the triangulation angles between 2 or more points given the transformation matrix of their origins."""
+    # Extract rotation and translation
+    R = T[:3, :3]
+    t = T[:3, 3]
+
+    # Camera centers in the coordinate system where camera1 is at the origin.
+    C1 = np.zeros(3)                 # First camera at origin
+    C2 = (-R.T @ t).reshape(3)       # Second camera center in the same coords
+
+    # Vectors from camera centers to each 3D point
+    # t_points is (N, 3), so the result is (N, 3)
+    vec1 = points1 - C1[None, :]   # shape: (N, 3)
+    vec2 = points2 - C2[None, :]   # shape: (N, 3)
+
+    # Compute norms along axis=1 (per row) - distance of each point
+    norms1 = np.linalg.norm(vec1, axis=1)  # shape: (N,)
+    norms2 = np.linalg.norm(vec2, axis=1)  # shape: (N,)
+
+    # Normalize vectors (element-wise division) - unit vectors
+    vec1_norm = vec1 / (norms1[:, None] + 1e-8) # shape: (N, 3)
+    vec2_norm = vec2 / (norms2[:, None] + 1e-8) # shape: (N, 3)
+
+    # Compute dot product along axis=1 to get cos(theta)
+    cos_angles = np.sum(vec1_norm * vec2_norm, axis=1)  # shape: (N,)
+
+    # Clip to avoid numerical issues slightly outside [-1, 1]
+    cos_angles = np.clip(cos_angles, -1.0, 1.0)
+
+    # Convert to angles in degrees
+    angles = np.degrees(np.arccos(cos_angles))  # shape: (N,)
+
+    return angles
+
+    # Filter out points with too small triangulation angle
+
+def triangulate(pxs1, pxs2, T):
+    # Compute projection matrices for triangulation
+    M1 = K @ np.eye(3,4)  # First camera at origin
+    M2 = K @ T[:3, :]  # Second camera at R, t
+
+    # Triangulate points
+    points1_4d_hom = cv2.triangulatePoints(M1, M2, pxs1.T, pxs2.T)
 
     # Convert homogeneous coordinates to 3D
-    q_points_3d = q_frame_points_4d_hom[:3] / q_frame_points_4d_hom[3]
+    points1_3d = points1_4d_hom[:3] / points1_4d_hom[3]
 
-    return q_points_3d.T # (N, 3)
+    return points1_3d.T # (N, 3)
 
 def compute_T12(frame1, frame2):
     """

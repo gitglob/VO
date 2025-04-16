@@ -53,6 +53,8 @@ map:
     match_view_ratio: 0.25
     min_observations: 3
     max_keyframes_since_last_observation: 10
+    min_triang_angle: 5.0
+    max_reproj_threshold: 4.0
 
 convisibility:
     min_common_edges: 15

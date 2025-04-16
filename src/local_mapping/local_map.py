@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from src.others.frame import Frame
-from src.others.utils import invert_transform
-from src.others.epipolar_geometry import dist_epipolar_line, compute_F12, compute_T12, triangulate
+from src.others.linalg import invert_transform, transform_points
+from src.others.epipolar_geometry import get_scale_invariance_limits, dist_epipolar_line, compute_F12, compute_T12, triangulate, triangulation_angles, reprojection_error
 from config import SETTINGS, K
 
 
@@ -347,9 +347,40 @@ class Map():
         # For every formed pair, triangulate new points and add them to the map
         for pair in pairs:
             _, t_kpt_id, n_frame_id, n_kpt_id = pair
-            T = compute_T12(t_frame, n_frame)
-            new_point = triangulate(t_frame, keyframes[n_frame_id], T)
-            self.add_point(new_point)
+            n_frame = keyframes[n_frame_id]
+            T_tn = compute_T12(t_frame, n_frame)
+            new_t_point = triangulate(t_frame, keyframes[n_frame_id], T_tn)
+
+            # To accept the new points, ensure
+            # 1) positive depth in both cameras, 
+            new_n_point = transform_points(new_t_point, T_tn)
+            if new_t_point[2] < 0 or new_n_point[2] < 0:
+                break
+
+            # 2) sufficient parallax, 
+            angle = triangulation_angles(new_t_point, new_n_point, T_tn)
+            if angle < SETTINGS["map"]["min_triang_angle"]:
+                break
+             
+            # 3) reprojection error
+            t_feat = t_frame.features[t_kpt_id]
+            n_feat = n_frame.features[n_kpt_id]
+            t_pxs = t_feat.kpt.pt
+            n_pxs = n_feat.kpt.pt
+            error = reprojection_error(t_pxs, n_pxs, T_tn)
+            if error > SETTINGS["map"]["max_reproj_threshold"]:
+                break
+            
+            # 4) and scale consistency are checked.
+            t_cam_center = t_frame.pose[:3, 3]
+            dist = np.linalg.norm(new_t_point - t_cam_center)
+            dmin, dmax = get_scale_invariance_limits(dist, t_feat.kpt.octave)
+            if dist < dmin or dist > dmax:
+                break
+
+            # Point was accepted
+            new_w_point = transform_points(new_t_point, t_frame.pose)
+            self.add_point(new_w_point)
 
     def cull(self, cgraph):
         """

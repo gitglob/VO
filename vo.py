@@ -301,24 +301,6 @@ def main():
 
                 # Create new map points
                 map.create_points(cgraph, t_frame, keyframes, bow_db)
-                q_frame = list(keyframes.values())[-2]
-                matches = matchFeatures(q_frame, t_frame, "mapping/0-raw")
-                q_frame.match[t_frame.id]["T"] = T_qt
-                t_frame.match[q_frame.id]["T"] = T_t2q
-
-                # Find new keypoints and triangulate them
-                (t_old_points, old_kpts, old_descriptors, 
-                 t_new_points, new_kpts, new_descriptors, 
-                 new_points_success) = triangulateNewPoints(q_frame, t_frame, map)
-                if new_points_success:
-                    # Transfer the new points to the world frame
-                    w_new_points = transform_points(t_new_points, T_t2w)
-
-                    # Add the triangulated points to the local map
-                    map.add_points(t_frame, w_new_points, new_kpts, new_descriptors)
-
-                    # Update the old triangulated points
-                    map.update_points(t_frame.id, old_kpts, old_descriptors)
 
                 # Bookkeping
                 times.append(t)
