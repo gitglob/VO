@@ -77,7 +77,7 @@ def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Fram
         for l2 in pre_prev_pair_indices[i+1:]:
             p2 = pre_prev_frame_points[l2]
             if isnan(p2): continue
-            pre_prev_distances.append(euclidean_distance(p1, p2))
+            pre_prev_distances.append(np.linalg.norm(p1-p2))
 
     # Extract the 3D points of the previous frame
     prev_frame_points = prev_frame.match[frame.id]["points"]
@@ -92,7 +92,7 @@ def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Fram
         for k2 in prev_pair_indices[i+1:]:
             p2 = prev_frame_points[k2]
             if isnan(p2): continue
-            dist = np.max((euclidean_distance(p1, p2), 1e-6)) # Avoid division with 0!
+            dist = np.max((np.linalg.norm(p1-p2), 1e-6)) # Avoid division with 0!
             prev_distances.append(dist)
 
     # Calculate the median scale
@@ -140,10 +140,7 @@ def get_common_match_indices(frame: Frame, frame1: Frame, frame2: Frame):
 
     return f_landmarks, f1_landmarks
 
-def euclidean_distance(p1: np.ndarray, p2: np.ndarray):
-    return np.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2)
-
-###############################
+####################################################################################################
 
 def get_scale_invariance_limits(dist, level):
     """
