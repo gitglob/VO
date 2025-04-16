@@ -4,6 +4,7 @@ from src.others.frame import Frame
 from src.others.utils import invert_transform, transform_points
 from src.others.visualize import plot_matches
 from src.others.filtering import enforce_epipolar_constraint, filter_by_reprojection, filter_triangulation_points
+from src.others.epipolar_geometry import triangulate
 
 from config import results_dir, SETTINGS, K
 
@@ -67,6 +68,13 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     inlier_q_pixels = q_kpt_pixels[epipolar_constraint_mask]
     inlier_t_pixels = t_kpt_pixels[epipolar_constraint_mask]
 
+    # Flag the frame features as matched
+    for m in matches:
+        q_kpt_id = q_frame.features[m.queryIdx].id 
+        q_frame.features[q_kpt_id].matched = True
+        t_kpt_id = t_frame.features[m.trainIdx].id
+        t_frame.features[t_kpt_id].matched = True
+        
     # ------------------------------------------------------------------------
     # 3. Recover pose (R, t) from Essential or Homography
     # ------------------------------------------------------------------------
@@ -175,9 +183,9 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     inv_pose = invert_transform(pose)
     
     # Initialize the frames
-    q_frame.initialize(t_frame.id, use_homography, pose)
+    q_frame.match[t_frame.id]["T"] = pose
     q_frame.match[t_frame.id]["init_matches"] = matches
-    t_frame.initialize(q_frame.id, use_homography, inv_pose)
+    t_frame.match[q_frame.id]["T"] = inv_pose
     t_frame.match[q_frame.id]["init_matches"] = matches
 
     return pose, True
@@ -187,8 +195,6 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
         print(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
     # Extract the Rotation and Translation arrays between the 2 frames
     T_qt = q_frame.match[t_frame.id]["T"] # [q->t]
-    R_qt = T_qt[:3, :3]
-    t_qt = T_qt[:3, 3].reshape(3,1)
 
     # ------------------------------------------------------------------------
     # 6. Triangulate 3D points
@@ -202,7 +208,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Triangulate
-    q_points = triangulate(q_kpt_pixels, t_kpt_pixels, R_qt, t_qt) # (N, 3)
+    q_points = triangulate(q_kpt_pixels, t_kpt_pixels, T_qt) # (N, 3)
     if q_points is None or len(q_points) == 0:
         print("[initialize] Triangulation returned no 3D points.")
         return None, None, None, False
@@ -218,7 +224,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     # 7. Filter triangulated points for Z<0 and small triang. angle
     # ------------------------------------------------------------------------
 
-    triang_mask = filter_triangulation_points(q_points, t_points, R_qt, t_qt)
+    triang_mask = filter_triangulation_points(q_points, t_points, T_qt)
     # If too few points or too small median angle, return None
     if triang_mask is None or triang_mask.sum() < MIN_NUM_TRIANG_POINTS:
         print("Discarding frame due to insufficient triangulation quality.")
@@ -239,8 +245,6 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     # 8. Save the triangulated points and masks to the t_frame
     # ------------------------------------------------------------------------
 
-    q_frame.match[t_frame.id]["points"] = q_points
-    t_frame.match[q_frame.id]["points"] = t_points
     q_frame.match[t_frame.id]["init_matches"] = matches
     t_frame.match[q_frame.id]["init_matches"] = matches
 
@@ -251,15 +255,3 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     # Return the initial pose and filtered points
     return t_points, t_kpts, t_descriptors, True
       
-def triangulate(q_frame_pixels, t_frame_pixels, R, t):
-    # Compute projection matrices for triangulation
-    q_M = K @ np.eye(3,4)  # First camera at origin
-    t_M = K @ np.hstack((R, t))  # Second camera at R, t
-
-    # Triangulate points
-    q_frame_points_4d_hom = cv2.triangulatePoints(q_M, t_M, q_frame_pixels.T, t_frame_pixels.T)
-
-    # Convert homogeneous coordinates to 3D
-    q_points_3d = q_frame_points_4d_hom[:3] / q_frame_points_4d_hom[3]
-
-    return q_points_3d.T # (N, 3)

@@ -5,17 +5,17 @@ from src.others.frame import Frame
 from src.others.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
 from src.others.utils import save_image, delete_subdirectories, transform_points, invert_transform
 
-from src.frontend.feature_matching import matchFeatures
-from src.frontend.initialization import initialize_pose, triangulate_points
-from src.frontend.tracking import estimate_relative_pose, triangulateNewPoints
-from src.frontend.keyframe import is_keyframe
-from src.frontend.point_association import constant_velocity_model, localPointAssociation
-from src.frontend.point_association import mapPointAssociation, bowPointAssociation
-from src.frontend.scale import estimate_depth_scale, validate_scale
+from src.initialization.feature_matching import matchFeatures
+from src.initialization.initialization import initialize_pose, triangulate_points
+from src.initialization.scale import estimate_depth_scale, validate_scale
+from src.tracking.pnp import estimate_relative_pose, triangulateNewPoints
+from src.tracking.point_association import constant_velocity_model, localPointAssociation
+from src.tracking.point_association import mapPointAssociation, bowPointAssociation
+from src.local_mapping.keyframe import is_keyframe
 
 from src.place_recognition.bow import load_vocabulary, query_recognition_candidate
 
-from src.others.local_map import Map
+from src.local_mapping.local_map import Map
 from src.backend.g2o.ba import BA
 from src.backend.g2o.pose_optimization import poseBA
 from src.backend.convisibility_graph import ConvisibilityGraph
@@ -43,7 +43,6 @@ SEARCH_WINDOW_SIZE = SETTINGS["point_association"]["search_window"]
 def main():
     use_dist = False
     cleanup = True
-    use_loop_closures = False
 
     # Clean previous results
     if cleanup:
@@ -53,9 +52,9 @@ def main():
     data = Dataset(data_dir, scene, use_dist)
 
     # Read the vocabulary and initialize the BoW database
-    if use_loop_closures:
-        vocab = load_vocabulary("dbow")
-        bow_db: list[dict] = [] # contains visual_word_id -> keyframe_that_sees_it dicts
+    vocab = load_vocabulary("cv2") # Basically contains 1000 descriptors
+    bow_db: dict[list] = {} # contains visual_word_id -> keyframe_that_sees_it dicts
+    for i in range(len(vocab)): bow_db[i] = []
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
@@ -273,6 +272,8 @@ def main():
                 ba.add_observations(map, map_t_pairs)
                 ba.optimize()
     
+                # ########### New Keyframe Decision ###########
+                print("Checking for Keyframe...")
                 # Check if this t_frame is a keyframe
                 T_w2q = invert_transform(q_frame.pose)
                 T_t2w = invert_transform(T_w2t)
@@ -294,8 +295,12 @@ def main():
                 # Save the keyframe
                 if debug:
                     save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+    
+                # ########### New Map Point Creation ###########
+                print("Creating New Map Points...")
 
-                # Do feature matching with the previous keyframe
+                # Create new map points
+                map.create_points(cgraph, t_frame, keyframes, bow_db)
                 q_frame = list(keyframes.values())[-2]
                 matches = matchFeatures(q_frame, t_frame, "mapping/0-raw")
                 q_frame.match[t_frame.id]["T"] = T_qt

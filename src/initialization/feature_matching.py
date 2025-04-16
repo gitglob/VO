@@ -5,7 +5,7 @@ from src.others.frame import Frame
 from src.others.filtering import filterMatches
 from src.others.visualize import plot_matches
 
-from config import results_dir, SETTINGS, K
+from config import results_dir, SETTINGS
 
 
 debug = SETTINGS["generic"]["debug"]

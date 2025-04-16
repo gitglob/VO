@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
-from src.others.local_map import Map
-from src.frontend.initialization import triangulate
+from src.local_mapping.local_map import Map
+from src.initialization.initialization import triangulate
 from src.others.frame import Frame
 from src.others.utils import transform_points
 from src.others.visualize import plot_matches, plot_reprojection
@@ -308,11 +308,9 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
 
     q_old_points = q_points[old_points_mask]
     q_new_points = q_points[new_points_mask]
-    q_frame.match[t_frame.id]["points"] = q_new_points
 
     t_old_points = t_points[old_points_mask]
     t_new_points = t_points[new_points_mask]
-    t_frame.match[q_frame.id]["points"] = t_new_points
 
     t_old_kpts = t_kpts[old_points_mask]
     t_new_kpts = t_kpts[new_points_mask]

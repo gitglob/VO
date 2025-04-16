@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import cv2
 from src.others.frame import Frame
 from src.others.utils import invert_transform
+from src.others.epipolar_geometry import dist_epipolar_line, compute_F12, compute_T12, triangulate
 from config import SETTINGS, K
 
 
@@ -203,20 +204,32 @@ class Map():
     def discard_point(self, point_id: int):
         del self.points[point_id]
 
+    def add_point(self, 
+                   kf: Frame,
+                   pos: np.ndarray, 
+                   keypoint: List[cv2.KeyPoint], 
+                   descriptor: np.ndarray):
+        # Iterate over the new points
+        kpt_id = keypoint.class_id
+        p = mapPoint(self._kf_counter, kf, pos, keypoint, descriptor)
+        self.points[kpt_id] = p
+
+        # if debug:
+        #     print(f"Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
+
     def add_points(self, 
                    kf: Frame,
                    points_pos: np.ndarray, 
                    keypoints: List[cv2.KeyPoint], 
                    descriptors: np.ndarray):
         # Iterate over the new points
-        for i in range(len(points_pos)):
-            kpt_id = keypoints[i].class_id
-            p = mapPoint(self._kf_counter, kf, points_pos[i], keypoints[i], descriptors[i])
-            self.points[kpt_id] = p
+        num_new_points = len(points_pos)
+        for i in range(num_new_points):
+            self.add_point(kf, points_pos[i], keypoints[i], descriptors[i])
         self._kf_counter += 1
 
         if debug:
-            print(f"Adding {len(points_pos)} points to the Map. Total: {len(self.points)} points.")
+            print(f"Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
 
     def update_points(self, 
                       kf: Frame,
@@ -294,6 +307,49 @@ class Map():
             count += 1
 
         return count
+
+    def create_points(self, cgraph, t_frame, keyframes, bow_db):
+        # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
+        pairs = [] # (frame1_id, feature1_id, frame2_id, feature2_id)
+
+        # Get the neighbor frames in the convisibility graph
+        neighbor_kf_ids = cgraph.get_connected_frames(t_frame.id)
+
+        # Iterate over the bow feature vector of the current frame
+        for t_word_id, t_kpt_id in t_frame.feature_vector.items():
+            t_feature = t_frame.features[t_kpt_id]
+            # Check if the feature is unmatched
+            if t_feature.matched:
+                continue
+
+            # Iterate over neighbor keyframes
+            for n_kf_id in neighbor_kf_ids:
+                # Check if this keyframe sees the same word
+                if n_kf_id not in bow_db[t_word_id]:
+                    continue
+                n_frame = keyframes[n_kf_id]
+                # Extract the neighbor feature for the same word
+                n_kpt_id = n_frame.feature_vector[t_word_id]
+                n_feature = n_frame.features[n_kpt_id]
+                # Check if the feature is unmatched
+                if n_feature.matched:
+                    continue
+
+                # Compute the descriptor distance for this word and check if it is low enough
+                d = cv2.norm(t_feature.desc, n_feature.desc, cv2.NORM_HAMMING)
+                if d < SETTINGS["point_association"]["hamming_distance"]:
+                    # Check if the candidate pair satisfies the epipolar constraint
+                    F = compute_F12(t_frame, n_frame)
+                    d_epi_sqr = dist_epipolar_line(t_feature.kpt.pt, n_feature.kpt.pt, F)
+                    if d_epi_sqr < n_frame.get_sigma2(n_feature.kpt.octave):
+                        pairs.append((t_frame.id, t_kpt_id, n_frame.id, n_kpt_id))
+
+        # For every formed pair, triangulate new points and add them to the map
+        for pair in pairs:
+            _, t_kpt_id, n_frame_id, n_kpt_id = pair
+            T = compute_T12(t_frame, n_frame)
+            new_point = triangulate(t_frame, keyframes[n_frame_id], T)
+            self.add_point(new_point)
 
     def cull(self, cgraph):
         """

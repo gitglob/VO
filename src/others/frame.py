@@ -18,7 +18,7 @@ class orbFeature():
         self.id = kpt.class_id
         self.kpt = kpt
         self.desc = desc
-        self.tracked = False
+        self.matched = False
 
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
@@ -36,22 +36,20 @@ class Frame():
         self.match: Dict = {}                # The matches between this frame's keypoints and others'
         self.relocalization: bool = False    # Whether global relocalization using vBoW was performed
 
+        self.bow_hist: np.ndarray = None     # Histogram of visual words (1, vocab_size)
+        self.feature_vector = {}             # Mapping: visual word -> keypoint id
+
         
         """
         The match dictionary looks like this:
         {
             frame_id: 
             {
-                "matches": List[DMatch],     # The feature matches between the two frames
+                "matches": List[DMatch],  # The feature matches between the two frames
                 "init_matches":
                 "tracking_matches":
-
-                "match_type": string,        # Whether the frame acted as query or train in the match
-                "initialization": bool,      # Whether this frame was used to initialize the pose
-                "use_homography": bool,      # Whether the homography/essential matrix was used to initialize the pose
-                
+                "match_type": string,     # Whether the frame acted as query or train in the match
                 "T": np.ndarray,          # The Transformation Matrix to get from the query frame (this frame) to the train frame (the one with frame_id)
-                "points": np.ndarray,        # The triangulated keypoint points
             }
         }
         """
@@ -69,7 +67,7 @@ class Frame():
     def num_tracked_points(self):
         count = 0
         for f in self.features:
-            if f.tracked:
+            if f.matched:
                 count += 1
         return count
     
@@ -77,7 +75,7 @@ class Frame():
     def tracked_points(self):
         tracked_point_ids = set()
         for f in self.features:
-            if f.tracked:
+            if f.matched:
                 tracked_point_ids.add(f.id)
         return tracked_point_ids
 
@@ -94,20 +92,7 @@ class Frame():
         self.match[with_frame_id] = {}
         self.match[with_frame_id]["matches"] = np.array(matches, dtype=object)
         self.match[with_frame_id]["match_type"] = match_type
-
-        # Default values for the rest
-        self.match[with_frame_id]["initialization"] = None
-        self.match[with_frame_id]["use_homography"] = None
         self.match[with_frame_id]["T"] = None
-        self.match[with_frame_id]["points"] = None
-
-    def initialize(self, with_frame_id: int, use_homography: bool, pose: np.ndarray):
-        """
-        Initializes the frame with another frame.
-        """
-        self.match[with_frame_id]["use_homography"] = use_homography
-        self.match[with_frame_id]["T"] = pose
-        self.match[with_frame_id]["initialization"] = True
 
     def get_matches(self, with_frame_id: int):
         """Returns matches with a specfic frame"""
@@ -172,7 +157,7 @@ class Frame():
         
     def compute_bow(self, vocab, bow_db: list[dict]):
         # Create the descriptor matcher
-        matcher = cv2.BFMatcher()
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
         # Create the BoW extractor
         bow_extractor = cv2.BOWImgDescriptorExtractor(self._detector, matcher)
@@ -184,15 +169,27 @@ class Frame():
         if self.bow_hist is None:
             print(f"Frame {self.id}: No BoW histogram computed!")
             return
+        
+        ## This next step would normally not be needed if we used a SOTA vBoW
+        ## extractor like DBoW2, but since we don't it's a way around
+
+        # Build the feature vector (maps visual words -> keypoint indices)
+        # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matches = matcher.match(self.descriptors, vocab)
+        self.feature_vector = {}
+        for match in matches:
+            word_id = match.trainIdx         # Index of the visual word in the vocabulary.
+            kp_idx = match.queryIdx          # Index of the keypoint in the image.
+            kp_id = self.features[kp_idx].id # ID of the keypoint in the image.
+            if word_id not in self.feature_vector:
+                self.feature_vector[word_id] = []
+            self.feature_vector[word_id].append(kp_id)
 
         # Loop over each visual word (i.e., each bin in the histogram)
         # and add this frame's ID to the database for every visual word that occurs in the image.
         for visual_word in range(self.bow_hist.shape[1]):
             # Check if the histogram count for this visual word is greater than zero
             if self.bow_hist[0, visual_word] > 0:
-                # If this visual word is not yet in the database, add it with an empty list.
-                if visual_word not in bow_db:
-                    bow_db[visual_word] = []
                 # Append the current frame's ID to the list for this visual word.
                 bow_db[visual_word].append(self.id)
 

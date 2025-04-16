@@ -1,6 +1,6 @@
 import numpy as np
 from src.others.frame import Frame
-from src.others.local_map import Map
+from src.local_mapping.local_map import Map
 from config import SETTINGS
 
 
@@ -20,7 +20,8 @@ def is_keyframe(t_frame: Frame, keyframes: set[Frame], local_map: Map):
 
     # Condition 2 is only True cause we are not using threads, so local mapping is always IDLE
     num_frames_passed = t_frame.id - keyframes[-1].id
-    cond2 = True or num_frames_passed > 20
+    local_mapping_idle = True
+    cond2 = local_mapping_idle or num_frames_passed > 20
 
     cond3 = t_frame.num_tracked_points > 50
 

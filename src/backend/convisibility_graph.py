@@ -1,7 +1,7 @@
 import numpy as np
 
 from src.others.frame import Frame
-from src.others.local_map import Map
+from src.local_mapping.local_map import Map
 from config import SETTINGS
 
 
@@ -135,6 +135,21 @@ class ConvisibilityGraph(Graph):
             points.add[map.points[p_id]]
         return points
     
+    def get_connected_frames(self, kf_id: int) -> set[int]:
+        """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
+        # Keep the connected nodes and points
+        connected_kf_ids = set()
+        # Iterate over all the edges
+        for (kf1_id, kf2_id) in self.edges.keys():
+            # Check if this node is part of this edge
+            # If it is, the other node and its points are of interest
+            if kf1_id == kf_id:
+                connected_kf_ids.add(kf2_id)
+            elif kf2_id == kf_id:
+                connected_kf_ids.add(kf1_id)
+
+        return connected_kf_ids
+
     def get_connected_frames_and_their_points(self, kf_id: int) -> tuple[set[int], set[int]]:
         """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
         # Keep the connected nodes and points

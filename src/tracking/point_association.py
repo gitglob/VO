@@ -2,7 +2,7 @@ import bisect
 import numpy as np
 import cv2
 from scipy.linalg import expm, logm
-from src.others.local_map import Map, mapPoint
+from src.local_mapping.local_map import Map, mapPoint
 from src.backend.convisibility_graph import ConvisibilityGraph
 from src.others.frame import Frame
 from src.others.utils import invert_transform
@@ -163,7 +163,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     for m in unique_matches:
         feature = t_frame.features[m.trainIdx]
         pairs.append((map_point_ids[m.queryIdx], feature.id))
-        t_frame.features[m.trainIdx].tracked = True
+        t_frame.features[m.trainIdx].matched = True
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -270,7 +270,7 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         # Accept the match only if the best distance is below the threshold.
         if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
             pairs.append((map_point.id, best_feature_id))
-            t_frame.features[best_feature_id].tracked = True
+            t_frame.features[best_feature_id].matched = True
             
     # Save the matches
     if debug:
@@ -370,7 +370,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
         pairs.append((map_point_ids[m.queryIdx], m.trainIdx))
-        t_frame.features[m.trainIdx].tracked = True
+        t_frame.features[m.trainIdx].matched = True
 
     if debug:
         print(f"\t Found {len(pairs)} Point Associations!")
@@ -451,7 +451,7 @@ def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int
                 best_feature_idx = kpt_id
         
         pairs.append((point.id, best_feature_idx))
-        t_frame.features[best_feature_idx].tracked = True
+        t_frame.features[best_feature_idx].matched = True
 
 
     return pairs
