@@ -1,10 +1,48 @@
 import os
 import shutil
+import logging
+import os
+from datetime import datetime
 from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
 
+
+def setup_logger(log_dir: str = "logs") -> logging.Logger:
+    # 1. Ensure log directory exists
+    os.makedirs(log_dir, exist_ok=True)
+
+    # 2. Build filename based on today's date
+    timestamp = datetime.now().strftime("%H:%M:%S_%d-%m-%y")
+    log_path = os.path.join(log_dir, f"{timestamp}.log")
+
+    # 3. Create logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)  # capture INFO and above
+
+    # avoid adding multiple handlers if called multiple times
+    if not logger.handlers:
+        # 4. File handler writes to YYYY‑MM‑DD.log
+        fh = logging.FileHandler(log_path)
+        fh.setLevel(logging.INFO)
+
+        # 5. Formatter for timestamp, level and message
+        fmt = logging.Formatter(
+            "%(asctime)s - %(levelname)s : %(message)s",
+            datefmt="%d-%m-%Y %H:%M:%S"
+        )
+        fh.setFormatter(fmt)
+
+        # 6. Optionally also log to console
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        ch.setFormatter(fmt)
+
+        logger.addHandler(fh)
+        logger.addHandler(ch)
+
+    return logger
 
 def isnan(p: np.ndarray):
     """Checks if a 3d point is nan."""

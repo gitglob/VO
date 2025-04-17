@@ -1,7 +1,7 @@
 import numpy as np
 from src.others.frame import Frame
 from src.others.utils import isnan
-from config import SETTINGS
+from config import SETTINGS, log
 
 
 SCALE_FACTOR = SETTINGS["orb"]["scale_factor"]
@@ -31,7 +31,7 @@ def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.nd
         float: Estimated scale factor.
     """
     if debug:
-        print(f"\tEstimating depth scale ...")
+        log.info(f"\tEstimating depth scale ...")
 
     if len(estimated_poses) != 2 or len(gt_poses) != 2:
         raise ValueError("Both input lists must contain exactly two poses.")
@@ -46,7 +46,7 @@ def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.nd
     # Compute scale
     scale_factor = gt_translation_diff / est_translation_diff
     if debug:
-        print(f"\t\tScale factor: {scale_factor:.2f}")
+        log.info(f"\t\tScale factor: {scale_factor:.2f}")
 
     return scale_factor
 
@@ -55,7 +55,7 @@ def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.nd
 def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Frame):
     """Computes the relative scale between 2 frames"""
     # Get the common features between frames t-2, t-1, t
-    print(f"Estimating scale using frames: {pre_prev_frame.id}, {prev_frame.id} & {frame.id}...")
+    log.info(f"Estimating scale using frames: {pre_prev_frame.id}, {prev_frame.id} & {frame.id}...")
     pre_prev_pair_indices, prev_pair_indices = get_common_match_indices(pre_prev_frame, prev_frame, frame)
 
     # If there are less than 2 common point matches, we cannot compute the scale

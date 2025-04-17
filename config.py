@@ -1,6 +1,7 @@
 import yaml
 from pathlib import Path
 import numpy as np
+from src.others.utils import setup_logger
 
 
 main_dir = Path(__file__).parent
@@ -18,3 +19,6 @@ np.set_printoptions(precision=2, suppress=True)
 settings_path = main_dir / "settings" / "config.yaml"
 with open(settings_path, "r") as file:
     SETTINGS = yaml.safe_load(file)
+
+log_dir = main_dir / "logs"
+log = setup_logger(log_dir)

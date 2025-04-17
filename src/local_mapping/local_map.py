@@ -6,7 +6,7 @@ from src.others.frame import Frame
 from src.others.linalg import invert_transform, transform_points
 from src.others.epipolar_geometry import dist_epipolar_line, compute_F12, compute_T12, triangulate, triangulation_angles, reprojection_error
 from src.others.scale import get_scale_invariance_limits
-from config import SETTINGS, K
+from config import SETTINGS, K, log
 
 
 scale_factor = SETTINGS["orb"]["scale_factor"]
@@ -216,7 +216,7 @@ class Map():
         self.points[kpt_id] = p
 
         # if debug:
-        #     print(f"Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
+        #     log.info(f"Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
 
     def add_points(self, 
                    kf: Frame,
@@ -230,7 +230,7 @@ class Map():
         self._kf_counter += 1
 
         if debug:
-            print(f"Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
+            log.info(f"Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
 
     def update_points(self, 
                       kf: Frame,
@@ -242,12 +242,12 @@ class Map():
             p.observe(self._kf_counter, kf, keypoints[i], descriptors[i])
 
         if debug:
-            print(f"Updating {len(keypoints)} map points.")
+            log.info(f"Updating {len(keypoints)} map points.")
         
     def update_landmarks(self, point_ids: set, point_positions: List):
         """Updates the 3d positions of given map points"""
         if debug:
-            print("Updating landmark positions...")
+            log.info("Updating landmark positions...")
 
         prev_point_positions = self.point_positions.copy()
         point_ids = np.array(point_ids, dtype=int)
@@ -262,7 +262,7 @@ class Map():
         
         # Update the positions of the landmarks
         for pid, pos in zip(to_update_point_ids, to_update_positions):
-            # print(f"Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
+            # log.info(f"Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
             self.points[pid].pos = pos
 
         # self.show(prev_point_positions, self.point_positions)
@@ -443,7 +443,7 @@ class Map():
             (2) not observed from at least M frames after their creation
         """
         if debug:
-            print("Cleaning up map points...")
+            log.info("Cleaning up map points...")
 
         prev_num_points = self.num_points
         removed_point_ids = []
@@ -480,7 +480,7 @@ class Map():
             del self.points[pid]
 
         if debug:
-            print(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
+            log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None

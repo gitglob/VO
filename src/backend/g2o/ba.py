@@ -31,7 +31,7 @@ class BA:
         
         Args:
             K: Camera intrinsics matrix.
-            verbose: If True, print debug information.
+            verbose: If True, show debug information.
         """
         self.verbose = verbose
 
@@ -68,7 +68,7 @@ class BA:
         self.frames = frames
 
         if self.verbose:
-            print(f"Adding {len(frames)} poses...")
+            log.info(f"Adding {len(frames)} poses...")
 
         # Iterate over all poses
         for i, f in enumerate(frames):
@@ -86,7 +86,7 @@ class BA:
             # We optimize both poses and landmarks, but fix the first pose
             vertex.set_fixed(True)
             if self.verbose:
-                print(f"Anchoring pose x({p_id})...")
+                log.info(f"Anchoring pose x({p_id})...")
             
             # Add the vertex to the graph
             self.optimizer.add_vertex(vertex)
@@ -94,7 +94,7 @@ class BA:
     def add_observations(self, map: Map):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            print(f"Adding {map.num_points} landmarks...")
+            log.info(f"Adding {map.num_points} landmarks...")
 
         # Iterate over all map points
         for i, pt in enumerate(map.points_arr):
@@ -155,7 +155,7 @@ class BA:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
         if self.verbose:
-            print("Optimizing with g2o...")
+            log.info("Optimizing with g2o...")
 
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
@@ -203,8 +203,8 @@ class BA:
                 x_node_names.append(f"x{vertex.id()}")
             elif isinstance(vertex, g2o.VertexPointXYZ):
                 l_node_names.append(f"l{vertex.id()}")
-        print("\tx nodes in graph:", sorted(x_node_names))
-        print("\tl nodes in graph:", sorted(l_node_names))
+        log.info("\tx nodes in graph:", sorted(x_node_names))
+        log.info("\tl nodes in graph:", sorted(l_node_names))
 
     def is_key_in_graph(self, key) -> bool:
         """
@@ -277,7 +277,7 @@ class localBA:
         
         Args:
             K: Camera intrinsics matrix.
-            verbose: If True, print debug information.
+            verbose: If True, show debug information.
         """
         self.verbose = verbose
 
@@ -373,7 +373,7 @@ class localBA:
         unconnected_kfs_that_see_points = [keyframes[idx] for idx in unconnected_kfs_that_see_points_ids]
 
         if self.verbose:
-            print(f"Adding pose {keyframe.id}, {len(connected_kf_ids)} connected ",
+            log.info(f"Adding pose {keyframe.id}, {len(connected_kf_ids)} connected ",
                   f"and {len(unconnected_kfs_that_see_points)} unconnected poses...")
 
         # Add the main pose
@@ -407,7 +407,7 @@ class localBA:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
         if self.verbose:
-            print("Optimizing with g2o...")
+            log.info("Optimizing with g2o...")
 
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)

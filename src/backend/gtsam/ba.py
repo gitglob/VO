@@ -1,7 +1,7 @@
 import gtsam
 import numpy as np
 import cv2
-from config import SETTINGS
+from config import SETTINGS, log
 from gtsam.symbol_shorthand import X, L 
 
 
@@ -64,7 +64,7 @@ class BA:
             self.graph.add(factor)
             self._frame_anchored = True
             if self.verbose:
-                print(f"Anchoring pose X({node_idx})...")
+                log.info(f"Anchoring pose X({node_idx})...")
 
         self.initial_estimates.insert(X(node_idx), pose3)
 
@@ -80,7 +80,7 @@ class BA:
             observations: list of keypoints
         """
         if self.verbose:
-            print(f"Adding {len(observations)} observations to pose X({pose_idx})")
+            log.info(f"Adding {len(observations)} observations to pose X({pose_idx})")
 
         # Iterate over all observations
         for i in range(len(observations)):
@@ -129,7 +129,7 @@ class BA:
                             self.graph.add(factor)
                             self._scale_set = True
                             if self.verbose:
-                                print(f"Anchored landmark L({l_idx})")
+                                log.info(f"Anchored landmark L({l_idx})")
                         # Add the buffered factor to the graph
                         self.graph.add(f)
                     # Add the new factor to the graph
@@ -141,11 +141,11 @@ class BA:
 
     def optimize(self):
         """ Optimize the graph and return the optimized robot poses and landmark positions"""
-        print("Bundle Adjustment)")
+        log.info("Bundle Adjustment)")
         # Perform the first optimization using Levenberg-Marquardt
         # if not self._is_initialized:
         #     if len(self.new_pose_ids) < 20:
-        #         print("Not enough poses to initialize iSAM2")
+        #         log.info("Not enough poses to initialize iSAM2")
         #         return None, None, None, None, False
             
         #     optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.initial_estimates)
@@ -157,7 +157,7 @@ class BA:
             self.isam.update(self.graph, self.initial_estimates)
             self.isam.update()
         except Exception as e:
-            print(f"Error updating iSAM: {e}")
+            log.info(f"Error updating iSAM: {e}")
             self.sanity_check()
             return None, None, None, None, False
         
@@ -232,7 +232,7 @@ class BA:
                 if self.initial_estimates.exists(key):
                     self.initial_estimates.erase(key)
                 if self.verbose:
-                    print(f"Culled landmark L({l_id})")
+                    log.info(f"Culled landmark L({l_id})")
                 
     def print_x_nodes_in_graph(self):
         x_nodes = []
@@ -253,8 +253,8 @@ class BA:
                     l_nodes.append(symbol.key())
                     l_node_names.append(symbol.__str__()[:-1])
         
-        print("\tx nodes in graph:", sorted(x_node_names))
-        print("\tl nodes in graph:", sorted(l_node_names))
+        log.info("\tx nodes in graph:", sorted(x_node_names))
+        log.info("\tl nodes in graph:", sorted(l_node_names))
     
     def is_key_in_graph(self, key) -> bool:
         for i in range(self.graph.size()):
@@ -298,13 +298,13 @@ class BA:
                     break  # No need to check further keys in this factor.
 
         # Print the number of landmarks observed in the pose.
-        # print(f"Variable {var_symbol} is referenced in {len(factors_for_variable)} factors")
+        # log.info(f"Variable {var_symbol} is referenced in {len(factors_for_variable)} factors")
 
         return factors_for_variable 
     
     def get_landmarks_for_pose(self, pose_key: int) -> int:
         """
-        For a given pose id, print all the landmarks (i.e. the landmark keys)
+        For a given pose id, log all the landmarks (i.e. the landmark keys)
         that are associated with that pose via projection factors.
         
         Args:
@@ -333,18 +333,18 @@ class BA:
                                 related_landmark_keys.add(key)
 
         # Print the number of landmarks observed in the pose.
-        # print(f"Pose {pose_symbol} observes {len(related_landmark_keys)} landmarks")
+        # log.info(f"Pose {pose_symbol} observes {len(related_landmark_keys)} landmarks")
 
         # # Print all the collected landmark keys.
         # for lk in related_landmark_keys:
         #     landmark_symbol = gtsam.Symbol(lk)
-        #     print(f"Pose {pose_symbol} observes landmark {landmark_symbol}")
+        #     log.info(f"Pose {pose_symbol} observes landmark {landmark_symbol}")
 
         return len(related_landmark_keys)
 
     def get_poses_for_landmark(self, landmark_key: int) -> set:
         """
-        For a given landmark id, print all the poses (i.e. the pose keys)
+        For a given landmark id, log all the poses (i.e. the pose keys)
         that are associated with that landmark via projection factors.
         
         Args:
@@ -374,7 +374,7 @@ class BA:
         # Print all the collected pose keys.
         # for pk in related_pose_keys:
         #     pose_symbol = gtsam.Symbol(pk)
-        #     print(f"Landmark {landmark_symbol} is observed in pose {pose_symbol}")
+        #     log.info(f"Landmark {landmark_symbol} is observed in pose {pose_symbol}")
 
         return related_pose_keys
 

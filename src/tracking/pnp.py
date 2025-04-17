@@ -7,7 +7,7 @@ from src.others.linalg import transform_points
 from src.others.visualize import plot_matches, plot_reprojection
 from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint
 from src.others.filtering import filter_by_reprojection, filter_scale
-from config import SETTINGS, results_dir
+from config import SETTINGS, results_dir, log
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -53,7 +53,7 @@ def estimate_relative_pose(
     map_points_w = map.get_frustum_points(t_frame)
     num_points = len(map_t_pairs)
     if debug:
-        print(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")
+        log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")
 
     # 1) Build 3D <-> 2D correspondences
     map_points = []
@@ -78,10 +78,10 @@ def estimate_relative_pose(
         iterationsCount=SETTINGS["PnP"]["iterations"]
     )
     if not success or inliers is None:
-        print("\t solvePnP failed!")
+        log.warning("\t solvePnP failed!")
         return None, None
     if len(inliers) < MIN_INLIERS:
-        print("\t solvePnP did not find enough inliers!")
+        log.warning("\t solvePnP did not find enough inliers!")
         return None, None
     inliers = inliers.flatten()
 
@@ -90,7 +90,7 @@ def estimate_relative_pose(
     inliers_mask[inliers] = True
     num_tracked_points = inliers_mask.sum()
     if debug:
-        print(f"\t solvePnPRansac filtered {num_points - num_tracked_points}/{num_points} points.")
+        log.info(f"\t solvePnPRansac filtered {num_points - num_tracked_points}/{num_points} points.")
     
     # 3) Refine the pose using Levenberg-Marquardt on the inlier correspondences.
     rvec, tvec = cv2.solvePnPRefineLM(
@@ -123,7 +123,7 @@ def estimate_relative_pose(
     ## Create a mask for points with error less than the threshold
     reproj_mask = errors < SETTINGS["PnP"]["reprojection_threshold"]
     if debug:
-        print(f"\t Reprojection:",
+        log.info(f"\t Reprojection:",
               f"\n\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})",
               f"\n\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
 
@@ -162,7 +162,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
             - A boolean indicating whether triangulation was successful.
     """
     if debug:
-        print(f"Triangulating New Points using keyframes {q_frame.id} & {t_frame.id}...")
+        log.info(f"Triangulating New Points using keyframes {q_frame.id} & {t_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
@@ -181,7 +181,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
 
     epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
     if epipolar_constraint_mask is None:
-        print("[Tracking] Failed to apply epipolar constraint..")
+        log.warning("[Tracking] Failed to apply epipolar constraint..")
         return None, None, None, None, None, None, False
     
     # Save the matches
@@ -227,7 +227,7 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
     # Triangulate
     q_points = triangulate(q_pxs, t_pxs, R_qt, t_qt)
     if q_points is None or len(q_points) == 0:
-        print("Triangulation returned no 3D points.")
+        log.warning("Triangulation returned no 3D points.")
         return None, None, None, None, None, None, False
 
     # Transfer the points to the current coordinate frame [t->q]
@@ -283,10 +283,10 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
     # Find which of the map keypoints don't intersect with the reference inlier keypoint IDs - these are new
     new_ids = np.setdiff1d(q_kpt_ids, map.point_ids)
     if len(new_ids) == 0:
-        print("No new points to triangulate.")
+        log.warning("No new points to triangulate.")
         return None, None, None, None, None, None, False
     if debug:
-        print(f"\t {len(new_ids)}/{len(q_kpt_ids)} points are new!")
+        log.warning(f"\t {len(new_ids)}/{len(q_kpt_ids)} points are new!")
     
     # Create a mask for the old/new triangulated points
     new_points_mask = np.isin(q_kpt_ids, new_ids)

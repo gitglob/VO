@@ -5,9 +5,9 @@ from scipy.linalg import expm, logm
 from src.local_mapping.local_map import Map, mapPoint
 from src.backend.convisibility_graph import ConvisibilityGraph
 from src.others.frame import Frame
-from src.others.utils import invert_transform
+from src.others.linalg import invert_transform
 from src.others.visualize import plot_pixels
-from config import SETTINGS, results_dir, K
+from config import SETTINGS, results_dir, K, log
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -118,7 +118,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
         if m.distance < 0.95 * n.distance:
             good_matches.append(m)
     if debug:
-        print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
     if len(good_matches) < MIN_NUM_MATCHES:
         return []
@@ -133,7 +133,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     # Convert the dictionary values to a list of unique matches
     unique_matches = list(unique_matches.values())
     if debug:
-        print(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
 
     if len(unique_matches) < MIN_NUM_MATCHES:
         return []
@@ -149,7 +149,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
     # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels)
     # if epipolar_constraint_mask is None:
-    #     print("Failed to apply epipolar constraint..")
+    #     log.warning("Failed to apply epipolar constraint..")
     #     return []
     # unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
             
@@ -166,7 +166,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
         t_frame.features[m.trainIdx].matched = True
 
     if debug:
-        print(f"\t Found {len(pairs)} Point Associations!")
+        log.info(f"\t Found {len(pairs)} Point Associations!")
 
     return pairs
 
@@ -279,7 +279,7 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
     
     if debug:
-        print(f"\t Found {len(pairs)} Point Associations!")
+        log.info(f"\t Found {len(pairs)} Point Associations!")
 
     return pairs
 
@@ -326,7 +326,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
         if m.distance < 0.95 * n.distance:
             good_matches.append(m)
     if debug:
-        print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
     if len(good_matches) < MIN_NUM_MATCHES:
         return []
@@ -341,7 +341,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     # Convert the dictionary values to a list of unique matches
     unique_matches = list(unique_matches.values())
     if debug:
-        print(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
 
     if len(unique_matches) < MIN_NUM_MATCHES:
         return []
@@ -357,7 +357,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
     # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels)
     # if epipolar_constraint_mask is None:
-    #     print("Failed to apply epipolar constraint..")
+    #     log.warning("Failed to apply epipolar constraint..")
     #     return []
     # unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
             
@@ -373,7 +373,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
         t_frame.features[m.trainIdx].matched = True
 
     if debug:
-        print(f"\t Found {len(pairs)} Point Associations!")
+        log.info(f"\t Found {len(pairs)} Point Associations!")
 
     return pairs
 

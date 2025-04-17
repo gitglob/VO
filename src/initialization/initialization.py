@@ -1,12 +1,12 @@
 import numpy as np
 import cv2
 from src.others.frame import Frame
-from src.others.utils import invert_transform, transform_points
+from src.others.linalg import invert_transform, transform_points
 from src.others.visualize import plot_matches
 from src.others.filtering import enforce_epipolar_constraint, filter_by_reprojection, filter_triangulation_points
 from src.others.epipolar_geometry import triangulate
 
-from config import results_dir, SETTINGS, K
+from config import results_dir, SETTINGS, K, log
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -36,7 +36,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
             - A boolean indicating whether the initialization was successful.
     """
     if debug:
-        print(f"Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
+        log.info(f"Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
@@ -55,7 +55,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
 
     epipolar_constraint_mask, M, use_homography = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
     if epipolar_constraint_mask is None:
-        print("[initialize] Failed to apply epipolar constraint..")
+        log.warning("[initialize] Failed to apply epipolar constraint..")
         return None, False
 
     # Save the matches
@@ -88,7 +88,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
         if debug:
-            print(f"\t\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
+            log.info(f"\t\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
 
         if R_est is not None and t_est is not None and np.any(mask_pose):
             R, t = R_est, t_est
@@ -157,7 +157,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
 
     # If we failed to recover R and t
     if R is None or t is None:
-        print("[initialize] Failed to recover a valid pose from either E or H.")
+        log.warning("[initialize] Failed to recover a valid pose from either E or H.")
         return None, False
             
     # Save the matches
@@ -170,7 +170,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     matches = matches[reproj_mask]
 
     if debug:
-        print(f"\t Total filtering: {len(matches) - reproj_mask.sum()}/{len(matches)}. {reproj_mask.sum()} matches left!")
+        log.info(f"\t Total filtering: {len(matches) - reproj_mask.sum()}/{len(matches)}. {reproj_mask.sum()} matches left!")
 
     # ------------------------------------------------------------------------
     # 4. Build the 4x4 Pose matrix
@@ -192,7 +192,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
       
 def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     if debug:
-        print(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
+        log.info(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
     # Extract the Rotation and Translation arrays between the 2 frames
     T_qt = q_frame.match[t_frame.id]["T"] # [q->t]
 
@@ -210,7 +210,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     # Triangulate
     q_points = triangulate(q_kpt_pixels, t_kpt_pixels, T_qt) # (N, 3)
     if q_points is None or len(q_points) == 0:
-        print("[initialize] Triangulation returned no 3D points.")
+        log.warning("[initialize] Triangulation returned no 3D points.")
         return None, None, None, False
 
     # Transfer the points to the current coordinate frame [t->q]
@@ -227,7 +227,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     triang_mask = filter_triangulation_points(q_points, t_points, T_qt)
     # If too few points or too small median angle, return None
     if triang_mask is None or triang_mask.sum() < MIN_NUM_TRIANG_POINTS:
-        print("Discarding frame due to insufficient triangulation quality.")
+        log.warning("Discarding frame due to insufficient triangulation quality.")
         return None, None, None, False
             
     # Save the matches

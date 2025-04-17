@@ -3,12 +3,13 @@ import numpy as np
 from src.others.data import Dataset
 from src.others.frame import Frame
 from src.others.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
-from src.others.utils import save_image, delete_subdirectories, transform_points, invert_transform
+from src.others.linalg import transform_points, invert_transform
+from src.others.utils import save_image, delete_subdirectories
 
 from src.initialization.feature_matching import matchFeatures
 from src.initialization.initialization import initialize_pose, triangulate_points
 from src.others.scale import estimate_depth_scale, validate_scale
-from src.tracking.pnp import estimate_relative_pose, triangulateNewPoints
+from src.tracking.pnp import estimate_relative_pose
 from src.tracking.point_association import constant_velocity_model, localPointAssociation
 from src.tracking.point_association import mapPointAssociation, bowPointAssociation
 from src.local_mapping.keyframe import is_keyframe
@@ -21,8 +22,8 @@ from src.backend.g2o.pose_optimization import poseBA
 from src.backend.convisibility_graph import ConvisibilityGraph
 
 
-from config import main_dir, data_dir, scene, results_dir, SETTINGS
-print(f"\t\tUsing dataset: `{scene}` ...")
+from config import main_dir, data_dir, scene, results_dir, SETTINGS, log
+log.info(f"\t\tUsing dataset: `{scene}` ...")
 
 
 """
@@ -81,7 +82,7 @@ def main():
     while not data.finished():
         # Advance the iteration
         i+=1
-        print(f"\n\tIteration: {i} / {data.length()}")
+        log.info(f"\n\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
         t, img, gt_pose = data.get()
@@ -92,7 +93,7 @@ def main():
 
         # Iteration #0
         if t_frame.id == 0:
-            print("First iteration)")
+            log.info("First iteration)")
             pose = gt_pose
             assert np.all(np.eye(4) - pose < 1e-6)
 
@@ -111,7 +112,7 @@ def main():
         else:                    
             # ########### Initialization ###########
             if not is_initialized:
-                print("Initialization)")
+                log.info("Initialization)")
                 num_tracking_fails = 0
 
                 # Feature matching
@@ -119,13 +120,13 @@ def main():
 
                 # Check if there are enough matches
                 if len(matches) < SETTINGS["matches"]["min"]:
-                    print("Not enough matches!")
+                    log.info("Not enough matches!")
                     continue
 
                 # Extract the initial pose using the Essential or Homography matrix (2d-2d)
                 T_qt, is_initialized = initialize_pose(q_frame, t_frame)
                 if not is_initialized:
-                    print("Pose initialization failed!")
+                    log.info("Pose initialization failed!")
                     continue
                 assert np.linalg.norm(T_qt[:3, 3]) - 1 < 1e-6
                 T_t2q = invert_transform(T_qt)
@@ -156,7 +157,7 @@ def main():
                 # Triangulate the 3D points using the initial pose
                 t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, scale)
                 if not is_initialized:
-                    print("Triangulation failed!")
+                    log.info("Triangulation failed!")
                     continue
 
                 # Transfer the points to the world frame
@@ -191,7 +192,7 @@ def main():
                     
             # ########### Tracking ###########
             else:
-                print("Tracking)")    
+                log.info("Tracking)")    
                 if tracking_success:
                     # ########### Track from Previous Frame ###########
                     # Predict the new pose based on a constant velocity model
@@ -200,10 +201,10 @@ def main():
                     # Match these map points with the current frame
                     map_t_pairs = localPointAssociation(map, t_frame, T_w2t, theta=15)
                     if len(map_t_pairs) < MIN_ASSOCIATIONS:
-                        print(f"Scale-based Point association failed! Only {len(map_t_pairs)} matches found!")
+                        log.info(f"Scale-based Point association failed! Only {len(map_t_pairs)} matches found!")
                         map_t_pairs = localPointAssociation(map, t_frame, T_w2t, search_window=SEARCH_WINDOW_SIZE)
                         if len(map_t_pairs) < MIN_ASSOCIATIONS:
-                            print(f"Window-based Point association failed! Only {len(map_t_pairs)} matches found!")
+                            log.info(f"Window-based Point association failed! Only {len(map_t_pairs)} matches found!")
                             is_initialized = False
                             tracking_success = False
                             continue
@@ -219,7 +220,7 @@ def main():
                     tracking_success = True
                 else:
                     # ########### Relocalization ###########
-                    print("Performing Relocalization!")
+                    log.info("Performing Relocalization!")
 
                     # Compute the BOW representation of the keyframe
                     t_frame.compute_bow(vocab, bow_db)
@@ -228,7 +229,7 @@ def main():
                     kf_candidate_ids = query_recognition_candidate(t_frame, bow_db)
 
                     # Iterate over all candidates
-                    print(f"Iterating over {len(kf_candidate_ids)} keyframe candidates!")
+                    log.info(f"Iterating over {len(kf_candidate_ids)} keyframe candidates!")
                     for j, kf_id in enumerate(kf_candidate_ids):
                         # Extract the candidate keyframe
                         cand_frame = keyframes[kf_id]
@@ -237,7 +238,7 @@ def main():
                         # Estimate the new world pose using PnP (3d-2d)
                         T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs)
                         if T_w2t is not None:
-                            print(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
+                            log.info(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
 
                             # Temporarily set the candidate frame as keyframe
                             keyframes[i] = cand_frame
@@ -258,7 +259,7 @@ def main():
                         continue
                 
                 # ########### Track Local Map ###########
-                print("Tracking local map...")
+                log.info("Tracking local map...")
 
                 # Extract a local map from the map
                 local_map = cgraph.create_local_map()
@@ -273,7 +274,7 @@ def main():
                 ba.optimize()
     
                 # ########### New Keyframe Decision ###########
-                print("Checking for Keyframe...")
+                log.info("Checking for Keyframe...")
                 # Check if this t_frame is a keyframe
                 T_w2q = invert_transform(q_frame.pose)
                 T_t2w = invert_transform(T_w2t)
@@ -297,7 +298,7 @@ def main():
                     save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
     
                 # ########### New Map Point Creation ###########
-                print("Creating New Map Points...")
+                log.info("Creating New Map Points...")
 
                 # Create new map points
                 map.create_points(cgraph, t_frame, keyframes, bow_db)

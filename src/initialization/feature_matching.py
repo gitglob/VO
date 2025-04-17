@@ -5,7 +5,7 @@ from src.others.frame import Frame
 from src.others.filtering import filterMatches
 from src.others.visualize import plot_matches
 
-from config import results_dir, SETTINGS
+from config import results_dir, SETTINGS, log
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -24,7 +24,7 @@ def matchFeaturesXG(q_frame: Frame, t_frame: Frame, stage: str):
         queryIdx: The index of the descriptor in the query set (first image).
         imgIdx: The index of the image (if multiple images are being used).
     """
-    print(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
+    log.info(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
 
     # Create BFMatcher object
     index_params = dict(algorithm=6,   # FLANN_INDEX_LSH
@@ -56,7 +56,7 @@ def matchFeaturesXG(q_frame: Frame, t_frame: Frame, stage: str):
             good_matches.append(m)
 
     if debug:
-        print(f"\t Xiang Gao match ratio's ratio filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+        log.info(f"\t Xiang Gao match ratio's ratio filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
     # Next, ensure uniqueness by keeping only the best match per train descriptor.
     unique_matches = {}
@@ -68,7 +68,7 @@ def matchFeaturesXG(q_frame: Frame, t_frame: Frame, stage: str):
     matches = list(unique_matches.values())
 
     if debug:
-        print(f"\t Uniqueness filtered {len(good_matches) - len(matches)}/{len(good_matches)} matches!")
+        log.info(f"\t Uniqueness filtered {len(good_matches) - len(matches)}/{len(good_matches)} matches!")
 
     # 3) **Propagate keypoint IDs**
     propagate_keypoints(q_frame, t_frame, matches)
@@ -77,7 +77,7 @@ def matchFeaturesXG(q_frame: Frame, t_frame: Frame, stage: str):
     q_frame.set_matches(t_frame.id, matches, "query")
     t_frame.set_matches(q_frame.id, matches, "train")
     if debug:
-        print(f"\t{len(matches)} matches left!")
+        log.info(f"\t{len(matches)} matches left!")
             
     # Save the matches
     if debug:
@@ -97,7 +97,7 @@ def matchFeatures(q_frame: Frame, t_frame: Frame, stage: str):
         imgIdx: The index of the image (if multiple images are being used).
     """
     if debug:
-        print(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
+        log.info(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
 
     # Create BFMatcher object
     matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
@@ -119,7 +119,7 @@ def matchFeatures(q_frame: Frame, t_frame: Frame, stage: str):
     q_frame.set_matches(t_frame.id, matches, "query")
     t_frame.set_matches(q_frame.id, matches, "train")
     if debug:
-        print(f"\t{len(matches)} matches left!")
+        log.info(f"\t{len(matches)} matches left!")
             
     # Save the matches
     if debug:

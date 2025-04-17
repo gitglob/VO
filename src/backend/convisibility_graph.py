@@ -2,7 +2,7 @@ import numpy as np
 
 from src.others.frame import Frame
 from src.local_mapping.local_map import Map
-from config import SETTINGS
+from config import SETTINGS, log
 
 
 THETA_MIN = SETTINGS["convisibility"]["min_common_edges"]
@@ -76,13 +76,13 @@ class ConvisibilityGraph(Graph):
             map_points (iterable): Collection of map point identifiers observed in the keyframe.
         """
         if keyframe.id in self.nodes.keys():
-            print(f"Keyframe {keyframe.id} already exists!")
+            log.warning(f"Keyframe {keyframe.id} already exists!")
             return
         
         # Store the new keyframe observations (convert to set for easy intersection)
         kf_map_pt_ids = map.get_frustum_point_ids(keyframe)
         if len(kf_map_pt_ids) == 0:
-            print(f"Keyframe {keyframe.id} observes 0 map points!")
+            log.info(f"Keyframe {keyframe.id} observes 0 map points!")
             return
         self._add_node(keyframe.id, kf_map_pt_ids)
         self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
@@ -235,7 +235,7 @@ class ConvisibilityGraph(Graph):
             keyframe.id: The identifier of the keyframe to be removed.
         """
         if kf_id not in self.nodes:
-            print(f"Keyframe {kf_id} does not exist.")
+            log.warning(f"Keyframe {kf_id} does not exist.")
             return
         
         self._remove_node(kf_id)
@@ -295,7 +295,7 @@ class ConvisibilityGraph(Graph):
             weight (int): The weight (e.g., number of common observations) for the loop closure edge.
         """
         if keyframe_id1 not in self.nodes or keyframe_id2 not in self.nodes:
-            print("One or both keyframes do not exist.")
+            log.warning("One or both keyframes do not exist.")
             return
         
         edge_id = tuple(sorted((keyframe_id1, keyframe_id2)))
@@ -308,18 +308,18 @@ class ConvisibilityGraph(Graph):
         """
         Prints the current covisibility graph, spanning tree, loop closure edges, and the computed essential graph.
         """
-        print("=== Covisibility Graph Edges ===")
+        log.info("=== Covisibility Graph Edges ===")
         for edge, weight in self.edges.items():
-            print(f"{edge}: {weight}")
+            log.info(f"{edge}: {weight}")
         
-        print("\n=== Spanning Tree Edges ===")
+        log.info("\n=== Spanning Tree Edges ===")
         for edge, weight in self.spanning_tree.edges.items():
-            print(f"{edge}: {weight}")
+            log.info(f"{edge}: {weight}")
         
-        print("\n=== Loop Closure Edges ===")
+        log.info("\n=== Loop Closure Edges ===")
         for edge, weight in self.loop_closure_edges.items():
-            print(f"{edge}: {weight}")
+            log.info(f"{edge}: {weight}")
         
-        print("\n=== Essential Graph Edges ===")
+        log.info("\n=== Essential Graph Edges ===")
         for edge, weight in self.essential_graph.edges.items():
-            print(f"{edge}: {weight}")
+            log.info(f"{edge}: {weight}")

@@ -4,7 +4,7 @@ import cv2
 from cv2 import DMatch
 from src.others.visualize import plot_keypoints
 
-from config import results_dir, SETTINGS
+from config import results_dir, SETTINGS, log
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -167,7 +167,7 @@ class Frame():
         # The histogram is typically a NumPy array of shape (1, vocab_size)
         self.bow_hist = bow_extractor.compute(self.img, self.keypoints)
         if self.bow_hist is None:
-            print(f"Frame {self.id}: No BoW histogram computed!")
+            log.warning(f"Frame {self.id}: No BoW histogram computed!")
             return
         
         ## This next step would normally not be needed if we used a SOTA vBoW

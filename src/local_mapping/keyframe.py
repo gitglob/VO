@@ -1,7 +1,7 @@
 import numpy as np
 from src.others.frame import Frame
 from src.local_mapping.local_map import Map
-from config import SETTINGS
+from config import SETTINGS, log
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -32,9 +32,9 @@ def is_keyframe(t_frame: Frame, keyframes: set[Frame], local_map: Map):
     cond4 = common_features_ratio < 0.9
     
     if cond1 and cond2 and cond3 and cond4:
-        print("\t\t Keyframe!")
+        log.info("\t\t Keyframe!")
     else:
-        print("\t\t Not a keyframe!")
+        log.info("\t\t Not a keyframe!")
 
     return is_keyframe
 

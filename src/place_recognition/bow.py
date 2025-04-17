@@ -3,7 +3,7 @@ from typing import Literal
 from pathlib import Path
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from config import SETTINGS
+from config import SETTINGS, log
 from src.others.frame import Frame
 
 
@@ -26,7 +26,7 @@ def query_recognition_candidate(frame: Frame, database: list):
     Otherwise, returns None.
     """
     if frame.bow_hist is None:
-        print("No BoW descriptor computed for the new image.")
+        log.warning("No BoW descriptor computed for the new image.")
         return None
 
     candidates_ids = set()
@@ -41,17 +41,17 @@ def query_recognition_candidate(frame: Frame, database: list):
 
         # Use cosine similarity: higher score indicates greater similarity.
         score = cosine_similarity(frame.bow_hist, entry["hist"])[0][0]
-        print(f"Comparing to frame {entry['frame_id']}, similarity score: {score:.3f}")
+        log.info(f"Comparing to frame {entry['frame_id']}, similarity score: {score:.3f}")
         if score > best_similarity:
             best_similarity = score
             best_match_id = entry["frame_id"]
 
         # Find recognition candidates_ids
         if score > SIM_THRESHOLD:
-            print(f"Recognition candidate: Frame {entry['frame_id']} with similarity {best_similarity:.3f}")
+            log.info(f"Recognition candidate: Frame {entry['frame_id']} with similarity {best_similarity:.3f}")
             candidates_ids.add(entry["frame_id"])
 
     if len(candidates_ids) == 0:
-        print(f"Recognition candidate not found! Keyframe {best_match_id} with similarity: {best_similarity:.3f}")
+        log.warning(f"Recognition candidate not found! Keyframe {best_match_id} with similarity: {best_similarity:.3f}")
 
     return candidates_ids

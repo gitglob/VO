@@ -3,7 +3,7 @@ import cv2
 from src.others.scale import get_scale_invariance_limits
 from src.others.visualize import plot_reprojection
 
-from config import results_dir, SETTINGS, K
+from config import results_dir, SETTINGS, K, log
 
 debug = SETTINGS["generic"]["debug"]
 LOWE_RATIO = SETTINGS["matches"]["lowe_ratio"]
@@ -23,7 +23,7 @@ def filterMatches(matches):
             good_matches.append(m)
 
     if debug:
-        print(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
     # Next, ensure uniqueness by keeping only the best match per train descriptor.
     unique_matches = {}
@@ -36,7 +36,7 @@ def filterMatches(matches):
     unique_matches = list(unique_matches.values())
 
     if debug:
-        print(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
 
     return unique_matches
 
@@ -62,21 +62,21 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H')
         
     if num_inliers_E == 0 and num_inliers_H == 0:
-        print("0 Inliers. All keypoint pairs yield errors > threshold..")
+        log.warning("0 Inliers. All keypoint pairs yield errors > threshold..")
         return None, None, None
     
     ## Decide which matrix to use based on the ratio of inliers
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
     if debug:
-        print(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio}")
+        log.info(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio}")
 
     use_homography = (ratio > 0.45)
     if debug:
-        print(f"\t\t Using {'Homography' if use_homography else 'Essential'} Matrix...")
+        log.info(f"\t\t Using {'Homography' if use_homography else 'Essential'} Matrix...")
 
     epipolar_constraint_mask = mask_H if use_homography else mask_E
     if debug:
-        print(f"\t\t Epipolar Constraint filtered {len(q_kpt_pixels) - epipolar_constraint_mask.sum()}/{len(q_kpt_pixels)} matches!")
+        log.info(f"\t\t Epipolar Constraint filtered {len(q_kpt_pixels) - epipolar_constraint_mask.sum()}/{len(q_kpt_pixels)} matches!")
 
     M = H if use_homography else E
 
@@ -215,7 +215,7 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
     t_points = t_points[cheirality_mask]
     q_points = q_points[cheirality_mask]
     if debug:
-        print(f"\t\t Cheirality check filtered {num_points - cheirality_mask.sum()}/{num_points} points!")
+        log.info(f"\t\t Cheirality check filtered {num_points - cheirality_mask.sum()}/{num_points} points!")
     if cheirality_mask.sum() == 0:
         return None
 
@@ -257,7 +257,7 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
 
     # Check conditions to decide whether to discard
     if debug:
-        print(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{cheirality_mask.sum()} points!")
+        log.info(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{cheirality_mask.sum()} points!")
 
     # Filter out points with very high angle compared to the median
     median_angle = np.median(filtered_angles)
@@ -267,7 +267,7 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
 
     # Check conditions to decide whether to discard
     if debug:
-        print(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points!",
+        log.info(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points!",
               f"Median angle: {median_angle:.3f} deg.")
 
     return triang_mask # (N,)
@@ -309,7 +309,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, save_path):
 
     num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
     if debug:
-        print(f"\t\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
+        log.info(f"\t\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
 
     # Debugging visualization
     if debug:
@@ -341,6 +341,6 @@ def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
 
     # Check conditions to decide whether to discard
     if debug:
-        print(f"\t\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
+        log.info(f"\t\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
 
     return scale_mask
