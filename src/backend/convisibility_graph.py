@@ -81,7 +81,7 @@ class ConvisibilityGraph(Graph):
             log.warning(f"[Convisibility Graph] Keyframe {keyframe.id} already exists!")
             return
         
-        # Store the new keyframe observations (convert to set for easy intersection)
+        # Store the new keyframe observations
         kf_map_pt_ids = map.get_frustum_point_ids(keyframe)
         if len(kf_map_pt_ids) == 0:
             log.info(f"[Convisibility Graph] Keyframe {keyframe.id} observes 0 map points!")
@@ -151,25 +151,7 @@ class ConvisibilityGraph(Graph):
                 connected_kf_ids.add(kf1_id)
 
         return connected_kf_ids
-
-    def get_connected_frames_and_their_points(self, kf_id: int) -> tuple[set[int], set[int]]:
-        """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
-        # Keep the connected nodes and points
-        connected_kf_ids = set()
-        connected_kf_point_ids = set()
-        # Iterate over all the edges
-        for (kf1_id, kf2_id) in self.edges.keys():
-            # Check if this node is part of this edge
-            # If it is, the other node and its points are of interest
-            if kf1_id == kf_id:
-                connected_kf_ids.add(kf2_id)
-                connected_kf_point_ids.add(self.nodes[kf2_id])
-            elif kf2_id == kf_id:
-                connected_kf_ids.add(kf1_id)
-                connected_kf_point_ids.add(self.nodes[kf1_id])
-
-        return connected_kf_ids, connected_kf_point_ids
-    
+   
     def get_frames_that_observe(self, pid: int) -> set[int]:
         """Returns the keyframes that observe a specific point"""
         observing_kf_ids = set()
@@ -213,8 +195,26 @@ class ConvisibilityGraph(Graph):
 
         return ref_frame_id
     
+    def get_connected_frames_and_their_points(self, kf_id: int) -> tuple[set[int], set[int]]:
+        """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
+        # Keep the connected nodes and points
+        connected_kf_ids = set()
+        connected_kf_point_ids = set()
+        # Iterate over all the edges
+        for (kf1_id, kf2_id) in self.edges.keys():
+            # Check if this node is part of this edge
+            # If it is, the other node and its points are of interest
+            if kf1_id == kf_id:
+                connected_kf_ids.add(kf2_id)
+                connected_kf_point_ids.add(self.nodes[kf2_id])
+            elif kf2_id == kf_id:
+                connected_kf_ids.add(kf1_id)
+                connected_kf_point_ids.add(self.nodes[kf1_id])
+
+        return connected_kf_ids, connected_kf_point_ids
+    
     def get_neighbor_frames_and_their_points(self, kf_ids: set) -> tuple[set[int], set[int]]:
-        """Returns all the neighboring keyframes"""
+        """Returns all the neighboring keyframes K2 of a set of keyframes K1, along with their points"""
         neighbors = set()
         neighbor_points = set()
         # Iterate over all the edges
@@ -257,7 +257,7 @@ class ConvisibilityGraph(Graph):
         # Note: In a fully featured system you might want to re-compute or update the spanning tree
         # to ensure full connectivity, but for simplicity we are only removing associated edges here.
 
-    def create_local_map(self, frame: Frame, map: Map):
+    def create_local_map(self, frame: Frame, map: Map, map_t_pairs: set):
         """
         Projects the map into a given frame and returns a local map.
         This local map contains: 
@@ -265,20 +265,30 @@ class ConvisibilityGraph(Graph):
         - The neighboring frames of K1 in the convisibility graph -> K2
         - A reference frame Kref in K1 which shares the most points with the current frame
         """
-        # Find the points of the current frame
-        frame_point_ids = self.get_frustum_point_ids(frame.id)
-
         # Find the frames that share map points and their points
-        K1_frame_ids, K1_point_ids = self.get_connected_frames_and_their_points(frame.id)
+        K1_frame_ids = set()
+        # Iterate over all the matched map points
+        for fid, (pid, dist) in map_t_pairs.items():
+            point = map.points[pid]
+            # Iterate over all the point observations
+            for obs in point.observations:
+                # Keep the frame ids that are different than the current frame
+                fid = obs["keyframe"].id
+                if fid != frame.id:
+                    K1_frame_ids.add(fid)
+        # Find the points of the K1 frames
+        K1_point_ids = set()
+        for fid in K1_frame_ids:
+            K1_point_ids.update(self.nodes[fid])
 
         # Find neighboring frames to K1 and their points
-        K2_frame_ids, K2_point_ids = self.get_neighbor_frames_and_their_points(frame.id)
+        K2_frame_ids, K2_point_ids = self.get_neighbor_frames_and_their_points(K1_frame_ids)
 
         # Find a reference frame
         ref_frame_id = self.get_reference_frame(frame.id)
 
         # Merge the point ids
-        local_map_point_ids = K1_point_ids + K2_point_ids
+        local_map_point_ids = K1_point_ids.union(K2_point_ids)
 
         # Create a local map with the K1 and K2 points
         local_map = Map(ref_frame_id)

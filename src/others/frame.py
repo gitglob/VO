@@ -18,10 +18,13 @@ class orbFeature():
         self.kpt = kpt
         self.desc = desc
         self.matched = False
+        self.id = kpt.class_id
 
-    @property
-    def id(self):
-        return self.kpt.class_id
+    def copy(self, new_id=None, matched=None):
+        feat = orbFeature(self.kpt, self.desc)
+        feat.matched = matched if matched else self.matched
+        feat.id = new_id if new_id else self.id
+        return feat
 
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
@@ -85,6 +88,10 @@ class Frame():
         self.scale_factors = np.ones(levels)
         for i in range (1, len(self.scale_factors)):
             self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
+
+    def match_feature(self, old_kpt_id: int, new_kpt_id: int):
+        self.features[new_kpt_id] = self.features[old_kpt_id].copy(new_id=new_kpt_id)
+        del self.features[old_kpt_id]
 
     def get_features_at_level(self, level: int) -> tuple[list, list]:
         """Returns the feature ids of a specific ORB scale level"""

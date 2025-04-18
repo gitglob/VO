@@ -188,12 +188,12 @@ def main():
                     T_w2t = constant_velocity_model(t, keyframes)
 
                     # Match these map points with the current frame
-                    map_t_pairs = localPointAssociation(map, t_frame, T_w2t, theta=15)
-                    if len(map_t_pairs) < MIN_ASSOCIATIONS:
-                        log.info(f"Scale-based Point association failed! Only {len(map_t_pairs)} matches found!")
-                        map_t_pairs = localPointAssociation(map, t_frame, T_w2t, search_window=SEARCH_WINDOW_SIZE)
-                        if len(map_t_pairs) < MIN_ASSOCIATIONS:
-                            log.info(f"Window-based Point association failed! Only {len(map_t_pairs)} matches found!")
+                    t_map_pairs = localPointAssociation(map, t_frame, T_w2t, theta=15)
+                    if len(t_map_pairs) < MIN_ASSOCIATIONS:
+                        log.warning(f"Scale-based Point association failed! Only {len(t_map_pairs)} matches found!")
+                        t_map_pairs = localPointAssociation(map, t_frame, T_w2t, search_window=SEARCH_WINDOW_SIZE)
+                        if len(t_map_pairs) < MIN_ASSOCIATIONS:
+                            log.warning(f"Window-based Point association failed! Only {len(t_map_pairs)} matches found!")
                             is_initialized = False
                             tracking_success = False
                             continue
@@ -223,9 +223,9 @@ def main():
                         # Extract the candidate keyframe
                         cand_frame = keyframes[kf_id]
                         # Perform point association of its map points with the current frame
-                        map_t_pairs = bowPointAssociation(map, cand_frame, t_frame, cgraph)
+                        t_map_pairs = bowPointAssociation(map, cand_frame, t_frame, cgraph)
                         # Estimate the new world pose using PnP (3d-2d)
-                        T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame, map_t_pairs)
+                        T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame, t_map_pairs)
                         if T_w2t is not None:
                             log.info(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
 
@@ -251,15 +251,15 @@ def main():
                 log.info("Tracking local map...")
 
                 # Extract a local map from the map
-                local_map = cgraph.create_local_map()
+                local_map = cgraph.create_local_map(t_frame, map, t_map_pairs)
 
                 # Project the local map to the frame and search more correspondances
-                map_t_pairs = mapPointAssociation(map_t_pairs, local_map, t_frame)
+                t_map_pairs = mapPointAssociation(t_map_pairs, local_map, t_frame)
 
                 # Optimize the camera pose with all the map points found in the frame
                 ba = poseBA(verbose=debug)
                 ba.add_frame(t_frame)
-                ba.add_observations(map, map_t_pairs)
+                ba.add_observations(map)
                 ba.optimize()
     
                 # ########### New Keyframe Decision ###########

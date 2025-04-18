@@ -230,7 +230,7 @@ def localPointAssociation(map: Map,
         pairs: A list of tuples (map_idx, frame_idx) indicating the association of map points
                to current frame keypoints.
     """
-    pairs = []
+    matched_features = {}
 
     # Loop over all map points
     for pid, map_point in map.points.items():
@@ -246,13 +246,14 @@ def localPointAssociation(map: Map,
         
         # Collect candidate current frame keypoints whose pixel coordinates fall within 
         # a window around the predicted pixel
-        candidates = []
-        for kp in t_frame.keypoints:
-            radius = search_window // 2 if search_window else theta * t_frame.scale_factors[kp.octave]
-            kp_pt = kp.pt
+        candidates = set()
+        for kpt_id, feat in t_frame.features.items():
+            kpt = feat.kpt
+            radius = search_window // 2 if search_window else theta * t_frame.scale_factors[kpt.octave]
+            kp_pt = kpt.pt
             if (abs(kp_pt[0] - u) <= radius and
                 abs(kp_pt[1] - v) <= radius):
-                candidates.append(kp.class_id)
+                candidates.add(kpt_id)
         
         # If no keypoints are found in the window, skip to the next map point.
         if not candidates:
@@ -271,19 +272,24 @@ def localPointAssociation(map: Map,
         
         # Accept the match only if the best distance is below the threshold.
         if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
-            pairs.append((map_point.id, best_feature_id))
-            t_frame.features[best_feature_id].matched = True
-            
-    # Save the matches
+            # Make sure that we only keep 1 match per frame pixel
+            if best_feature_id not in matched_features.keys() or best_dist < matched_features[best_feature_id][1]:
+                matched_features[best_feature_id] = (map_point.id, best_dist)
+                
+    # Update the frame matches
+    for feat_id, (pid, _) in matched_features.items():
+        t_frame.match_feature(feat_id, pid)
+
+    # Save the matched points
     if debug:
         match_save_path = results_dir / "matches/tracking/point_assocation/local" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.features[p[1]].kpt.pt for p in pairs], dtype=np.float64)
+        t_pxs = np.array([t_frame.features[pid].kpt.pt for (pid, _) in matched_features.values()], dtype=np.float64)
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
     
     if debug:
-        log.info(f"\t Found {len(pairs)} Point Associations!")
+        log.info(f"\t Found {len(matched_features)} Point Associations!")
 
-    return pairs
+    return matched_features
 
 def globalPointAssociation(map: Map, t_frame: Frame):
     """
