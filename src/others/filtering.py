@@ -68,7 +68,7 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     ## Decide which matrix to use based on the ratio of inliers
     ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
     if debug:
-        log.info(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio}")
+        log.info(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio:.2f}")
 
     use_homography = (ratio > 0.45)
     if debug:
@@ -84,7 +84,7 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
 
 def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E'):
     """
-    Computes the symmetric transfer error for a set of corresponding keypoints using
+    Computes the symmetric transfer error (in pixels) for a set of corresponding keypoints using
     either an Essential matrix or a Homography matrix. This function is used to evaluate 
     how well the estimated transformation aligns the corresponding keypoints between two images.
 
@@ -185,23 +185,9 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
 
 ############################### Triangulation ###############################
 
-def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray, 
-                                R: np.ndarray, t: np.ndarray):
-    """
-    Filter out 3D points that:
-     1. Lie behind the camera planes
-     2. Have a small triangulation angle
-
-    t_points : (N, 3)
-    R, t      : the rotation and translation from q_cam to t_cam
-    Returns:   valid_angles_mask (bool array of shape (N,)),
-               filtered_points_3d (N_filtered, 3) or (None, None)
-    """
-    # -----------------------------------------------------
-    # (1) Positive-depth check in both cameras
-    # -----------------------------------------------------
+def filter_cheirality(q_points: np.ndarray, t_points: np.ndarray):
+    """Filter out 3D points that lie behind the camera planes"""
     num_points = len(t_points)
-    triang_mask = np.ones(num_points, dtype=bool)
 
     # t_points is in the query and train camera => check Z > 0
     Z1 = q_points[:, 2]
@@ -209,15 +195,26 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
 
     # We'll mark True if both Z1, Z2 > 0
     cheirality_mask = (Z1 > 0) & (Z2 > 0)
-    triang_mask[triang_mask==True] = cheirality_mask
 
-    # If no point remains, triangulation failed
-    t_points = t_points[cheirality_mask]
-    q_points = q_points[cheirality_mask]
     if debug:
-        log.info(f"\t\t Cheirality check filtered {num_points - cheirality_mask.sum()}/{num_points} points!")
+        log.info(f"\t\t Cheirality check filtered {sum(~cheirality_mask)}/{num_points} points!")
     if cheirality_mask.sum() == 0:
         return None
+    
+    return cheirality_mask
+    
+def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray):
+    """
+    Filter out 3D points that have a small triangulation angle
+
+    t_points : (N, 3)
+    R, t      : the rotation and translation from q_cam to t_cam
+    Returns:   valid_angles_mask (bool array of shape (N,)),
+               filtered_points_3d (N_filtered, 3) or (None, None)
+    """
+    num_points = len(t_points)
+    R = T[:3, :3]
+    t = T[:3, 3]
 
     # -----------------------------------------------------
     # (2) Triangulation angle check
@@ -252,25 +249,13 @@ def filter_triangulation_points(q_points: np.ndarray, t_points: np.ndarray,
 
     # Filter out points with too small triangulation angle
     valid_angles_mask = angles >= SETTINGS["triangulation"]["min_angle"]
-    filtered_angles = angles[valid_angles_mask]
-    triang_mask[triang_mask==True] = valid_angles_mask
 
     # Check conditions to decide whether to discard
     if debug:
-        log.info(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{cheirality_mask.sum()} points!")
+        log.info(f"\t\t Median Angle: {np.median(angles):.2f}")
+        log.info(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{num_points} points!")
 
-    # Filter out points with very high angle compared to the median
-    median_angle = np.median(filtered_angles)
-    max_med_angles_mask = filtered_angles / median_angle < SETTINGS["triangulation"]["max_ratio_between_max_and_med_angle"]
-    filtered_angles = filtered_angles[max_med_angles_mask]
-    triang_mask[triang_mask==True] = max_med_angles_mask
-
-    # Check conditions to decide whether to discard
-    if debug:
-        log.info(f"\t\t Max/Med Angles check filtered {sum(~max_med_angles_mask)}/{valid_angles_mask.sum()} points!",
-              f"Median angle: {median_angle:.3f} deg.")
-
-    return triang_mask # (N,)
+    return valid_angles_mask # (N,)
 
 def filter_by_reprojection(matches, q_frame, t_frame, R, t, save_path):
     """
@@ -299,8 +284,9 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, save_path):
     q_points_3d = (q_points_4d[:3] / q_points_4d[3]).T
 
     # Reproject points into the second (current) camera
-    t_points = (R @ q_points_3d.T + t).T
-    points_proj2, _ = cv2.projectPoints(t_points, np.zeros(3), np.zeros(3), None)
+    rvec, _ = cv2.Rodrigues(R)
+    tvec = t.reshape(3,1) 
+    points_proj2, _ = cv2.projectPoints(q_points_3d, rvec, tvec, K, None)
     points_proj_px = points_proj2.reshape(-1, 2)
 
     # Compute reprojection errors

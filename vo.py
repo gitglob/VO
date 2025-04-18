@@ -82,7 +82,8 @@ def main():
     while not data.finished():
         # Advance the iteration
         i+=1
-        log.info(f"\n\tIteration: {i} / {data.length()}")
+        log.info("")
+        log.info(f"\tIteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
         t, img, gt_pose = data.get()
@@ -113,8 +114,6 @@ def main():
             # ########### Initialization ###########
             if not is_initialized:
                 log.info("Initialization)")
-                num_tracking_fails = 0
-
                 # Feature matching
                 matches = matchFeatures(q_frame, t_frame, "initialization/0-raw") # (N) : N < M
 
@@ -140,9 +139,6 @@ def main():
             
                 # Remove scale ambiguity
                 T_t2q[:3, 3] *= scale
-                # if not is_keyframe(T_t2q):
-                #     is_initialized = False
-                #     continue
 
                 # Apply the scale to the pose and validate it
                 T_t2w = T_q2w @ T_t2q
@@ -150,9 +146,6 @@ def main():
                 # Set the pose in the current frame
                 t_frame.set_pose(T_t2w)
                 t_frame.set_keyframe(True)
-
-                # Add the keyframe to the convisibility graph
-                cgraph.add_keyframe(t_frame, map)
 
                 # Triangulate the 3D points using the initial pose
                 t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, scale)
@@ -165,6 +158,9 @@ def main():
 
                 # Push the triangulated points to the map
                 map.add_points(t_frame, points_w, t_kpts, t_descriptors)
+
+                # Add the keyframe to the convisibility graph
+                cgraph.add_keyframe(t_frame, map)
 
                 # Bookkeping
                 times.append(t)
@@ -187,6 +183,7 @@ def main():
                 if ba_success:
                     map.update_landmarks(landmark_ids, landmark_poses)
                     plot_trajectory(keyframes, gt_poses, i, ba_poses=opt_poses)
+                
                 tracking_success = True
                 q_frame = t_frame
                     

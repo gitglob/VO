@@ -15,10 +15,13 @@ H = SETTINGS["camera"]["height"]
 
 class orbFeature():
     def __init__(self, kpt: cv2.KeyPoint, desc: np.ndarray):
-        self.id = kpt.class_id
         self.kpt = kpt
         self.desc = desc
         self.matched = False
+
+    @property
+    def id(self):
+        return self.kpt.class_id
 
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
@@ -37,7 +40,8 @@ class Frame():
         self.relocalization: bool = False    # Whether global relocalization using vBoW was performed
 
         self.bow_hist: np.ndarray = None     # Histogram of visual words (1, vocab_size)
-        self.feature_vector = {}             # Mapping: visual word -> keypoint id
+        self.features: dict = {}             # Mapping: keypoint_id -> ORB feature (keypoint, descriptor)
+        self.feature_vector: dict = {}       # Mapping: visual word -> keypoint id
 
         
         """

@@ -197,7 +197,7 @@ class Map():
         """Returns the points that originated from a given frame"""
         kf_pt_ids = set()
         for kpt in keyframe.keypoints:
-            if kpt.class_id in self.point_ids():
+            if kpt.class_id in self.point_ids:
                 kf_pt_ids.add(kpt.class_id)
 
         return kf_pt_ids

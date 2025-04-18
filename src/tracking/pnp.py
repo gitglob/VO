@@ -5,7 +5,7 @@ from src.initialization.initialization import triangulate
 from src.others.frame import Frame
 from src.others.linalg import transform_points
 from src.others.visualize import plot_matches, plot_reprojection
-from src.others.filtering import filter_triangulation_points, enforce_epipolar_constraint
+from src.others.filtering import filter_cheirality, filter_parallax, enforce_epipolar_constraint
 from src.others.filtering import filter_by_reprojection, filter_scale
 from config import SETTINGS, results_dir, log
 
@@ -237,20 +237,43 @@ def triangulateNewPoints(q_frame: Frame, t_frame: Frame, map: Map):
     # 5. Filter triangulated points for Z<0 and small triang. angle
     # ------------------------------------------------------------------------
 
-    triang_mask = filter_triangulation_points(q_points, t_points, R_qt, t_qt)
-    if triang_mask is None or triang_mask.sum() == 0:
-        return None, None, None, None, None, None, False
-    
+    cheirality_mask = filter_cheirality(q_points, t_points)
+
+    # If too few points or too small median angle, return None
+    if cheirality_mask is None or cheirality_mask.sum():
+        log.warning("Discarding frame after cheirality check.")
+        return None, None, None, False
+            
     # Save the matches
     if debug:
-        match_save_path = results_dir / f"matches/mapping/4-triangulation" / f"{q_frame.id}_{t_frame.id}a.png"
-        plot_matches(matches[~triang_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / f"matches/mapping/4-triangulation" / f"{q_frame.id}_{t_frame.id}b.png"
-        plot_matches(matches[triang_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / "matches/mapping/4-cheirality" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~cheirality_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / "matches/mapping/4-cheirality" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[cheirality_mask], q_frame, t_frame, save_path=match_save_path)
 
-    matches = matches[triang_mask]
-    q_points = q_points[triang_mask]
-    t_points = t_points[triang_mask]
+    matches = matches[cheirality_mask]
+    q_points = q_points[cheirality_mask]
+    t_points = t_points[cheirality_mask]
+
+    parallax_mask = filter_parallax(q_points, t_points, T_qt)
+    q_points = q_points[parallax_mask]
+    t_points = t_points[parallax_mask]
+
+    # If too few points or too small median angle, return None
+    if parallax_mask is None or parallax_mask.sum():
+        log.warning("Discarding frame due to insufficient parallax.")
+        return None, None, None, False
+            
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / "matches/mapping/5-parallax" / f"{q_frame.id}_{t_frame.id}a.png"
+        plot_matches(matches[~parallax_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / "matches/mapping/5-parallax" / f"{q_frame.id}_{t_frame.id}b.png"
+        plot_matches(matches[parallax_mask], q_frame, t_frame, save_path=match_save_path)
+
+    matches = matches[parallax_mask]
+    q_points = q_points[parallax_mask]
+    t_points = t_points[parallax_mask]
 
     # Extract the keypoints and descriptors of the valid triangulated 3d points
     q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])

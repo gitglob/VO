@@ -60,6 +60,7 @@ class ConvisibilityGraph(Graph):
             min_common_points (int): Minimum number of common map points to form an edge in the covisibility graph.
             essential_theta_min (int): Threshold for covisibility edge weight to be included in the Essential Graph.
         """
+        super().__init__()
         # Spanning tree edges: built incrementally when keyframes are added.
         self.spanning_tree = Graph()
         # Essential Graph

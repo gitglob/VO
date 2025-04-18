@@ -29,10 +29,13 @@ def reprojection_error(pxs1, pxs2, T):
     pts1_3d = (pts1_4d[:3] / pts1_4d[3]).T
 
     # Reproject points into the second (current) camera
-    pts1_proj2 = (R @ pts1_3d.T + t).T
+    rvec, _ = cv2.Rodrigues(T[:3, :3])
+    tvec = T[:3, 3] 
+    pts1_proj2, _ = cv2.projectPoints(pts1_3d, rvec, tvec, K, None)
+    pts1_proj2_px = pts1_proj2.reshape(-1, 2)
 
     # Compute reprojection errors
-    errors = np.linalg.norm(pts1_proj2 - pxs2, axis=1)
+    errors = np.linalg.norm(pts1_proj2_px - pxs2, axis=1)
 
     return errors
 

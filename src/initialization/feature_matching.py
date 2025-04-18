@@ -139,14 +139,17 @@ def propagate_keypoints(q_frame: Frame, t_frame: Frame, matches: List[cv2.DMatch
 
         # If the train keypoint has no ID, copy from the query keypoint
         if t_kp.class_id < 0:  # or `t_kp.class_id is None`
+            t_frame.features[q_kp.class_id] = t_frame.features.pop(t_kp.class_id)
             t_kp.class_id = q_kp.class_id
 
         # If the query keypoint has no ID, copy from the train keypoint
-        elif q_kp.class_id <= 0:
+        elif q_kp.class_id < 0:
+            q_frame.features[t_kp.class_id] = q_frame.features.pop(q_kp.class_id)
             q_kp.class_id = t_kp.class_id
 
         # If both have IDs but they differ, pick a strategy (e.g., overwrite one)
         elif q_kp.class_id != t_kp.class_id:
             # Naive approach: unify by assigning query ID to train ID
             # or vice versa. Real SLAM systems often handle merges in a global map.
+            t_frame.features[q_kp.class_id] = t_frame.features.pop(t_kp.class_id)
             t_kp.class_id = q_kp.class_id
