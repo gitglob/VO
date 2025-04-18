@@ -188,7 +188,7 @@ def main():
                     T_w2t = constant_velocity_model(t, keyframes)
 
                     # Match these map points with the current frame
-                    map_t_pairs = localPointAssociation(cgraph, map, t_frame, T_w2t, theta=15)
+                    map_t_pairs = localPointAssociation(map, t_frame, T_w2t, theta=15)
                     if len(map_t_pairs) < MIN_ASSOCIATIONS:
                         log.info(f"Scale-based Point association failed! Only {len(map_t_pairs)} matches found!")
                         map_t_pairs = localPointAssociation(map, t_frame, T_w2t, search_window=SEARCH_WINDOW_SIZE)
@@ -205,7 +205,7 @@ def main():
                     ba.optimize()
 
                     # Bookkeeping
-                    keyframes[i] = cand_frame
+                    keyframes[i] = t_frame
                     tracking_success = True
                 else:
                     # ########### Relocalization ###########

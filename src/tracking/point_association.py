@@ -19,17 +19,17 @@ HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
 
 def constant_velocity_model(t: float, frames: list):
     """Predicts the next pose assuming constant velocity between the last 3 frames"""
-    poses = [f.pose for f in list(frames.values())]
+    frames_list = list(frames.values())
 
     # Find how much time has passed
-    dt_c = t - frames[-1].time
+    dt_c = t - frames_list[-1].time
 
     # Find the previous dr
-    dt_tq = frames[-1].time - frames[-2].time
+    dt_tq = frames_list[-1].time - frames_list[-2].time
 
     # Find the previous relative transformation
-    T_wq = np.linalg.inv(poses[-2])
-    T_tw = poses[-1]
+    T_wq = np.linalg.inv(frames_list[-2].pose)
+    T_tw = frames_list[-1].pose
     T_tq = T_wq @ T_tw
 
     # Use the matrix logarithm to obtain the twist (in se(3)) corresponding to T_rel.
@@ -70,8 +70,12 @@ def project_point(p_w: np.ndarray, T_wc: np.ndarray):
     p_cam_norm = p_cam[:3] / p_cam[2]
     # Project to pixel coordinates.
     p_proj = K @ p_cam_norm
+    u, v, _ = p_proj
+    # Check if the pixel is outside the image boundaries
+    if u < 0 or u > W or v < 0 or v > H:
+        return None
 
-    return (p_proj[0], p_proj[1])
+    return (u, v)
 
 def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: ConvisibilityGraph):
     """
@@ -169,7 +173,7 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
 
     return pairs
 
-def localPointAssociation(cgraph: ConvisibilityGraph, map: Map, 
+def localPointAssociation(map: Map, 
                           t_frame: Frame, 
                           T_wc: np.ndarray, theta: int = None, search_window: int=None):
     """
@@ -228,9 +232,8 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
     """
     pairs = []
 
-    # Loop over all map points that are expected to be in view.
-    frustum_points: set[mapPoint] = cgraph.get_frustum_points(t_frame, map)
-    for map_point in frustum_points:
+    # Loop over all map points
+    for pid, map_point in map.points.items():
         # Project the map point's 3D location into the current frame.
         pred_px = project_point(map_point.pos, T_wc)
         if pred_px is None:
@@ -243,13 +246,13 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
         
         # Collect candidate current frame keypoints whose pixel coordinates fall within 
         # a window around the predicted pixel
-        radius = search_window // 2 if search_window else theta * t_frame.scale_factors[kp.octave]
         candidates = []
-        for kp in enumerate(t_frame.keypoints):
+        for kp in t_frame.keypoints:
+            radius = search_window // 2 if search_window else theta * t_frame.scale_factors[kp.octave]
             kp_pt = kp.pt
             if (abs(kp_pt[0] - u) <= radius and
                 abs(kp_pt[1] - v) <= radius):
-                candidates.append(kp.id)
+                candidates.append(kp.class_id)
         
         # If no keypoints are found in the window, skip to the next map point.
         if not candidates:
@@ -274,7 +277,7 @@ def localPointAssociation(cgraph: ConvisibilityGraph, map: Map,
     # Save the matches
     if debug:
         match_save_path = results_dir / "matches/tracking/point_assocation/local" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.keypoints[p[1]].pt for p in pairs], dtype=np.float64)
+        t_pxs = np.array([t_frame.features[p[1]].kpt.pt for p in pairs], dtype=np.float64)
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
     
     if debug:
