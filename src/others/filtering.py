@@ -6,20 +6,17 @@ from src.others.visualize import plot_reprojection
 from config import results_dir, SETTINGS, K, log
 
 debug = SETTINGS["generic"]["debug"]
-LOWE_RATIO = SETTINGS["matches"]["lowe_ratio"]
-SYM_ERROR_THRESHOLD = SETTINGS["epipolar_constraint"]["symmetric_error_threshold"]
-REPROJECTION_THREHSOLD = SETTINGS["PnP"]["reprojection_threshold"]
 SCALE_FACTOR = SETTINGS["orb"]["scale_factor"]
 N_LEVELS = SETTINGS["orb"]["level_pyramid"]
 min_observations = SETTINGS["orb"]["level_pyramid"]
 
 ############################### Matches ###############################
 
-def filterMatches(matches):
+def filterMatches(matches, lowe_ratio):
     """Filter out matches using Lowe's Ratio Test"""
     good_matches = []
     for m, n in matches:
-        if m.distance < LOWE_RATIO * n.distance:
+        if m.distance < lowe_ratio * n.distance:
             good_matches.append(m)
 
     if debug:
@@ -46,43 +43,37 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     # Compute Essential & Homography matrices
 
     ## Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, 
+                                     cameraMatrix=K, method=cv2.RANSAC, 
+                                     prob=0.999, threshold=1.0)
     mask_E = mask_E.ravel().astype(bool)
 
     ## Compute the Homography Matrix
-    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=1.0)
+    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels,
+                                   method=cv2.RANSAC, 
+                                   ransacReprojThreshold=1.0)
     mask_H = mask_H.ravel().astype(bool)
 
     # Compute symmetric transfer errors & decide which model to use
 
     ## Compute symmetric transfer error for Essential Matrix
-    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E')
+    score_F = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E')
 
     ## Compute symmetric transfer error for Homography Matrix
-    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H')
-        
-    if num_inliers_E == 0 and num_inliers_H == 0:
-        log.warning("0 Inliers. All keypoint pairs yield errors > threshold..")
-        return None, None, None
+    score_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H')
     
     ## Decide which matrix to use based on the ratio of inliers
-    ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
-    if debug:
-        log.info(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio:.2f}")
-
-    use_homography = (ratio > 0.45)
-    if debug:
-        log.info(f"\t\t Using {'Homography' if use_homography else 'Essential'} Matrix...")
-
+    ratio_H = score_H / (score_H + score_F)
+    use_homography = (ratio_H > 0.45)
     epipolar_constraint_mask = mask_H if use_homography else mask_E
-    if debug:
-        log.info(f"\t\t Epipolar Constraint filtered {len(q_kpt_pixels) - epipolar_constraint_mask.sum()}/{len(q_kpt_pixels)} matches!")
-
     M = H if use_homography else E
+    if debug:
+        log.info(f"\t\t Ratio: {ratio_H:.2f}. Using {'Homography' if use_homography else 'Essential'} Matrix...")
+        log.info(f"\t\t Epipolar Constraint filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches!")
 
     return epipolar_constraint_mask, M, use_homography
 
-def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E'):
+def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', T_H = 5.99, T_F = 3.84):
     """
     Computes the symmetric transfer error (in pixels) for a set of corresponding keypoints using
     either an Essential matrix or a Homography matrix. This function is used to evaluate 
@@ -104,8 +95,7 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
     The function then returns the mean error across all valid keypoint pairs and counts how many
     of these pairs have an error below the specified threshold (i.e., inliers).
     """
-    errors = []
-    num_inliers = 0
+    score = 0
 
     if matrix_type == 'E':
         if K is None:
@@ -139,11 +129,14 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
 
             # Compute the perpendicular distances from the points to the lines
             dq = abs(np.dot(qp, q_line_normalized))
+            q_error = dq**2
             dt = abs(np.dot(tp, t_line_normalized))
-            error = dq + dt
-            errors.append(error)
-            if error < SYM_ERROR_THRESHOLD:
-                num_inliers += 1
+            t_error = dt**2
+
+            # Compute the score
+            sq = T_F - q_error if q_error < T_F else 0
+            st = T_F - t_error if t_error < T_F else 0
+            score += sq + st
     elif matrix_type == 'H':
         # For homography, compute the symmetric reprojection error.
         # The Homography matrix in general maps points from the train image to the query image: p1 = H @ p2
@@ -171,17 +164,19 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
             tp_est = tp_est / tp_est[2]
             
             # Compute reprojection errors in both directions (Euclidean distances)
-            d1 = np.linalg.norm(tp - tp_est)
-            d2 = np.linalg.norm(qp - qp_est)
-            error = d1 + d2
-            errors.append(error)
-            if error < SYM_ERROR_THRESHOLD:
-                num_inliers += 1
+            dq = np.linalg.norm(tp - tp_est)
+            q_error = dq**2
+            dt = np.linalg.norm(qp - qp_est)
+            t_error = dt**2
+
+            # Compute the score
+            sq = T_H - q_error if q_error < T_H else 0
+            st = T_H - t_error if t_error < T_H else 0
+            score += sq + st
     else:
         raise ValueError("matrix_type must be either 'E' (essential matrix) or 'H' (homography)")
 
-    mean_error = np.mean(errors) if errors else float('inf')
-    return mean_error, num_inliers
+    return score
 
 ############################### Triangulation ###############################
 
@@ -203,7 +198,7 @@ def filter_cheirality(q_points: np.ndarray, t_points: np.ndarray):
     
     return cheirality_mask
     
-def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray):
+def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray, min_angle: float):
     """
     Filter out 3D points that have a small triangulation angle
 
@@ -215,10 +210,6 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray):
     num_points = len(t_points)
     R = T[:3, :3]
     t = T[:3, 3]
-
-    # -----------------------------------------------------
-    # (2) Triangulation angle check
-    # -----------------------------------------------------
 
     # Camera centers in the coordinate system where camera1 is at the origin.
     # For convenience, flatten them to shape (3,).
@@ -248,7 +239,7 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray):
     angles = np.degrees(np.arccos(cos_angles))  # shape: (N,)
 
     # Filter out points with too small triangulation angle
-    valid_angles_mask = angles >= SETTINGS["triangulation"]["min_angle"]
+    valid_angles_mask = angles >= min_angle
 
     # Check conditions to decide whether to discard
     if debug:
@@ -257,7 +248,7 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray):
 
     return valid_angles_mask # (N,)
 
-def filter_by_reprojection(matches, q_frame, t_frame, R, t, save_path):
+def filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold, save_path):
     """
     Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
 
@@ -291,7 +282,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, save_path):
 
     # Compute reprojection errors
     errors = np.linalg.norm(points_proj_px - t_pxs, axis=1)
-    reproj_mask = errors < REPROJECTION_THREHSOLD
+    reproj_mask = errors < threshold
 
     num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
     if debug:

@@ -1,7 +1,7 @@
 from typing import Literal
 import numpy as np
 import g2o
-from config import SETTINGS
+from config import SETTINGS, log
 from src.backend.convisibility_graph import ConvisibilityGraph
 from src.local_mapping.local_map import Map, mapPoint
 from src.others.frame import Frame
@@ -68,10 +68,10 @@ class BA:
         self.frames = frames
 
         if self.verbose:
-            log.info(f"Adding {len(frames)} poses...")
+            log.info(f"[BA] Adding {len(frames)} poses...")
 
         # Iterate over all poses
-        for i, f in enumerate(frames):
+        for f in frames.values():
             p_id = f.id
             p = f.pose
 
@@ -86,7 +86,7 @@ class BA:
             # We optimize both poses and landmarks, but fix the first pose
             vertex.set_fixed(True)
             if self.verbose:
-                log.info(f"Anchoring pose x({p_id})...")
+                log.info(f"[BA] Anchoring pose x({p_id})...")
             
             # Add the vertex to the graph
             self.optimizer.add_vertex(vertex)
@@ -94,7 +94,7 @@ class BA:
     def add_observations(self, map: Map):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"Adding {map.num_points} landmarks...")
+            log.info(f"[BA] Adding {map.num_points} landmarks...")
 
         # Iterate over all map points
         for i, pt in enumerate(map.points_arr):
@@ -112,7 +112,7 @@ class BA:
 
             # Iterate over all map point observations
             for obs in pt.observations:
-                pose_idx = obs["kf_id"]     # id of keyframe that observed the landmark
+                pose_idx = obs["keyframe"].id  # id of keyframe that observed the landmark
                 kpt = obs["keypoint"]       # keypoint of the observation
                 u, v = kpt.pt               # pixels of the keypoint
 
@@ -155,15 +155,15 @@ class BA:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
         if self.verbose:
-            log.info("Optimizing with g2o...")
+            log.info("[BA] Optimizing with g2o...")
 
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
 
         # Extract the optimized estimates.
-        opt_pose_ids, opt_poses, opt_l_ids, opt_l_pos = self.get_poses_and_landmarks()
+        opt_l_ids, opt_l_pos = self.get_poses_and_landmarks()
 
-        return opt_pose_ids, list(opt_poses), opt_l_ids, list(opt_l_pos), True
+        return opt_l_ids, list(opt_l_pos), True
 
     def finalize(self):
         """
@@ -183,7 +183,7 @@ class BA:
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):
                 frame_id = X_inv(vertex.id())
-                self.frames[frame_id] = vertex.estimate().matrix()
+                self.frames[frame_id].optimize_pose(vertex.estimate().matrix())
             elif isinstance(vertex, g2o.VertexPointXYZ):
                 landmarks[vertex.id()] = vertex.estimate()
 
@@ -203,8 +203,8 @@ class BA:
                 x_node_names.append(f"x{vertex.id()}")
             elif isinstance(vertex, g2o.VertexPointXYZ):
                 l_node_names.append(f"l{vertex.id()}")
-        log.info("\tx nodes in graph:", sorted(x_node_names))
-        log.info("\tl nodes in graph:", sorted(l_node_names))
+        log.info("[BA] \tx nodes in graph:", sorted(x_node_names))
+        log.info("[BA] \tl nodes in graph:", sorted(l_node_names))
 
     def is_key_in_graph(self, key) -> bool:
         """
@@ -373,7 +373,7 @@ class localBA:
         unconnected_kfs_that_see_points = [keyframes[idx] for idx in unconnected_kfs_that_see_points_ids]
 
         if self.verbose:
-            log.info(f"Adding pose {keyframe.id}, {len(connected_kf_ids)} connected ",
+            log.info(f"[BA] Adding pose {keyframe.id}, {len(connected_kf_ids)} connected ",
                   f"and {len(unconnected_kfs_that_see_points)} unconnected poses...")
 
         # Add the main pose
@@ -407,7 +407,7 @@ class localBA:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
         if self.verbose:
-            log.info("Optimizing with g2o...")
+            log.info("[BA] Optimizing with g2o...")
 
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)

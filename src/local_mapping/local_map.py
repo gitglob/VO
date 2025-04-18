@@ -13,7 +13,6 @@ scale_factor = SETTINGS["orb"]["scale_factor"]
 n_levels = SETTINGS["orb"]["level_pyramid"]
 
 MIN_OBSERVATIONS = SETTINGS["map"]["min_observations"]
-MAX_KEYFRAMES_SINCE_LAST_OBS = SETTINGS["map"]["max_keyframes_since_last_observation"]
 MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
 
 W = SETTINGS["camera"]["width"]
@@ -216,7 +215,7 @@ class Map():
         self.points[kpt_id] = p
 
         # if debug:
-        #     log.info(f"Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
+        #     log.info(f"[Map] Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
 
     def add_points(self, 
                    kf: Frame,
@@ -230,7 +229,7 @@ class Map():
         self._kf_counter += 1
 
         if debug:
-            log.info(f"Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
+            log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
 
     def update_points(self, 
                       kf: Frame,
@@ -242,12 +241,12 @@ class Map():
             p.observe(self._kf_counter, kf, keypoints[i], descriptors[i])
 
         if debug:
-            log.info(f"Updating {len(keypoints)} map points.")
+            log.info(f"[Map] Updating {len(keypoints)} map points.")
         
     def update_landmarks(self, point_ids: set, point_positions: List):
         """Updates the 3d positions of given map points"""
         if debug:
-            log.info("Updating landmark positions...")
+            log.info("[Map] Updating landmark positions...")
 
         prev_point_positions = self.point_positions.copy()
         point_ids = np.array(point_ids, dtype=int)
@@ -262,7 +261,7 @@ class Map():
         
         # Update the positions of the landmarks
         for pid, pos in zip(to_update_point_ids, to_update_positions):
-            # log.info(f"Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
+            # log.info(f"[Map] Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
             self.points[pid].pos = pos
 
         # self.show(prev_point_positions, self.point_positions)
@@ -443,7 +442,7 @@ class Map():
             (2) not observed from at least M frames after their creation
         """
         if debug:
-            log.info("Cleaning up map points...")
+            log.info("[Map] Cleaning up map points...")
 
         prev_num_points = self.num_points
         removed_point_ids = []
@@ -480,7 +479,7 @@ class Map():
             del self.points[pid]
 
         if debug:
-            log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
+            log.info(f"[Map] \t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
 
         # Reset the in-view mask
         self._in_view_mask = None

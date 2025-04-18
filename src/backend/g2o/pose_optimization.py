@@ -4,7 +4,7 @@ import g2o
 from config import SETTINGS
 from src.local_mapping.local_map import Map
 from src.others.frame import Frame
-from config import K
+from config import K, log
 
 # Set parameters from the config
 MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
@@ -87,7 +87,7 @@ class poseBA:
         self.frames = frames
 
         if self.verbose:
-            log.info(f"Adding {len(frames)} poses...")
+            log.info(f"[poseBA] Adding {len(frames)} poses...")
 
         # Iterate over all poses
         for f in frames:
@@ -108,7 +108,7 @@ class poseBA:
     def add_observations(self, map: Map, map_t_pairs: list[tuple]):
         """Add landmarks as vertices and reprojection observations as edges based on a pairing map."""
         if self.verbose:
-            log.info(f"Adding {map.num_points} landmarks...")
+            log.info(f"[poseBA] Adding {map.num_points} landmarks...")
 
         # Extract the map point ids
         map_point_ids = {p[1] for p in map_t_pairs}
@@ -160,7 +160,7 @@ class poseBA:
     def add_observations(self, map: Map):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"Adding {map.num_points} landmarks...")
+            log.info(f"[poseBA] Adding {map.num_points} landmarks...")
 
         # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.
@@ -213,7 +213,7 @@ class poseBA:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
         if self.verbose:
-            log.info("Optimizing with g2o...")
+            log.info("[poseBA] Optimizing with g2o...")
 
         # Calculate initial number of edges
         n_edges = self.optimizer.edges()

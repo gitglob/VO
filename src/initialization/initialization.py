@@ -10,7 +10,9 @@ from config import results_dir, SETTINGS, K, log
 
 
 debug = SETTINGS["generic"]["debug"]
-MIN_NUM_TRIANG_POINTS = SETTINGS["triangulation"]["min_num_init_points"]
+MIN_NUM_TRIANG_POINTS = SETTINGS["initialization"]["min_num_triang_points"]
+REPROJECTION_THREHSOLD = SETTINGS["initialization"]["reprojection_threshold"]
+MIN_PARALLAX = SETTINGS["initialization"]["min_parallax"]
 
 
 def initialize_pose(q_frame: Frame, t_frame: Frame):
@@ -27,8 +29,6 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     Args:
         q_frame (Frame): The previous frame.
         t_frame (Frame): The current frame.
-        K (np.ndarray): The camera intrinsic matrix (3x3).
-        debug (bool, optional): If True, saves and visualizes matches.
 
     Returns:
         Tuple[np.ndarray or None, bool]: 
@@ -36,7 +36,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
             - A boolean indicating whether the initialization was successful.
     """
     if debug:
-        log.info(f"Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
+        log.info(f"[Initialization] Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
@@ -55,7 +55,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
 
     epipolar_constraint_mask, M, use_homography = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
     if epipolar_constraint_mask is None:
-        log.warning("[initialize] Failed to apply epipolar constraint..")
+        log.warning("[Initialization] Failed to apply epipolar constraint..")
         return None, False
 
     # Save the matches
@@ -65,8 +65,8 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
         match_save_path = results_dir / f"matches/initialization/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}b.png"
         plot_matches(matches[epipolar_constraint_mask], q_frame, t_frame, save_path=match_save_path)
     matches = matches[epipolar_constraint_mask]
-    inlier_q_pixels = q_kpt_pixels[epipolar_constraint_mask]
-    inlier_t_pixels = t_kpt_pixels[epipolar_constraint_mask]
+    q_kpt_pixels = q_kpt_pixels[epipolar_constraint_mask]
+    t_kpt_pixels = t_kpt_pixels[epipolar_constraint_mask]
 
     # Flag the frame features as matched
     for m in matches:
@@ -83,21 +83,21 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     R, t, reproj_mask = None, None, None
     if not use_homography:
         # Decompose Essential Matrix
-        _, R_est, t_est, mask_pose = cv2.recoverPose(M, inlier_q_pixels, inlier_t_pixels)
-
+        _, R, t, mask_pose = cv2.recoverPose(M, q_kpt_pixels, t_kpt_pixels, K)
+        if R is None:
+            return None, False
+        
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
         if debug:
-            log.info(f"\t\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
-
-        if R_est is not None and t_est is not None and np.any(mask_pose):
-            R, t = R_est, t_est
-            matches = matches[mask_pose]
+            log.info(f"[Initialization] \t\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
+        matches = matches[mask_pose]        
 
         # Reprojection filter
         reproj_mask = filter_by_reprojection(
             matches, q_frame, t_frame,
             R, t,
+            REPROJECTION_THREHSOLD,
             save_path=results_dir / f"matches/initialization/2-reprojection"
         )
     else:
@@ -121,20 +121,15 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
             # Check if points are in front of camera
             front_points = 0
             invK = np.linalg.inv(K)
-            for j in range(len(inlier_q_pixels)):
+            for j in range(len(t_kpt_pixels)):
                 # Current frame pixel in camera coords
-                p_curr_cam = invK @ np.array([*inlier_q_pixels[j], 1.0])  
-                # Previous frame pixel in camera coords
-                p_prev_cam = invK @ np.array([*inlier_t_pixels[j], 1.0])
+                p_t_cam = invK @ np.array([*t_kpt_pixels[j], 1.0])  
 
                 # Depth for current pixel after transformation
-                denom = np.dot(n_candidate, R_candidate @ p_curr_cam + t_candidate)
-                depth_curr = np.dot(n_candidate, p_curr_cam) / (denom + 1e-12)  # small eps for safety
-                
-                # Depth for previous pixel (just dot product since it's reference plane)
-                depth_prev = np.dot(n_candidate, p_prev_cam)
+                denom = np.dot(n_candidate, R_candidate @ p_t_cam + t_candidate)
+                t_depth = np.dot(n_candidate, p_t_cam) / (denom + 1e-12)  # small eps for safety
 
-                if depth_prev > 0 and depth_curr > 0:
+                if t_depth <= 0:
                     front_points += 1
 
             # Update best solution if it meets criteria
@@ -152,12 +147,13 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
             matches,
             q_frame, t_frame,
             R, t,
+            REPROJECTION_THREHSOLD,
             save_path=results_dir / f"matches/initialization/2-reprojection/"
         )
 
     # If we failed to recover R and t
     if R is None or t is None:
-        log.warning("Failed to recover a valid pose from either E or H.")
+        log.warning("[Initialization] Failed to recover a valid pose from either E or H.")
         return None, False
             
     # Save the matches
@@ -170,29 +166,32 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     matches = matches[reproj_mask]
 
     if debug:
-        log.info(f"\t {reproj_mask.sum()} matches left!")
+        log.info(f"[Initialization] \t {reproj_mask.sum()} matches left!")
 
     # ------------------------------------------------------------------------
     # 4. Build the 4x4 Pose matrix
     # ------------------------------------------------------------------------
     # Extract the c1 to c2 pose
-    pose = np.eye(4)
-    pose[:3, :3] = R
-    pose[:3, 3] = t.flatten()
+    T_q2t = np.eye(4)
+    T_q2t[:3, :3] = R
+    T_q2t[:3, 3] = t.flatten()
     # Extract the c2 to c1 pose (this is the new robot's pose in the old coordinate system)
-    inv_pose = invert_transform(pose)
+    T_t2q = invert_transform(T_q2t)
     
     # Initialize the frames
-    q_frame.match[t_frame.id]["T"] = pose
+    q_frame.match[t_frame.id]["T"] = T_q2t
     q_frame.match[t_frame.id]["init_matches"] = matches
-    t_frame.match[q_frame.id]["T"] = inv_pose
+    t_frame.match[q_frame.id]["T"] = T_t2q
     t_frame.match[q_frame.id]["init_matches"] = matches
 
-    return pose, True
+    # The translation should be a unit vector before scaling
+    assert np.linalg.norm(T_q2t[:3, 3]) - 1 < 1e-6
+
+    return T_q2t, True
       
 def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     if debug:
-        log.info(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
+        log.info(f"[Initialization] Triangulating points between frames {q_frame.id} & {t_frame.id}...")
     # Extract the Rotation and Translation arrays between the 2 frames
     T_qt = q_frame.match[t_frame.id]["T"] # [q->t]
 
@@ -210,7 +209,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     # Triangulate
     q_points = triangulate(q_kpt_pixels, t_kpt_pixels, T_qt) # (N, 3)
     if q_points is None or len(q_points) == 0:
-        log.warning("Triangulation returned no 3D points.")
+        log.warning("[Initialization] Triangulation returned no 3D points.")
         return None, None, None, False
 
     # Transfer the points to the current coordinate frame [t->q]
@@ -228,7 +227,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
 
     # If too few points or too small median angle, return None
     if cheirality_mask is None or cheirality_mask.sum() < MIN_NUM_TRIANG_POINTS:
-        log.warning("Discarding frame after cheirality check.")
+        log.warning("[Initialization] Discarding frame after cheirality check.")
         return None, None, None, False
             
     # Save the matches
@@ -242,13 +241,11 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     q_points = q_points[cheirality_mask]
     t_points = t_points[cheirality_mask]
 
-    parallax_mask = filter_parallax(q_points, t_points, T_qt)
-    q_points = q_points[parallax_mask]
-    t_points = t_points[parallax_mask]
+    parallax_mask = filter_parallax(q_points, t_points, T_qt, MIN_PARALLAX)
 
     # If too few points or too small median angle, return None
     if parallax_mask is None or parallax_mask.sum() < MIN_NUM_TRIANG_POINTS:
-        log.warning("Discarding frame due to insufficient parallax.")
+        log.warning("[Initialization] Discarding frame due to insufficient parallax.")
         return None, None, None, False
             
     # Save the matches

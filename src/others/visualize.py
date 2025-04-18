@@ -12,12 +12,14 @@ matplotlib.use('TkAgg')
 
 ############################### Pose Visualization ###############################
 
-def plot_trajectory(frames, gt_poses, i, save_path=results_dir / "trajectory", ba_poses=None):
-    poses = [f.pose for f in list(frames.values())]
-    if ba_poses is not None:
-        save_path = save_path / f"{i}_ba.png"
+def plot_trajectory(frames, i, ba=True, save_path=results_dir / "trajectory"):
+    save_path = save_path / f"{i}.png"
+
+    if ba:
+        poses = [f.noopt_pose for f in list(frames.values())]
     else:
-        save_path = save_path / f"{i}.png"
+        poses = [f.pose for f in list(frames.values())]
+    gt_poses = [f.gt for f in list(frames.values())]
 
     num_poses = len(poses)
     poses = np.array(poses)
@@ -54,8 +56,9 @@ def plot_trajectory(frames, gt_poses, i, save_path=results_dir / "trajectory", b
     ax2.plot(np.arange(num_poses), -pitch, 'b-', label='-Pitch')
     ax2.plot(np.arange(num_poses), -gt_pitch, 'r--', label='g.t.')
 
-    # Add the BA poses if provided
-    if ba_poses is not None:
+    # Add the BA poses 
+    if ba is True:
+        ba_poses = [f.pose for f in list(frames.values())]
         ba_poses = np.array(ba_poses)
         ax1.plot(ba_poses[:, 0, 3], ba_poses[:, 2, 3], 'g-*', label='BA')
         ba_pitch = np.zeros((num_poses, 1))
@@ -117,9 +120,9 @@ def plot_ground_truth(ground_truth):
 def plot_ground_truth_3d(ground_truth, save_path=results_dir / "ground_truth/3d.png"):
     """ Reads the ground truth data from a file and plots the robot trajectory. """
     # Extract the positions (tx, ty, tz)
-    tx = ground_truth.iloc[:, 1].values
-    ty = ground_truth.iloc[:, 2].values
-    tz = ground_truth.iloc[:, 3].values
+    tx = ground_truth.iloc[:, 3].values
+    ty = ground_truth.iloc[:, 7].values
+    tz = ground_truth.iloc[:, 11].values
 
     # Plot the trajectory
     fig = plt.figure()
@@ -152,9 +155,8 @@ def plot_ground_truth_2d(ground_truth, save_path=results_dir / "ground_truth/2d.
         save_path (str, optional): Path to save the plot.
     """
     # Extract translations (tx, ty)
-    tx = ground_truth.iloc[:, 1].values
-    ty = ground_truth.iloc[:, 3].values
-    # tz = ground_truth.iloc[:, 3].values
+    tx = ground_truth.iloc[:, 3].values
+    tz = ground_truth.iloc[:, 11].values
 
     # Extract rotation
     pitch = np.empty((len(ground_truth), 3))
@@ -168,9 +170,9 @@ def plot_ground_truth_2d(ground_truth, save_path=results_dir / "ground_truth/2d.
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
     # Plot the XY trajectory
-    ax1.plot(tx, ty, 'b-', label='XY Trajectory')
-    ax1.scatter(tx[0], ty[0], color='green', s=100, label='Start')  # Start point
-    ax1.scatter(tx[-1], ty[-1], color='red', s=100, label='End')    # End point
+    ax1.plot(tx, tz, 'b-', label='XY Trajectory')
+    ax1.scatter(tx[0], tz[0], color='green', s=100, label='Start')  # Start point
+    ax1.scatter(tx[-1], tz[-1], color='red', s=100, label='End')    # End point
     ax1.set_xlabel('X')
     ax1.set_ylabel('Y')
     ax1.set_title('Road Trajectory')

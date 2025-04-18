@@ -20,39 +20,33 @@ orb:
     fast_threshold: 20
     max_num_keypoints: 1500
 
-epipolar_constraint:
-    symmetric_error_threshold: 10.0
+initialization:
+    min_num_triang_points: 100 
+    reprojection_threshold: 4.0
+    min_parallax: 1.0
+    matches:
+        min: 200
+        lowe_ratio: 0.9
 
-triangulation:
-    min_angle: 5.0
-    max_ratio_between_max_and_med_angle: 20
-    min_num_init_points: 100 
+tracking:
+    min_parallax: 2.0
+    PnP:
+        reprojection_threshold: 4.0
+        confidence: 0.99
+        iterations: 3000
+        min_inliers: 4
 
 point_association:
     num_matches: 10
     search_window: 200
     hamming_threshold: 100
 
-PnP:
-    reprojection_threshold: 4.0
-    confidence: 0.99
-    iterations: 3000
-    min_inliers: 4
-
-matches:
-    min: 20
-    lowe_ratio: 0.9
-    xiang_gao_match_ratio: 2
-
 keyframe:
-    distance: 2.0
-    angle: 10.0
     num_tracked_points: 5
 
 map:
     match_view_ratio: 0.25
     min_observations: 3
-    max_keyframes_since_last_observation: 10
     min_triang_angle: 5.0
     max_reproj_threshold: 4.0
 

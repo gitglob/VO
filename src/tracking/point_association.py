@@ -11,22 +11,21 @@ from config import SETTINGS, results_dir, K, log
 
 
 debug = SETTINGS["generic"]["debug"]
-MIN_INLIERS = SETTINGS["PnP"]["min_inliers"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
 MIN_NUM_MATCHES = SETTINGS["point_association"]["num_matches"]
 HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
 
 
-def constant_velocity_model(t: float, times: list, frames: list):
+def constant_velocity_model(t: float, frames: list):
     """Predicts the next pose assuming constant velocity between the last 3 frames"""
     poses = [f.pose for f in list(frames.values())]
 
     # Find how much time has passed
-    dt_c = t - times[-1]
+    dt_c = t - frames[-1].time
 
     # Find the previous dr
-    dt_tq = times[-1] - times[-2]
+    dt_tq = frames[-1].time - frames[-2].time
 
     # Find the previous relative transformation
     T_wq = np.linalg.inv(poses[-2])

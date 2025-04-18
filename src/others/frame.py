@@ -27,14 +27,16 @@ class Frame():
     # This is a class-level (static) variable that all Frame instances share.
     _keypoint_id_counter = -1
 
-    def __init__(self, id: int, img: np.ndarray, is_initialized: bool):
+    def __init__(self, id: int, img: np.ndarray):
         self.id: int = id                    # The frame id
+        self.time: float = None              # The timestamp during that frame
         self.img: np.ndarray = img.copy()    # The BW image
         self.bow_hist = None                 # The histogram of bag of visual words of that image
 
         self.keypoints: Tuple                # The extracted ORB keypoints
         self.descriptors: np.ndarray         # The extracted ORB descriptors
         self.scale_factors: np.ndarray       # The per-octave scale factors
+        self.gt: np.ndarray = None           # The camera -> world Ground Truth pose
         self.pose: np.ndarray = None         # The camera -> world pose transformation matrix
         self.match: Dict = {}                # The matches between this frame's keypoints and others'
         self.relocalization: bool = False    # Whether global relocalization using vBoW was performed
@@ -58,11 +60,6 @@ class Frame():
         }
         """
 
-
-        # During initialization, we only extract features in the finest scale
-        self.orb_n_levels = 1 if not is_initialized else ORB_SETTINGS["level_pyramid"]
-
-        self._calc_scale_factors()  # Calculate the per octave scale factors
         self._extract_features()    # Extract ORB features from the image
         if debug:
             self.log_keypoints()
@@ -83,13 +80,22 @@ class Frame():
                 tracked_point_ids.add(f.id)
         return tracked_point_ids
 
-    def _calc_scale_factors(self):
-        self.scale_factors = np.ones(self.orb_n_levels)
+    def _calc_scale_factors(self, levels):
+        """Calculates the scale factors for each level in the ORB scale pyramid"""
+        self.scale_factors = np.ones(levels)
         for i in range (1, len(self.scale_factors)):
             self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
 
-    def set_keyframe(self, is_keyframe: bool):
-        self.is_keyframe = is_keyframe
+    def get_features_at_level(self, level: int) -> tuple[list, list]:
+        """Returns the feature ids of a specific ORB scale level"""
+        level_kpt_ids = []
+        level_kpt_idxs = []
+        for i, kpt in enumerate(self.keypoints):
+            if kpt.octave == level:
+                level_kpt_idxs.append(i)
+                level_kpt_ids.append(kpt.class_id)
+
+        return level_kpt_idxs, level_kpt_ids
 
     def set_matches(self, with_frame_id: int, matches: List[DMatch], match_type: str):
         """Sets matches with another frame"""
@@ -113,9 +119,19 @@ class Frame():
         matches = self.match[with_frame_id]["tracking_matches"]
         return matches
     
+    def set_time(self, t: float):
+        self.time = t
+
+    def set_gt(self, gt_pose: np.ndarray):
+        self.gt = gt_pose
+
     def set_pose(self, pose: np.ndarray):
         self.pose = pose
     
+    def optimize_pose(self, pose: np.ndarray):
+        self.noopt_pose = self.pose.copy()
+        self.pose = pose
+
     def _extract_features(self):
         """
         Extract image features using ORB and BoW histogram.
@@ -131,11 +147,18 @@ class Frame():
             Output concatenated vectors of descriptors. Each descriptor is a 32-element vector, as returned by cv.ORB.descriptorSize, 
             so the total size of descriptors will be numel(keypoints) * obj.descriptorSize(), i.e a matrix of size N-by-32 of class uint8, one row per keypoint.
         """
-        
+
+        if self.id == 0:
+            n_levels = 1
+            log.warning(f"\t Extracting ORB features only at level {n_levels} for frame {self.id}!")
+        else:
+            n_levels = ORB_SETTINGS["level_pyramid"]
+        self._calc_scale_factors(n_levels)
+
         self._detector = cv2.ORB_create(
             nfeatures=ORB_SETTINGS["num_keypoints"],
             scaleFactor=ORB_SETTINGS["scale_factor"],
-            nlevels=self.orb_n_levels,
+            nlevels=n_levels,
             edgeThreshold=ORB_SETTINGS["edge_threshold"],
             firstLevel=ORB_SETTINGS["first_level"],
             WTA_K=ORB_SETTINGS["WTA_K"],

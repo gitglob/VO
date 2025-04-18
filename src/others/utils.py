@@ -14,7 +14,7 @@ def setup_logger(log_dir: str = "logs") -> logging.Logger:
     os.makedirs(log_dir, exist_ok=True)
 
     # 2. Build filename based on today's date
-    timestamp = datetime.now().strftime("%H:%M:%S_%d-%m-%y")
+    timestamp = datetime.now().strftime("%d-%m-%y_%H:%M:%S")
     log_path = os.path.join(log_dir, f"{timestamp}.log")
 
     # 3. Create logger

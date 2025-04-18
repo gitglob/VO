@@ -76,14 +76,15 @@ class ConvisibilityGraph(Graph):
             keyframe: Unique identifier for the keyframe.
             map_points (iterable): Collection of map point identifiers observed in the keyframe.
         """
+        log.info(f"[Convisibility Graph] Adding keyframe #{keyframe.id}")
         if keyframe.id in self.nodes.keys():
-            log.warning(f"Keyframe {keyframe.id} already exists!")
+            log.warning(f"[Convisibility Graph] Keyframe {keyframe.id} already exists!")
             return
         
         # Store the new keyframe observations (convert to set for easy intersection)
         kf_map_pt_ids = map.get_frustum_point_ids(keyframe)
         if len(kf_map_pt_ids) == 0:
-            log.info(f"Keyframe {keyframe.id} observes 0 map points!")
+            log.info(f"[Convisibility Graph] Keyframe {keyframe.id} observes 0 map points!")
             return
         self._add_node(keyframe.id, kf_map_pt_ids)
         self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
@@ -236,7 +237,7 @@ class ConvisibilityGraph(Graph):
             keyframe.id: The identifier of the keyframe to be removed.
         """
         if kf_id not in self.nodes:
-            log.warning(f"Keyframe {kf_id} does not exist.")
+            log.warning(f"[Convisibility Graph] Keyframe {kf_id} does not exist.")
             return
         
         self._remove_node(kf_id)
@@ -296,7 +297,7 @@ class ConvisibilityGraph(Graph):
             weight (int): The weight (e.g., number of common observations) for the loop closure edge.
         """
         if keyframe_id1 not in self.nodes or keyframe_id2 not in self.nodes:
-            log.warning("One or both keyframes do not exist.")
+            log.warning("[Convisibility Graph] One or both keyframes do not exist.")
             return
         
         edge_id = tuple(sorted((keyframe_id1, keyframe_id2)))
