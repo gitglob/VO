@@ -91,7 +91,7 @@ class mapPoint():
         
         return best_desc
 
-    def view_ray(self, cam_pos):
+    def view_ray(self, cam_pos: np.ndarray):
         v = self.pos - cam_pos
         v = v / np.linalg.norm(v)
         return v
@@ -120,10 +120,33 @@ class mapPoint():
     def project2frame(self, frame: Frame) -> tuple[int]:
         """Projects a point into a frame"""
         # Get the world2frame coord
-        T_wf = invert_transform(frame.pose)
+        T_w2f = invert_transform(frame.pose)
         
         # Convert the world coordinates to frame coordinates
-        pos_c = T_wf @ self.pos
+        pos_c = T_w2f @ self.pos
+
+        # Convert the xyz coordinates to pixels
+        fx = K[0,0]
+        fy = K[1,1]
+        cx = K[2,0]
+        cy = K[2,1]
+        x, y, z = pos_c
+        u = int(fx * x / z + cx)
+        v = int(fy * y / z + cy)
+
+        # Ensure it is inside the image bounds
+        if u < 0 or u > W or v < 0 or v > H:
+            return None
+        else:
+            return (u, v)
+        
+    def project2frame(self, T_f2w: np.ndarray) -> tuple[int]:
+        """Projects a point into a frame"""
+        # Get the world2frame coord
+        T_w2f = invert_transform(T_f2w)
+        
+        # Convert the world coordinates to frame coordinates
+        pos_c = T_w2f[:3, :3] @ self.pos + T_w2f[:3, 3]
 
         # Convert the xyz coordinates to pixels
         fx = K[0,0]

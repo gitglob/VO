@@ -58,13 +58,13 @@ class poseBA:
         self.frame: Frame = None
         self.frames: dict[int, Frame] = None
 
-    def add_frame(self, frame: Frame):
+    def add_frame(self, frame: Frame, pose: np.ndarray = None):
         """
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
         """
         p_id = frame.id
-        p = frame.pose
+        p = pose if pose is not None else frame.pose 
 
         # Convert the 4x4 pose matrix into an SE3Quat.
         R = p[:3, :3]
@@ -185,9 +185,9 @@ class poseBA:
 
             # Iterate over all map point observations
             for obs in pt.observations:
-                pose_idx = obs["kf_id"]     # id of keyframe that observed the landmark
-                kpt = obs["keypoint"]       # keypoint of the observation
-                u, v = kpt.pt               # pixels of the keypoint
+                pose_idx = obs["keyframe"].id # id of keyframe that observed the landmark
+                kpt = obs["keypoint"]         # keypoint of the observation
+                u, v = kpt.pt                 # pixels of the keypoint
 
                 # Create the reprojection edge.
                 edge = g2o.EdgeProjectXYZ2UV()
@@ -216,7 +216,7 @@ class poseBA:
             log.info("[poseBA] Optimizing with g2o...")
 
         # Calculate initial number of edges
-        n_edges = self.optimizer.edges()
+        n_edges = len(self.optimizer.edges())
 
         # We perform 4 optimizations
         optim_iterations = [10,10,7,5]
@@ -236,7 +236,7 @@ class poseBA:
                     e.setLevel(0)
 
             # Check if too little edges are left
-            if (self.optimizer.edges().size() < 10):
+            if len(self.optimizer.edges()) < 10:
                 break
 
         # Calculate the number of inliers

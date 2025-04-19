@@ -70,7 +70,7 @@ class Frame():
     @property
     def num_tracked_points(self):
         count = 0
-        for f in self.features:
+        for feat_id, f in self.features.items():
             if f.matched:
                 count += 1
         return count
@@ -78,9 +78,9 @@ class Frame():
     @property
     def tracked_points(self):
         tracked_point_ids = set()
-        for f in self.features:
+        for feat_id, f in self.features.items():
             if f.matched:
-                tracked_point_ids.add(f.id)
+                tracked_point_ids.add(feat_id)
         return tracked_point_ids
 
     def _calc_scale_factors(self, levels):
@@ -89,8 +89,8 @@ class Frame():
         for i in range (1, len(self.scale_factors)):
             self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
 
-    def match_feature(self, old_kpt_id: int, new_kpt_id: int):
-        self.features[new_kpt_id] = self.features[old_kpt_id].copy(new_id=new_kpt_id)
+    def match_map_point(self, old_kpt_id: int, new_kpt_id: int):
+        self.features[new_kpt_id] = self.features[old_kpt_id].copy(new_id=new_kpt_id, matched=True)
         del self.features[old_kpt_id]
 
     def get_features_at_level(self, level: int) -> tuple[list, list]:

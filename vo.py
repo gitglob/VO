@@ -254,11 +254,12 @@ def main():
                 local_map = cgraph.create_local_map(t_frame, map, t_map_pairs)
 
                 # Project the local map to the frame and search more correspondances
-                t_map_pairs = mapPointAssociation(t_map_pairs, local_map, t_frame)
+                T_t2w = invert_transform(T_w2t)
+                t_map_pairs = mapPointAssociation(t_map_pairs, local_map, t_frame, T_t2w)
 
                 # Optimize the camera pose with all the map points found in the frame
                 ba = poseBA(verbose=debug)
-                ba.add_frame(t_frame)
+                ba.add_frame(t_frame, T_t2w)
                 ba.add_observations(map)
                 ba.optimize()
     
@@ -266,7 +267,6 @@ def main():
                 log.info("Checking for Keyframe...")
                 # Check if this t_frame is a keyframe
                 T_w2q = invert_transform(q_frame.pose)
-                T_t2w = invert_transform(T_w2t)
                 T_t2q = T_w2q @ T_t2w
                 if not is_keyframe(t_frame, keyframes, local_map):
                     del keyframes[i]

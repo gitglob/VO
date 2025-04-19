@@ -76,15 +76,15 @@ class ConvisibilityGraph(Graph):
             keyframe: Unique identifier for the keyframe.
             map_points (iterable): Collection of map point identifiers observed in the keyframe.
         """
-        log.info(f"[Convisibility Graph] Adding keyframe #{keyframe.id}")
+        log.info(f"[Graph] Adding keyframe #{keyframe.id}")
         if keyframe.id in self.nodes.keys():
-            log.warning(f"[Convisibility Graph] Keyframe {keyframe.id} already exists!")
+            log.warning(f"[Graph] Keyframe {keyframe.id} already exists!")
             return
         
         # Store the new keyframe observations
         kf_map_pt_ids = map.get_frustum_point_ids(keyframe)
         if len(kf_map_pt_ids) == 0:
-            log.info(f"[Convisibility Graph] Keyframe {keyframe.id} observes 0 map points!")
+            log.info(f"[Graph] Keyframe {keyframe.id} observes 0 map points!")
             return
         self._add_node(keyframe.id, kf_map_pt_ids)
         self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
@@ -213,7 +213,7 @@ class ConvisibilityGraph(Graph):
 
         return connected_kf_ids, connected_kf_point_ids
     
-    def get_neighbor_frames_and_their_points(self, kf_ids: set) -> tuple[set[int], set[int]]:
+    def _get_neighbor_frames_and_their_points(self, kf_ids: set) -> tuple[set[int], set[int]]:
         """Returns all the neighboring keyframes K2 of a set of keyframes K1, along with their points"""
         neighbors = set()
         neighbor_points = set()
@@ -237,7 +237,7 @@ class ConvisibilityGraph(Graph):
             keyframe.id: The identifier of the keyframe to be removed.
         """
         if kf_id not in self.nodes:
-            log.warning(f"[Convisibility Graph] Keyframe {kf_id} does not exist.")
+            log.warning(f"[Graph] Keyframe {kf_id} does not exist.")
             return
         
         self._remove_node(kf_id)
@@ -265,27 +265,37 @@ class ConvisibilityGraph(Graph):
         - The neighboring frames of K1 in the convisibility graph -> K2
         - A reference frame Kref in K1 which shares the most points with the current frame
         """
+        log.info("[Graph] Creating local map...")
         # Find the frames that share map points and their points
         K1_frame_ids = set()
+        K1_frame_counts = {}
         # Iterate over all the matched map points
-        for fid, (pid, dist) in map_t_pairs.items():
+        for _, (pid, _) in map_t_pairs.items():
             point = map.points[pid]
             # Iterate over all the point observations
             for obs in point.observations:
                 # Keep the frame ids that are different than the current frame
-                fid = obs["keyframe"].id
-                if fid != frame.id:
-                    K1_frame_ids.add(fid)
+                frame_id = obs["keyframe"].id
+                if frame_id != frame.id:
+                    K1_frame_ids.add(frame_id)
+                    # Increase the counter of the shared map points
+                    if frame_id not in K1_frame_counts.keys():
+                        K1_frame_counts[frame_id] = 1
+                    else:
+                        K1_frame_counts[frame_id] += 1
+
         # Find the points of the K1 frames
         K1_point_ids = set()
-        for fid in K1_frame_ids:
-            K1_point_ids.update(self.nodes[fid])
+        for frame_id in K1_frame_ids:
+            K1_point_ids.update(self.nodes[frame_id])
 
         # Find neighboring frames to K1 and their points
-        K2_frame_ids, K2_point_ids = self.get_neighbor_frames_and_their_points(K1_frame_ids)
+        K2_frame_ids, K2_point_ids = self._get_neighbor_frames_and_their_points(K1_frame_ids)
 
-        # Find a reference frame
-        ref_frame_id = self.get_reference_frame(frame.id)
+        # Find the frame(s) that shares the most map points
+        max_shared_count = max(K1_frame_counts.values())
+        ref_frame_ids = [k for k, v in K1_frame_counts.items() if v == max_shared_count]
+        ref_frame_id = ref_frame_ids[0]
 
         # Merge the point ids
         local_map_point_ids = K1_point_ids.union(K2_point_ids)
@@ -307,7 +317,7 @@ class ConvisibilityGraph(Graph):
             weight (int): The weight (e.g., number of common observations) for the loop closure edge.
         """
         if keyframe_id1 not in self.nodes or keyframe_id2 not in self.nodes:
-            log.warning("[Convisibility Graph] One or both keyframes do not exist.")
+            log.warning("[Graph] One or both keyframes do not exist.")
             return
         
         edge_id = tuple(sorted((keyframe_id1, keyframe_id2)))

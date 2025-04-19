@@ -274,11 +274,11 @@ def localPointAssociation(map: Map,
         if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
             # Make sure that we only keep 1 match per frame pixel
             if best_feature_id not in matched_features.keys() or best_dist < matched_features[best_feature_id][1]:
-                matched_features[best_feature_id] = (map_point.id, best_dist)
+                matched_features[best_feature_id] = (pid, best_dist)
                 
-    # Update the frame matches
+    # Update the frame<->map matches
     for feat_id, (pid, _) in matched_features.items():
-        t_frame.match_feature(feat_id, pid)
+        t_frame.match_map_point(feat_id, pid)
 
     # Save the matched points
     if debug:
@@ -385,23 +385,28 @@ def globalPointAssociation(map: Map, t_frame: Frame):
 
     return pairs
 
-def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int = 15):
+def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame, T_t2w: np.ndarray, theta: int = 15):
     """
     Projects all un-matched map points to a frame and searches more correspondances.
 
     Returns:
-        pairs: A list of tuples (map_idx, frame_idx) indicating the association of map points
+        matched_features: A list of tuples (map_idx, frame_idx) indicating the association of map points
                to current frame keypoints.      
     """
-    # Extract the already matched features
-    matched_kpt_ids: set = {p[1] for p in pairs}
+    # Extract the already matched features and map points
+    matched_point_ids = {v[0] for v in matched_features.values()}
+    new_matched_features = {}
 
     # Iterate over all the map points
     point: mapPoint
-    for point in map.points:
+    for pid, point in map.points.items():
+        # Skip matched map points
+        if pid in matched_point_ids:
+            continue
+
         # 1) Compute the map point projection x in the current 
         # frame. Discard if it lays out of the image bounds.
-        x = point.project2frame(t_frame)
+        x = point.project2frame(T_t2w)
         if x is None:
             continue
         else:
@@ -409,15 +414,15 @@ def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int
         
         # 2) Compute the angle between the current viewing ray v
         # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
-        v = point.view_ray(t_frame)
-        n = point.mean_view_ray()
-        if v * n < np.cos(np.deg2rad(60)):
+        v1 = point.view_ray(T_t2w[:3, 3])
+        v2 = point.mean_view_ray()
+        if v1.dot(v2) < np.cos(np.deg2rad(60)):
             continue
 
         # 3) Compute the distance d from map point to cameracenter. 
         # Discard if it is out of the scale invariance region
         # of the map point [dmin , dmax ].
-        d = np.norm(point.pos - t_frame.pose[:3, 3])
+        d = np.linalg.norm(point.pos - T_t2w[:3, 3])
         d_min, d_max = point.getScaleInvarianceLimits()
         if d < d_min or d > d_max:
             continue
@@ -435,13 +440,11 @@ def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int
         octave_idx = bisect.bisect_left(t_frame.scale_factors, scale)
         radius = theta * t_frame.scale_factors[octave_idx]
         candidates = []
-        for kp in t_frame.keypoints:
-            if kp.class_id in matched_kpt_ids:
-                continue
-            kp_pt = kp.pt
-            if (abs(kp_pt[0] - u) <= radius and
-                abs(kp_pt[1] - v) <= radius):
-                candidates.append(kp.id)
+        for feat_id, feat in t_frame.features.items():
+            feat_px = feat.kpt.pt
+            if (abs(feat_px[0] - u) <= radius and
+                abs(feat_px[1] - v) <= radius):
+                candidates.append(feat_id)
         
         # If no keypoints are found in the window, skip to the next map point.
         if len(candidates) == 0:
@@ -449,17 +452,33 @@ def mapPointAssociation(pairs: list[tuple], map: Map, t_frame: Frame, theta: int
         
         # For each candidate, compute the descriptor distance using the Hamming norm.
         best_dist = np.inf
-        best_feature_idx = None
-        for kpt_id in candidates:
-            candidate_desc = t_frame.features[kpt_id].desc
+        best_feature_id = None
+        for feat_id in candidates:
+            candidate_desc = t_frame.features[feat_id].desc
             # Compute Hamming distance.
             d = cv2.norm(np.array(D), np.array(candidate_desc), cv2.NORM_HAMMING)
             if d < best_dist:
                 best_dist = d
-                best_feature_idx = kpt_id
+                best_feature_id = feat_id
         
-        pairs.append((point.id, best_feature_idx))
-        t_frame.features[best_feature_idx].matched = True
+        # Make sure that we only keep 1 match per frame pixel
+        if best_feature_id not in new_matched_features.keys() or best_dist < new_matched_features[best_feature_id][1]:
+            new_matched_features[best_feature_id] = (pid, best_dist)
 
+    # Update the frame<->map matches
+    for feat_id, (pid, _) in new_matched_features.items():
+        t_frame.match_map_point(feat_id, pid)
 
-    return pairs
+    # Save the matched points
+    if debug:
+        match_save_path = results_dir / "matches/tracking/point_assocation/map" / f"map_{t_frame.id}.png"
+        t_pxs = np.array([t_frame.features[pid].kpt.pt for (pid, _) in new_matched_features.values()], dtype=np.float64)
+        plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
+    
+    if debug:
+        log.info(f"\t Found {len(new_matched_features)} Point Associations!")
+
+    all_matched_features = dict(matched_features)
+    all_matched_features.update(new_matched_features)
+
+    return all_matched_features
