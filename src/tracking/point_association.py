@@ -174,8 +174,12 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     return pairs
 
 def localPointAssociation(map: Map, 
+                          q_frame: Frame,
                           t_frame: Frame, 
-                          T_wc: np.ndarray, theta: int = None, search_window: int=None):
+                          cgraph: ConvisibilityGraph,
+                          T_wc: np.ndarray, 
+                          theta: int = None, 
+                          search_window: int=None):
     """
     Associates map points with current frame keypoints by searching only within a local window
     around the predicted pixel location.
@@ -232,17 +236,17 @@ def localPointAssociation(map: Map,
     """
     matched_features = {}
 
-    # Loop over all map points
-    for pid, map_point in map.points.items():
+    # Get the map points observed in the last frame
+    q_map_points: set[mapPoint] = cgraph.get_frustum_points(q_frame, map)
+
+    # Loop over the points
+    for point in q_map_points:
         # Project the map point's 3D location into the current frame.
-        pred_px = project_point(map_point.pos, T_wc)
+        pred_px = project_point(point.pos, T_wc)
         if pred_px is None:
             continue  # Skip points that project behind the camera.
         else:
             u, v = pred_px
-        
-        # We choose the last descriptor to represent the map point
-        map_desc = map_point.observations[-1]["descriptor"]
         
         # Collect candidate current frame keypoints whose pixel coordinates fall within 
         # a window around the predicted pixel
@@ -259,6 +263,9 @@ def localPointAssociation(map: Map,
         if not candidates:
             continue
         
+        # We choose the last descriptor to represent the map point
+        map_desc = point.observations[-1]["descriptor"]
+        
         # For each candidate, compute the descriptor distance using the Hamming norm.
         best_dist = np.inf
         best_feature_id = None
@@ -274,7 +281,7 @@ def localPointAssociation(map: Map,
         if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
             # Make sure that we only keep 1 match per frame pixel
             if best_feature_id not in matched_features.keys() or best_dist < matched_features[best_feature_id][1]:
-                matched_features[best_feature_id] = (pid, best_dist)
+                matched_features[best_feature_id] = (point.id, best_dist)
                 
     # Update the frame<->map matches
     for feat_id, (pid, _) in matched_features.items():
@@ -427,6 +434,9 @@ def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame,
         if d < d_min or d > d_max:
             continue
 
+        # This point is predicted to be visible
+        point.visible_counter += 1
+
         # 4) Compute the scale in the frame by the ration d/d_min
         scale = d / d_min
 
@@ -478,7 +488,4 @@ def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame,
     if debug:
         log.info(f"\t Found {len(new_matched_features)} Point Associations!")
 
-    all_matched_features = dict(matched_features)
-    all_matched_features.update(new_matched_features)
-
-    return all_matched_features
+    return new_matched_features

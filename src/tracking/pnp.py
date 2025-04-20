@@ -97,7 +97,7 @@ def estimate_relative_pose(
     t_wc = tvec.flatten()
     R_wc, _ = cv2.Rodrigues(rvec)
     
-    # Save the PnP tracked mask to the map
+    # Save the PnP tracked flags in the map points
     tracking_mask = np.zeros(map.num_points, dtype=bool)
     for i, (map_idx, _) in enumerate(map_t_pairs): 
         tracking_mask[map_idx] = inliers_mask[i]

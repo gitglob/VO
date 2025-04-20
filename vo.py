@@ -108,7 +108,7 @@ def main():
             if debug:
                 save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
                 
-            plot_trajectory(keyframes, i, False)
+            plot_trajectory(keyframes, i, ba=False)
             q_frame = t_frame
         else:                    
             # ########### Initialization ###########
@@ -139,7 +139,7 @@ def main():
 
                 # Apply the scale to the pose and validate it
                 T_t2w = T_q2w @ T_t2q
-                log.info(f"RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
+                log.info(f"\t RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
 
                 # Set the pose in the current frame
                 t_frame.set_pose(T_t2w)
@@ -184,14 +184,15 @@ def main():
                 log.info("Tracking)")    
                 if tracking_success:
                     # ########### Track from Previous Frame ###########
+                    log.info("Using constant velocity model...")
                     # Predict the new pose based on a constant velocity model
                     T_w2t = constant_velocity_model(t, keyframes)
 
                     # Match these map points with the current frame
-                    t_map_pairs = localPointAssociation(map, t_frame, T_w2t, theta=15)
+                    t_map_pairs = localPointAssociation(map, q_frame, t_frame, cgraph, T_w2t, theta=15)
                     if len(t_map_pairs) < MIN_ASSOCIATIONS:
                         log.warning(f"Scale-based Point association failed! Only {len(t_map_pairs)} matches found!")
-                        t_map_pairs = localPointAssociation(map, t_frame, T_w2t, search_window=SEARCH_WINDOW_SIZE)
+                        t_map_pairs = localPointAssociation(map, q_frame, t_frame, cgraph, T_w2t, search_window=SEARCH_WINDOW_SIZE)
                         if len(t_map_pairs) < MIN_ASSOCIATIONS:
                             log.warning(f"Window-based Point association failed! Only {len(t_map_pairs)} matches found!")
                             is_initialized = False
@@ -250,12 +251,19 @@ def main():
                 # ########### Track Local Map ###########
                 log.info("Tracking local map...")
 
+                # Set the visible mask
+                map.view(t_map_pairs)
+
                 # Extract a local map from the map
                 local_map = cgraph.create_local_map(t_frame, map, t_map_pairs)
 
                 # Project the local map to the frame and search more correspondances
                 T_t2w = invert_transform(T_w2t)
-                t_map_pairs = mapPointAssociation(t_map_pairs, local_map, t_frame, T_t2w)
+                t_map_pairs1 = mapPointAssociation(t_map_pairs, local_map, t_frame, T_t2w)
+                t_map_pairs.update(t_map_pairs1)
+
+                # Set the found mask
+                map.found(t_map_pairs)
 
                 # Optimize the camera pose with all the map points found in the frame
                 ba = poseBA(verbose=debug)
@@ -275,12 +283,6 @@ def main():
                 # Set the pose in the current frame
                 t_frame.set_pose(T_t2w)
 
-                # Add the keyframe to the convisibility graph
-                cgraph.add_keyframe(t_frame, map)
-
-                # Update the map observation and match counters
-                map.update_counters()
-
                 # Save the keyframe
                 if debug:
                     save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
@@ -295,7 +297,7 @@ def main():
                 cgraph.add_keyframe(t_frame, map)
 
                 # Plot trajectory
-                plot_trajectory(keyframes, i)
+                plot_trajectory(keyframes, i, ba=False)
 
                 # Optimize the keyframe poses using BA
                 if (len(keyframes)-1) % BA_FREQ == 0:

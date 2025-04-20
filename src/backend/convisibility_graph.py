@@ -82,9 +82,9 @@ class ConvisibilityGraph(Graph):
             return
         
         # Store the new keyframe observations
-        kf_map_pt_ids = map.get_frustum_point_ids(keyframe)
+        kf_map_pt_ids = map.get_points_from_frame(keyframe.id)
         if len(kf_map_pt_ids) == 0:
-            log.info(f"[Graph] Keyframe {keyframe.id} observes 0 map points!")
+            log.info(f"\t Keyframe {keyframe.id} observes 0 map points!")
             return
         self._add_node(keyframe.id, kf_map_pt_ids)
         self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
@@ -130,11 +130,11 @@ class ConvisibilityGraph(Graph):
         """Returns the map points seen by a keyframe"""
         return self.nodes[kf_id]
     
-    def get_frustum_points(self, t_frame: Frame, map: Map):
+    def get_frustum_points(self, frame: Frame, map: Map):
         """Returns the points that are in the view of a given frame"""
         points = set()
-        for p_id in self.nodes[t_frame.id]:
-            points.add[map.points[p_id]]
+        for p_id in self.nodes[frame.id]:
+            points.add(map.points[p_id])
         return points
     
     def get_connected_frames(self, kf_id: int) -> set[int]:

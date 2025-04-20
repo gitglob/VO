@@ -42,7 +42,7 @@ def matchFeatures(q_frame: Frame, t_frame: Frame):
     if len(matches) < MIN_MATCHES:
         return None
     if debug:
-        log.info(f"[Initialization] \t{len(matches)} matches left!")
+        log.info(f"\t {len(matches)} matches left!")
 
     # 3) **Propagate keypoint IDs**
     propagate_keypoints(q_frame, t_frame, matches)

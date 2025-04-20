@@ -55,7 +55,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
 
     epipolar_constraint_mask, M, use_homography = enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
     if epipolar_constraint_mask is None:
-        log.warning("[Initialization] Failed to apply epipolar constraint..")
+        log.warning("\t Failed to apply epipolar constraint..")
         return None, False
 
     # Save the matches
@@ -90,7 +90,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
         if debug:
-            log.info(f"[Initialization] \t\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
+            log.info(f"\t\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
         matches = matches[mask_pose]        
 
         # Reprojection filter
@@ -153,7 +153,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
 
     # If we failed to recover R and t
     if R is None or t is None:
-        log.warning("[Initialization] Failed to recover a valid pose from either E or H.")
+        log.warning("\t Failed to recover a valid pose from either E or H.")
         return None, False
             
     # Save the matches
@@ -166,7 +166,7 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     matches = matches[reproj_mask]
 
     if debug:
-        log.info(f"[Initialization] \t {reproj_mask.sum()} matches left!")
+        log.info(f"\t {reproj_mask.sum()} matches left!")
 
     # ------------------------------------------------------------------------
     # 4. Build the 4x4 Pose matrix
@@ -209,7 +209,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     # Triangulate
     q_points = triangulate(q_kpt_pixels, t_kpt_pixels, T_qt) # (N, 3)
     if q_points is None or len(q_points) == 0:
-        log.warning("[Initialization] Triangulation returned no 3D points.")
+        log.warning("\t Triangulation returned no 3D points.")
         return None, None, None, False
 
     # Transfer the points to the current coordinate frame [t->q]
@@ -227,7 +227,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
 
     # If too few points or too small median angle, return None
     if cheirality_mask is None or cheirality_mask.sum() < MIN_NUM_TRIANG_POINTS:
-        log.warning("[Initialization] Discarding frame after cheirality check.")
+        log.warning("\t Discarding frame after cheirality check.")
         return None, None, None, False
             
     # Save the matches
@@ -245,7 +245,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
 
     # If too few points or too small median angle, return None
     if parallax_mask is None or parallax_mask.sum() < MIN_NUM_TRIANG_POINTS:
-        log.warning("[Initialization] Discarding frame due to insufficient parallax.")
+        log.warning("\t Discarding frame due to insufficient parallax.")
         return None, None, None, False
             
     # Save the matches

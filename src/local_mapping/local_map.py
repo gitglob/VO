@@ -40,8 +40,8 @@ class mapPoint():
         self.pos: np.ndarray = pos          # 3D position
         self.id: int = keypoint.class_id    # The unique id of the keypoint
 
-        self.match_counter: int = 0         # Number of times the point was tracked with PnP
-        self.obs_counter: int = 0           # Number of times the point was observed in a Frame
+        self.found_counter: int = 1         # Number of times the point was tracked
+        self.visible_counter: int = 1       # Number of times the point was predicted to be visible by a Frame
 
     def observe(self,
                 kf_number: int, 
@@ -165,12 +165,11 @@ class mapPoint():
 
 class Map():
     def __init__(self, ref_frame_id: int = None):
-        self.points: dict = {}   # Dictionary with id<->mapPoint pairs
+        self.keyframes: dict = {} # Dictionary with id <-> keyframe pairs
+        self.points: dict = {}    # Dictionary with id <-> mapPoint pairs
 
-        # Mask that indicates which of the current points are in the camera view
+        # Masks that show which of the current points were visible/tracked
         self._in_view_mask = None
-
-        # Mask that indicates which of the current points were tracked with PnP
         self._tracking_mask = None
 
         # The pixel coordinates of the points in the current camera view
@@ -215,17 +214,21 @@ class Map():
         ids = np.array(ids, dtype=int)
         return ids
        
-    def get_frustum_point_ids(self, keyframe: Frame):
-        """Returns the points that originated from a given frame"""
+    def get_points_from_frame(self, kf_id: int):
+        """Returns the points that are seen by a specific frame"""
         kf_pt_ids = set()
-        for kpt in keyframe.keypoints:
-            if kpt.class_id in self.point_ids:
-                kf_pt_ids.add(kpt.class_id)
+        for point in self.points.values():
+            for obs in point.observations:
+                if obs["keyframe"].id == kf_id:
+                    kf_pt_ids.add(point.id)
 
         return kf_pt_ids
    
     def discard_point(self, point_id: int):
         del self.points[point_id]
+
+    def add_keyframe(self, kf: Frame):
+        self.keyframes[kf.id] = kf
 
     def add_point(self, 
                    kf: Frame,
@@ -294,16 +297,15 @@ class Map():
         points = [self.points[idx] for idx in point_ids]
         return points
 
-    def set_tracking_mask(self, mask):
-        """Saves a mask that shows which points were tracked by PnP"""
-        self._tracking_mask = mask
+    def view(self, t_map_pairs: dict):
+        """Increases the counter that shows how many times a point was predicted to be visible"""
+        for pid, _ in t_map_pairs.values():
+            self.points[pid].visible_counter += 1
 
-    def update_counters(self):
-        # Increase the view and match counters 
-        for p in self.points_arr[self._in_view_mask]:
-            p.obs_counter += 1
-        for p in self.points_arr[self._tracking_mask]:
-            p.match_counter += 1
+    def found(self, t_map_pairs: dict):
+        """Increases the counter that shows how many times a point was tracked"""
+        for pid, _ in t_map_pairs.values():
+            self.points[pid].found_counter += 1
 
     def get_keyframes_that_see(self, point_ids: set[int]) -> set[int]:
         """Returns all the keyframes that see a set of points"""
@@ -336,6 +338,7 @@ class Map():
         Creates and adds new points to the map, by triangulating matches in so far
         un-matched points in connected keyframes.
         """
+        log.info(f"[Map] Creating new map points using frame {t_frame.id}")
         # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
         pairs = [] # (frame1_id, feature1_id, frame2_id, feature2_id)
 
@@ -372,6 +375,7 @@ class Map():
                         pairs.append((t_frame.id, t_kpt_id, n_frame.id, n_kpt_id))
 
         # For every formed pair, triangulate new points and add them to the map
+        num_created_points = 0
         for pair in pairs:
             _, t_kpt_id, n_frame_id, n_kpt_id = pair
             n_frame = keyframes[n_frame_id]
@@ -408,6 +412,9 @@ class Map():
             # Point was accepted
             new_w_point = transform_points(new_t_point, t_frame.pose)
             self.add_point(new_w_point)
+            num_created_points += 1
+
+        log.info(f"\t Created {num_created_points} points!") 
 
         # TODO:
         # Initially a map point is observed from two keyframes but
@@ -415,8 +422,8 @@ class Map():
         # of connected keyframes, and correspondences are searched
 
     def cull(self, keyframes, frame, cgraph):
-        self._cull_points(self, cgraph)
-        self._cull_frames(self, keyframes, frame, cgraph)
+        self._cull_points(cgraph)
+        self._cull_frames(keyframes, frame, cgraph)
 
     def _cull_frames(self, keyframes, frame, cgraph):
         """
@@ -424,10 +431,13 @@ class Map():
         map points have been seen in at least other three keyframes in
         the same or finer scale.
         """
+        if debug:
+            log.info("[Map] Cleaning up frames...")
         # Get the neighbor keyframes in the convisibility graph
         neighbor_kf_ids = cgraph.get_connected_frames(frame.id)
 
         # Iterate over all connected keyframes
+        removed_kf_ids = set()
         for kf_id in neighbor_kf_ids:
             kf = keyframes[kf_id]
             # Extract their map points
@@ -449,7 +459,12 @@ class Map():
             # Calculate the percentage of co-observing points
             if count_coobserving_points / num_points > 0.9:
                 # Remove keyframe
-                cgraph.remove(kf_id)
+                removed_kf_ids.add(kf_id)
+
+        for kf_id in removed_kf_ids:
+            if debug:
+                log.info(f"\t Removed Keyframe {kf_id}!")
+            cgraph.remove(kf_id)
 
     def _cull_points(self, cgraph):
         """
@@ -460,52 +475,51 @@ class Map():
         2) If more than one keyframe has passed from map point 
            creation, it must be observed from at least three keyframes.
 
+        Once a map point have passed this test, it can only be
+        removed if at any time it is observed from less than three
+        keyframes.
+
         Basically, remove map points that are 
-            (1) rarely matched (in PnP)
-            (2) not observed from at least M frames after their creation
+            (1) rarely matched
+            (2) not observed from at least 3 keyframes
         """
         if debug:
             log.info("[Map] Cleaning up map points...")
 
         prev_num_points = self.num_points
-        removed_point_ids = []
+        removed_point_ids = set()
 
         # Iterate over all points
         for pid, p in self.points.items():
-            # Check if we are within 3 keyframes after creation
-            num_kf_passed_since_creation = self._kf_counter - p.observations[0]["kf_number"]
-            if num_kf_passed_since_creation > 0 and num_kf_passed_since_creation <= 3:
-                # The tracking must find the point in more than 25% of the frames in which 
-                # it is predicted to be visible.
-                r = p.match_counter / p.obs_counter
-                if r > MATCH_VIEW_RATIO:
-                    removed_point_ids.add(pid)
-                    continue
             
-                # If more than one keyframe has passed from map point creation, 
-                # it must be observed from at least three keyframes.
-                if num_kf_passed_since_creation > 1:
-                    num_observations = cgraph.get_frames_that_observe(pid)
-                    if num_observations < 3:
-                        removed_point_ids.add(pid)
-                        continue
+            # The tracking must find the point in more than 25% of the frames in which 
+            # it is predicted to be visible.
+            r = p.found_counter / p.visible_counter
+            if r > MATCH_VIEW_RATIO:
+                removed_point_ids.add(pid)
+                continue
 
+            # If more than one keyframe has passed from map point creation, 
+            # it must be observed from at least three keyframes.
+            num_kf_passed_since_creation = self._kf_counter - p.observations[0]["kf_number"]
+            num_observations = len(cgraph.get_frames_that_observe(pid))
+            if num_kf_passed_since_creation > 1 and num_observations < 3:
+                removed_point_ids.add(pid)
+                continue
+            
             # Once a map point has passed this test, it can only be 
             # removed if at any time it is observed from less than three keyframes.
-            elif num_kf_passed_since_creation > 3:
-                num_observations = cgraph.get_frames_that_observe(pid)
-                if num_observations < 3:
-                    removed_point_ids.add(pid)
-                    continue
+            # elif num_kf_passed_since_creation > 2:
+            #     num_observations = cgraph.get_frames_that_observe(pid)
+            #     if num_observations < 3:
+            #         removed_point_ids.add(pid)
+            #         continue
 
         for pid in removed_point_ids:
             del self.points[pid]
 
         if debug:
-            log.info(f"[Map] \t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
-
-        # Reset the in-view mask
-        self._in_view_mask = None
+            log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
 
     def show(self, prev_point_positions, point_positions):
         """
