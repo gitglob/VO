@@ -300,7 +300,7 @@ def main():
                     plot_trajectory(map.keyframes, i)
 
                 # Clean up map points that are not seen anymore and redundant frames
-                map.cull(map.keyframes, t_frame, cgraph)
+                map.cull(t_frame, cgraph)
 
                 q_frame = t_frame            
 

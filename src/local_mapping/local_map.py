@@ -434,11 +434,11 @@ class Map():
         # self.show(prev_point_positions, self.point_positions)
 
 
-    def cull(self, keyframes, frame, cgraph):
+    def cull(self, frame, cgraph):
         self._cull_points(cgraph)
-        self._cull_frames(keyframes, frame, cgraph)
+        self._cull_keyframes(frame, cgraph)
 
-    def _cull_frames(self, keyframes, frame, cgraph):
+    def _cull_keyframes(self, frame, cgraph):
         """
         Discard all the connected keyframes whose 90% of the
         map points have been seen in at least other three keyframes in
@@ -452,7 +452,7 @@ class Map():
         # Iterate over all connected keyframes
         removed_kf_ids = set()
         for kf_id in neighbor_kf_ids:
-            kf = keyframes[kf_id]
+            kf = self.keyframes[kf_id]
             # Extract their map points
             kf_point_ids = cgraph.get_frustum_point_ids(kf_id)
             num_points = len(kf_point_ids)
@@ -463,7 +463,7 @@ class Map():
                 # Extract their scale
                 scale = kf.features[pid].kpt.octave
                 # Get how many keyframes observe the same point in the same or finer scale
-                observing_frame_ids = cgraph.get_frames_that_observe_at_scale(pid, keyframes, scale)
+                observing_frame_ids = cgraph.get_frames_that_observe_at_scale(pid, self.keyframes, scale)
                 num_observing_frame_ids = len(observing_frame_ids)
                 # Check if at least 3 keyframes observe this point
                 if num_observing_frame_ids >= 3:
