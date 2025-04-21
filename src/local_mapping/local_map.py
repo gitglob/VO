@@ -380,7 +380,7 @@ class Map():
 
             # Point was accepted
             new_w_point = transform_points(new_t_point, t_frame.pose)
-            self.add_point(new_w_point)
+            self._add_point(t_frame, new_w_point, n_feat.kpt, n_feat.desc)
             num_created_points += 1
 
         log.info(f"\t Created {num_created_points} points!") 
@@ -393,6 +393,9 @@ class Map():
 
     def remove_keyframe(self, frame_id: int):
         del self.keyframes[frame_id]
+
+    def remove_point(self, pid: int):
+        del self.points[pid]
 
 
     def update_points(self, 
@@ -474,7 +477,7 @@ class Map():
         for kf_id in removed_kf_ids:
             if debug:
                 log.info(f"\t Removed Keyframe {kf_id}!")
-            cgraph.remove(kf_id)
+            cgraph.remove_keyframe(kf_id)
 
     def _cull_points(self, cgraph):
         """
@@ -526,7 +529,8 @@ class Map():
             #         continue
 
         for pid in removed_point_ids:
-            del self.points[pid]
+            self.remove_point(pid)
+        cgraph.remove_points(removed_point_ids)
 
         if debug:
             log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")

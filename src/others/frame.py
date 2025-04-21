@@ -99,6 +99,7 @@ class Frame():
         self.match[with_frame_id]["match_type"] = match_type
         self.match[with_frame_id]["T"] = None
 
+
     def get_features_at_level(self, level: int) -> tuple[list, list]:
         """Returns the feature ids of a specific ORB scale level"""
         level_kpt_ids = []
@@ -124,6 +125,7 @@ class Frame():
         """Returns matches with a specfic frame"""
         matches = self.match[with_frame_id]["tracking_matches"]
         return matches
+
 
     def match_map_point(self, old_kpt_id: int, new_kpt_id: int):
         self.features[new_kpt_id] = self.features[old_kpt_id].copy(new_id=new_kpt_id, matched=True)
