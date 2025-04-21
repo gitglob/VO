@@ -182,20 +182,7 @@ class Map():
         # Reference frame
         if ref_frame_id is not None:
             self.ref_frame_id = ref_frame_id
-
-    @property
-    def num_points(self):
-        return len(self.points)
-    
-    @property
-    def points_arr(self):
-        """Returns the mapPoints as an arrayu"""
-        p_arr = []
-        for k,v in self.points.items():
-            p_arr.append(v)
-        p_arr = np.array(p_arr, dtype=object)
-        return p_arr
-
+   
     @property
     def point_positions(self):
         """Returns the points xyz positions"""
@@ -417,29 +404,6 @@ class Map():
         if debug:
             log.info(f"[Map] Updating {len(keypoints)} map points.")
         
-    def update_landmarks(self, point_ids: set, point_positions: List):
-        """Updates the 3d positions of given map points"""
-        if debug:
-            log.info("[Map] Updating landmark positions...")
-
-        prev_point_positions = self.point_positions.copy()
-        point_ids = np.array(point_ids, dtype=int)
-        point_positions = np.array(point_positions, dtype=np.float64)
-
-        # Create a boolean mask: True for IDs that exist in the map
-        mask = np.isin(point_ids, self.point_ids)
-        
-        # Filter valid point IDs and their corresponding positions
-        to_update_point_ids = point_ids[mask]
-        to_update_positions = point_positions[mask]
-        
-        # Update the positions of the landmarks
-        for pid, pos in zip(to_update_point_ids, to_update_positions):
-            # log.info(f"[Map] Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
-            self.points[pid].pos = pos
-
-        # self.show(prev_point_positions, self.point_positions)
-
 
     def cull(self, frame, cgraph):
         self._cull_points(cgraph)

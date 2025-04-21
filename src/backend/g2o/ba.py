@@ -102,7 +102,7 @@ class BA:
             log.info(f"\t Adding {self.map.num_points()} landmarks...")
 
         # Iterate over all map points
-        for i, pt in enumerate(self.map.points_arr):
+        for pt in self.map.points.values():
             pos = pt.pos      # 3D position of landmark
             l_idx = pt.id     # landmark id
 
@@ -165,37 +165,32 @@ class BA:
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
 
-        # Extract the optimized estimates.
-        opt_l_ids, opt_l_pos = self.get_poses_and_landmarks()
+        # Optimize poses and landmarks
+        self.update_poses_and_landmarks()
 
-        return opt_l_ids, list(opt_l_pos), True
+        return True
 
     def finalize(self):
         """
         Returns the final poses (optimized).
         """
-        return self.get_poses_and_landmarks()[1]
+        self.update_poses_and_landmarks()
 
-    def get_poses_and_landmarks(self):
+    def update_poses_and_landmarks(self):
         """
         Retrieves optimized pose and landmark estimates from the optimizer.
         
         Returns:
             (pose_ids, pose_array, landmark_ids, landmark_array)
         """
-        landmarks = {}
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):
                 frame_id = X_inv(vertex.id())
                 self.map.keyframes[frame_id].optimize_pose(vertex.estimate().matrix())
             elif isinstance(vertex, g2o.VertexPointXYZ):
-                landmarks[vertex.id()] = vertex.estimate()
-
-        landmark_ids = sorted(landmarks.keys())
-        landmark_pos = np.array([landmarks[i] for i in landmark_ids])
-
-        return landmark_ids, landmark_pos
+                pid = L_inv(vertex.id())
+                self.map.points[pid].pos = vertex.estimate()
 
     def print_x_nodes_in_graph(self):
         """

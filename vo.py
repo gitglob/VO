@@ -21,6 +21,7 @@ from src.local_mapping.local_map import Map
 
 from src.backend.g2o.ba import BA
 from src.backend.g2o.pose_optimization import poseBA
+from src.backend.g2o.single_pose_optimization import singlePoseBA
 from src.backend.convisibility_graph import ConvisibilityGraph
 
 
@@ -100,7 +101,7 @@ def main():
             if debug:
                 save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
                 
-            plot_trajectory(map.keyframes, i, ba=False)
+            plot_trajectory(map, i, ba=False)
             q_frame = t_frame
         else:                    
             # ########### Initialization ###########
@@ -157,12 +158,11 @@ def main():
                 
                 # Perform Bundle Adjustment
                 ba = BA(map, verbose=debug)
-                landmark_ids, landmark_poses, ba_success = ba.optimize()
+                ba_success = ba.optimize()
                 if not ba_success:
                     log.error("Bundle Adjustment failed!")
                 else:
-                    map.update_landmarks(landmark_ids, landmark_poses)
-                    plot_trajectory(map.keyframes, i)
+                    plot_trajectory(map, i)
                 
                 tracking_success = True
                 q_frame = t_frame
@@ -251,7 +251,7 @@ def main():
                 map.found(t_map_pairs)
 
                 # Optimize the camera pose with all the map points found in the frame
-                ba = poseBA(map, verbose=debug)
+                ba = singlePoseBA(map, i, verbose=debug)
                 ba.optimize()
     
                 # ########### New Keyframe Decision ###########
@@ -281,14 +281,13 @@ def main():
                 cgraph.add_track_keyframe(t_frame, t_map_pairs)
 
                 # Plot trajectory
-                plot_trajectory(map.keyframes, i, ba=False)
+                plot_trajectory(map, i, ba=False)
 
                 # Perform Bundle Adjustment
                 ba = BA(map, verbose=debug)
-                landmark_ids, landmark_poses, ba_success = ba.optimize()
+                ba_success = ba.optimize()
                 if ba_success:
-                    map.update_landmarks(landmark_ids, landmark_poses)
-                    plot_trajectory(map.keyframes, i)
+                    plot_trajectory(map, i)
 
                 # Clean up map points that are not seen anymore and redundant frames
                 map.cull(t_frame, cgraph)
@@ -299,7 +298,7 @@ def main():
     ba.finalize()
 
     # Save final map and trajectory
-    plot_trajectory(map.keyframes, i)
+    plot_trajectory(map, i)
     plot_trajectory_3d(map.keyframes)
 
 if __name__ == "__main__":

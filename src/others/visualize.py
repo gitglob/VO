@@ -4,15 +4,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
 from scipy.spatial.transform import Rotation as R
-
-from config import results_dir
 from src.others.utils import get_yaw
+from config import results_dir
 matplotlib.use('TkAgg')
 
 
 ############################### Pose Visualization ###############################
 
-def plot_trajectory(frames, i, ba=True, save_path=results_dir / "trajectory"):
+def plot_trajectory(map, i: int, ba=True, save_path=results_dir / "trajectory"):
+    frames = map.keyframes
     save_path = save_path / f"{i}.png"
 
     if ba:

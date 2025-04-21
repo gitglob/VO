@@ -22,15 +22,15 @@ def L_inv(idx: int):
     return (idx - 1) / 2
 
 
-class poseBA:
-    def __init__(self, map: Map, verbose=False):
+class singlePoseBA:
+    def __init__(self, map: Map, frame_id: int, verbose=False):
         """
         Initializes BA_g2o with a g2o optimizer and camera intrinsics.
         
         Args:
             verbose: If True, print debug information.
         """
-        log.info("[BA] Performing Pose Optimization...")
+        log.info(f"[BA] Performing Pose #{frame_id} Optimization...")
         self.verbose = verbose
 
         # Set up the g2o optimizer.
@@ -54,37 +54,30 @@ class poseBA:
 
         # The keyframes to optimize
         self.map: Map = map
-        self._add_frames()
+        self.frame_id = frame_id
+        self._add_frame()
         self._add_observations()
 
-    def _add_frames(self):
+    def _add_frame(self):
         """
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
         """
         if self.verbose:
-            log.info(f"\t Adding {self.map.num_keyframes()} poses...")
-        
-        frames = list(self.map.keyframes.values())
-        for frame in frames:
-            self._add_frame(frame)
+            log.info(f"\t Adding frame {self.frame_id}...")
 
-    def _add_frame(self, frame: Frame, fixed=False):
-        """
-        Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
-        The first pose is fixed to anchor the graph.
-        """
-        p_id = frame.id
-        p = frame.pose if frame.pose is not None else frame.noopt_pose
+        frame = self.map.keyframes[self.frame_id]
+
+        p = frame.pose
 
         # Convert the 4x4 pose matrix into an SE3Quat.
         R = p[:3, :3]
         t = p[:3, 3]
         se3 = g2o.SE3Quat(R, t)
         vertex = g2o.VertexSE3Expmap()
-        vertex.set_id(X(p_id))
+        vertex.set_id(X(frame.id))
         vertex.set_estimate(se3)
-        vertex.set_fixed(fixed)
+        vertex.set_fixed(False)
             
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
@@ -151,7 +144,7 @@ class poseBA:
         delta = np.sqrt(5.991)
 
         # Iterate over all map points
-        for pt in self.map.points_arr:
+        for pt in self.map.points.values():
             pos = pt.pos      # 3D position of landmark
             l_idx = pt.id     # landmark id
 
