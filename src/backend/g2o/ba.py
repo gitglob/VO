@@ -23,7 +23,7 @@ def L_inv(idx: int):
 
 
 class BA:
-    def __init__(self, verbose=False):
+    def __init__(self, map: Map, verbose=False):
         """
         Initializes BA_g2o with a g2o optimizer and camera intrinsics.
         
@@ -56,46 +56,53 @@ class BA:
         self.obs_buffer = {}        # Buffer for observation edges per landmark id.
 
         # The keyframes to optimize
-        self.frames: dict[int, Frame] = None
+        self.map = map
+        self._add_frames()
+        self._add_observations()
 
-    def add_frames(self, frames: dict[int, Frame]):
+    def _add_frames(self):
         """
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
         """
-        self.frames = frames
-
         if self.verbose:
-            log.info(f"\t Adding {len(frames)} poses...")
+            log.info(f"\t Adding {self.map.num_keyframes()} poses...")
+        
+        frames = list(self.map.keyframes.values())
+        self._add_frame(frames[0], fixed=True)
+        for frame in frames[1:]:
+            self._add_frame(frame)
 
-        # Iterate over all poses
-        for f in frames.values():
-            p_id = f.id
-            p = f.pose
+    def _add_frame(self, frame: Frame, fixed: bool = False):
+        """
+        Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
+        The first pose is fixed to anchor the graph.
+        """
+        p_id = frame.id
+        p = frame.pose 
 
-            # Convert the 4x4 pose matrix into an SE3Quat.
-            R = p[:3, :3]
-            t = p[:3, 3]
-            se3 = g2o.SE3Quat(R, t)
-            vertex = g2o.VertexSE3Expmap()
-            vertex.set_id(X(p_id))
-            vertex.set_estimate(se3)
+        # Convert the 4x4 pose matrix into an SE3Quat.
+        R = p[:3, :3]
+        t = p[:3, 3]
+        se3 = g2o.SE3Quat(R, t)
+        vertex = g2o.VertexSE3Expmap()
+        vertex.set_id(X(p_id))
+        vertex.set_estimate(se3)
 
-            # We optimize both poses and landmarks, but fix the first pose
-            vertex.set_fixed(True)
-            if self.verbose:
-                log.info(f"\t Anchoring pose x({p_id})...")
+        # We optimize both poses and landmarks, but fix the first pose
+        if fixed:
+            vertex.set_fixed(fixed)
             
-            # Add the vertex to the graph
-            self.optimizer.add_vertex(vertex)
+        # Add the vertex to the graph
+        self.optimizer.add_vertex(vertex)
 
-    def add_observations(self, map: Map):
+    def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"\t Adding {map.num_points} landmarks...")
+            log.info(f"\t Adding {self.map.num_points()} landmarks...")
 
         # Iterate over all map points
-        for i, pt in enumerate(map.points_arr):
+        for i, pt in enumerate(self.map.points_arr):
             pos = pt.pos      # 3D position of landmark
             l_idx = pt.id     # landmark id
 
@@ -181,7 +188,7 @@ class BA:
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):
                 frame_id = X_inv(vertex.id())
-                self.frames[frame_id].optimize_pose(vertex.estimate().matrix())
+                self.map.keyframes[frame_id].optimize_pose(vertex.estimate().matrix())
             elif isinstance(vertex, g2o.VertexPointXYZ):
                 landmarks[vertex.id()] = vertex.estimate()
 

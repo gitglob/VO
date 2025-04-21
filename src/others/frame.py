@@ -92,6 +92,9 @@ class Frame():
     def set_pose(self, pose: np.ndarray):
         self.pose = pose
 
+    def reset_pose(self):
+        self.pose = None
+
     def set_matches(self, with_frame_id: int, matches: List[DMatch], match_type: str):
         """Sets matches with another frame"""
         self.match[with_frame_id] = {}

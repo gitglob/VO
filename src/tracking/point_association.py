@@ -392,7 +392,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
 
     return pairs
 
-def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame, T_t2w: np.ndarray, theta: int = 15):
+def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame, theta: int = 15):
     """
     Projects all un-matched map points to a frame and searches more correspondances.
 
@@ -400,6 +400,8 @@ def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame,
         matched_features: A list of tuples (map_idx, frame_idx) indicating the association of map points
                to current frame keypoints.      
     """
+    T_t2w = t_frame.pose
+    
     # Extract the already matched features and map points
     matched_point_ids = {v[0] for v in matched_features.values()}
     new_matched_features = {}

@@ -156,9 +156,7 @@ def main():
                 validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.pose])
                 
                 # Perform Bundle Adjustment
-                ba = BA(verbose=debug)
-                ba.add_frames(map.keyframes)
-                ba.add_observations(map)
+                ba = BA(map, verbose=debug)
                 landmark_ids, landmark_poses, ba_success = ba.optimize()
                 if not ba_success:
                     log.error("Bundle Adjustment failed!")
@@ -190,12 +188,11 @@ def main():
                             continue
 
                     # Perform pose optimization
-                    ba = BA(verbose=debug)
-                    ba.add_frames(map.keyframes)
-                    ba.add_observations(map)
+                    ba = BA(map, verbose=debug)
                     ba.optimize()
 
                     # Bookkeeping
+                    t_frame.set_pose(T_t2w)
                     map.add_keyframe(t_frame)
                     tracking_success = True
                 else:
@@ -217,18 +214,17 @@ def main():
                         t_map_pairs = bowPointAssociation(map, cand_frame, t_frame, cgraph)
                         # Estimate the new world pose using PnP (3d-2d)
                         T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame, t_map_pairs)
+                        T_t2w = invert_transform(T_w2t)
                         if T_w2t is not None:
                             log.info(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
 
-                            # Temporarily set the candidate frame as keyframe
-                            map.add_keyframe(cand_frame)
-
                             # Perform pose optimization
-                            ba = poseBA(verbose=debug)
-                            ba.add_frames(map.keyframes)
-                            ba.add_observations(map)
+                            ba = poseBA(map, verbose=debug)
                             ba.optimize()
 
+                            # Temporarily set the candidate frame as keyframe
+                            map.add_keyframe(cand_frame)
+                            t_frame.set_pose(T_t2w)
                             tracking_success = True
                             break
                     
@@ -248,17 +244,14 @@ def main():
                 local_map = cgraph.create_local_map(t_frame, map, t_map_pairs)
 
                 # Project the local map to the frame and search more correspondances
-                T_t2w = invert_transform(T_w2t)
-                t_map_pairs1 = mapPointAssociation(t_map_pairs, local_map, t_frame, T_t2w)
+                t_map_pairs1 = mapPointAssociation(t_map_pairs, local_map, t_frame)
                 t_map_pairs.update(t_map_pairs1)
 
                 # Set the found mask
                 map.found(t_map_pairs)
 
                 # Optimize the camera pose with all the map points found in the frame
-                ba = poseBA(verbose=debug)
-                ba.add_frame(t_frame, T_t2w)
-                ba.add_observations(map)
+                ba = poseBA(map, verbose=debug)
                 ba.optimize()
     
                 # ########### New Keyframe Decision ###########
@@ -268,10 +261,10 @@ def main():
                 T_t2q = T_w2q @ T_t2w
                 if not is_keyframe(t_frame, map.keyframes, local_map):
                     map.remove_keyframe(t_frame.id)
+                    t_frame.reset_pose()
                     continue
 
                 # Set the pose in the current frame
-                t_frame.set_pose(T_t2w)
                 log.info(f"\t RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
 
                 # Save the keyframe
@@ -291,9 +284,7 @@ def main():
                 plot_trajectory(map.keyframes, i, ba=False)
 
                 # Perform Bundle Adjustment
-                ba = BA(verbose=debug)
-                ba.add_frames(map.keyframes)
-                ba.add_observations(map)
+                ba = BA(map, verbose=debug)
                 landmark_ids, landmark_poses, ba_success = ba.optimize()
                 if ba_success:
                     map.update_landmarks(landmark_ids, landmark_poses)

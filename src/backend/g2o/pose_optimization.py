@@ -23,7 +23,7 @@ def L_inv(idx: int):
 
 
 class poseBA:
-    def __init__(self, verbose=False):
+    def __init__(self, map: Map, verbose=False):
         """
         Initializes BA_g2o with a g2o optimizer and camera intrinsics.
         
@@ -53,16 +53,29 @@ class poseBA:
         self.measurement_information = np.eye(2) * (1.0 / (self.measurement_sigma ** 2))
 
         # The keyframes to optimize
-        self.frame: Frame = None
-        self.frames: dict[int, Frame] = None
+        self.map: Map = map
+        self._add_frames()
+        self._add_observations()
 
-    def add_frame(self, frame: Frame, pose: np.ndarray = None):
+    def _add_frames(self):
+        """
+        Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
+        The first pose is fixed to anchor the graph.
+        """
+        if self.verbose:
+            log.info(f"\t Adding {self.map.num_keyframes()} poses...")
+        
+        frames = list(self.map.keyframes.values())
+        for frame in frames:
+            self._add_frame(frame)
+
+    def _add_frame(self, frame: Frame, fixed=False):
         """
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
         """
         p_id = frame.id
-        p = pose if pose is not None else frame.pose 
+        p = frame.pose if frame.pose is not None else frame.noopt_pose
 
         # Convert the 4x4 pose matrix into an SE3Quat.
         R = p[:3, :3]
@@ -71,37 +84,10 @@ class poseBA:
         vertex = g2o.VertexSE3Expmap()
         vertex.set_id(X(p_id))
         vertex.set_estimate(se3)
-        
+        vertex.set_fixed(fixed)
+            
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
-
-        self.frame = frame
-
-    def add_frames(self, frames: dict[int, Frame]):
-        """
-        Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
-        The first pose is fixed to anchor the graph.
-        """
-        self.frames = frames
-
-        if self.verbose:
-            log.info(f"\t Adding {len(frames)} poses...")
-
-        # Iterate over all poses
-        for f in frames:
-            p_id = f.id
-            p = f.pose
-
-            # Convert the 4x4 pose matrix into an SE3Quat.
-            R = p[:3, :3]
-            t = p[:3, 3]
-            se3 = g2o.SE3Quat(R, t)
-            vertex = g2o.VertexSE3Expmap()
-            vertex.set_id(X(p_id))
-            vertex.set_estimate(se3)
-            
-            # Add the vertex to the graph
-            self.optimizer.add_vertex(vertex)
 
     def add_observations(self, map: Map, map_t_pairs: list[tuple]):
         """Add landmarks as vertices and reprojection observations as edges based on a pairing map."""
@@ -155,17 +141,17 @@ class poseBA:
             # Add observation edge
             self.optimizer.add_edge(edge)
 
-    def add_observations(self, map: Map):
+    def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"\t Adding {map.num_points} landmarks...")
+            log.info(f"\t Adding {self.map.num_points()} landmarks...")
 
         # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.
         delta = np.sqrt(5.991)
 
         # Iterate over all map points
-        for i, pt in enumerate(map.points_arr):
+        for pt in self.map.points_arr:
             pos = pt.pos      # 3D position of landmark
             l_idx = pt.id     # landmark id
 
@@ -189,6 +175,7 @@ class poseBA:
 
                 # Create the reprojection edge.
                 edge = g2o.EdgeProjectXYZ2UV()
+                # edge = g2o.EdgeSE3ProjectXYZ()
                 # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
                 edge.set_vertex(0, v_landmark)
                 edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
@@ -199,6 +186,7 @@ class poseBA:
                 edge.set_robust_kernel(robust_kernel)
                 # Link the camera parameters (parameter id 0)
                 edge.set_parameter_id(0, 0)
+                edge.set_level(0)
 
                 # Add observation edge
                 self.optimizer.add_edge(edge)
@@ -228,10 +216,10 @@ class poseBA:
             for e in self.optimizer.edges():
                 chi2_val = e.chi2()
                 if chi2_val > chi2_threshold:
-                    e.setLevel(1)
+                    e.set_level(1)
                     n_outlier_edges += 1
                 else:
-                    e.setLevel(0)
+                    e.set_level(0)
 
             # Check if too little edges are left
             if len(self.optimizer.edges()) < 10:
@@ -264,11 +252,7 @@ class poseBA:
             if isinstance(vertex, g2o.VertexSE3Expmap):
                 # Update poses
                 frame_id = X_inv(vertex.id())
-                if self.frame is not None:
-                    self.frame.pose = vertex.estimate().matrix()
-                    continue
-                else:
-                    self.frames[frame_id].pose = vertex.estimate().matrix()
+                self.map.keyframes[frame_id].pose = vertex.estimate().matrix()
 
     def print_x_nodes_in_graph(self):
         """

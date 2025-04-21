@@ -257,6 +257,13 @@ class Map():
 
         return keyframe_observers_ids
     
+    
+    def num_points(self) -> int:
+        return len(self.points.keys())
+
+    def num_keyframes(self) -> int:
+        return len(self.keyframes.keys())
+    
     def num_keyframes_that_see(self, pid: int) -> set[int]:
         """Returns the number of keyframes that see a single point"""
         count = 0
@@ -267,7 +274,7 @@ class Map():
             count += 1
 
         return count
-    
+
 
     def add_keyframe(self, kf: Frame):
         self.keyframes[kf.id] = kf
@@ -499,7 +506,7 @@ class Map():
         if debug:
             log.info("[Map] Cleaning up map points...")
 
-        prev_num_points = self.num_points
+        prev_num_points = self.num_points()
         removed_point_ids = set()
 
         # Iterate over all points
