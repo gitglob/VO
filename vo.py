@@ -64,18 +64,11 @@ def main():
     gt = data.ground_truth()
     plot_ground_truth(gt)
 
-    # Get the camera matrix
-    K = data.get_intrinsics()
-
     # Initialize the local map
     map = Map()
 
     # Initialize the convisibility graph
     cgraph = ConvisibilityGraph()
-
-    # Initialize the graph, the keyframes, and the bow list
-    keyframes = {} # keyframe_id -> keyframe 
-    frames = []
 
     # Run the main VO loop
     i = -1
@@ -93,7 +86,6 @@ def main():
         t_frame = Frame(i, img)
         t_frame.set_gt(gt_pose)
         t_frame.set_time(t)
-        frames.append(t_frame)
 
         # Iteration #0
         if t_frame.id == 0:
@@ -103,17 +95,17 @@ def main():
 
             # Bookkeping
             t_frame.set_pose(pose)
-            keyframes[i] = t_frame
-            cgraph.add_keyframe(t_frame, map)
+            map.add_keyframe(t_frame)
+            cgraph.add_first_keyframe(t_frame)
             if debug:
                 save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
                 
-            plot_trajectory(keyframes, i, ba=False)
+            plot_trajectory(map.keyframes, i, ba=False)
             q_frame = t_frame
         else:                    
             # ########### Initialization ###########
             if not is_initialized:
-                log.info("Initialization)")
+                log.info("~~~~Initialization~~~~")
                 # Feature matching
                 matches = matchFeatures(q_frame, t_frame) # (N) : N < M
                 if matches is None:
@@ -154,39 +146,37 @@ def main():
                 points_w = transform_points(t_points, T_t2w)
 
                 # Push the triangulated points to the map
-                map.add_points(t_frame, points_w, t_kpts, t_descriptors)
+                t_map_pairs = map.add_init_points(t_frame, points_w, t_kpts, t_descriptors)
 
                 # Add the keyframe to the convisibility graph
-                cgraph.add_keyframe(t_frame, map)
-
-                # Bookkeping
-                keyframes[i] = t_frame
+                cgraph.add_init_keyframe(t_frame, t_kpts)
+                map.add_keyframe(t_frame)
 
                 # Validate the scale
                 validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.pose])
                 
                 # Perform Bundle Adjustment
-                ba = BA(K, verbose=debug)
-                ba.add_frames(keyframes)
+                ba = BA(verbose=debug)
+                ba.add_frames(map.keyframes)
                 ba.add_observations(map)
                 landmark_ids, landmark_poses, ba_success = ba.optimize()
                 if not ba_success:
                     log.error("Bundle Adjustment failed!")
                 else:
                     map.update_landmarks(landmark_ids, landmark_poses)
-                    plot_trajectory(keyframes, i)
+                    plot_trajectory(map.keyframes, i)
                 
                 tracking_success = True
                 q_frame = t_frame
                     
             # ########### Tracking ###########
             else:
-                log.info("Tracking)")    
+                log.info("~~~~Tracking~~~~")    
                 if tracking_success:
                     # ########### Track from Previous Frame ###########
                     log.info("Using constant velocity model...")
                     # Predict the new pose based on a constant velocity model
-                    T_w2t = constant_velocity_model(t, keyframes)
+                    T_w2t = constant_velocity_model(t, map.keyframes)
 
                     # Match these map points with the current frame
                     t_map_pairs = localPointAssociation(map, q_frame, t_frame, cgraph, T_w2t, theta=15)
@@ -200,13 +190,13 @@ def main():
                             continue
 
                     # Perform pose optimization
-                    ba = BA(K, verbose=debug)
-                    ba.add_frames(keyframes)
+                    ba = BA(verbose=debug)
+                    ba.add_frames(map.keyframes)
                     ba.add_observations(map)
                     ba.optimize()
 
                     # Bookkeeping
-                    keyframes[i] = t_frame
+                    map.add_keyframe(t_frame)
                     tracking_success = True
                 else:
                     # ########### Relocalization ###########
@@ -222,7 +212,7 @@ def main():
                     log.info(f"Iterating over {len(kf_candidate_ids)} keyframe candidates!")
                     for j, kf_id in enumerate(kf_candidate_ids):
                         # Extract the candidate keyframe
-                        cand_frame = keyframes[kf_id]
+                        cand_frame = map.get_keyframe(kf_id)
                         # Perform point association of its map points with the current frame
                         t_map_pairs = bowPointAssociation(map, cand_frame, t_frame, cgraph)
                         # Estimate the new world pose using PnP (3d-2d)
@@ -231,11 +221,11 @@ def main():
                             log.info(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
 
                             # Temporarily set the candidate frame as keyframe
-                            keyframes[i] = cand_frame
+                            map.add_keyframe(cand_frame)
 
                             # Perform pose optimization
                             ba = poseBA(verbose=debug)
-                            ba.add_frames(keyframes)
+                            ba.add_frames(map.keyframes)
                             ba.add_observations(map)
                             ba.optimize()
 
@@ -249,7 +239,7 @@ def main():
                         continue
                 
                 # ########### Track Local Map ###########
-                log.info("Tracking local map...")
+                log.info("~~~~Local Mapping~~~~")
 
                 # Set the visible mask
                 map.view(t_map_pairs)
@@ -276,12 +266,13 @@ def main():
                 # Check if this t_frame is a keyframe
                 T_w2q = invert_transform(q_frame.pose)
                 T_t2q = T_w2q @ T_t2w
-                if not is_keyframe(t_frame, keyframes, local_map):
-                    del keyframes[i]
+                if not is_keyframe(t_frame, map.keyframes, local_map):
+                    map.remove_keyframe(t_frame.id)
                     continue
 
                 # Set the pose in the current frame
                 t_frame.set_pose(T_t2w)
+                log.info(f"\t RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
 
                 # Save the keyframe
                 if debug:
@@ -291,28 +282,25 @@ def main():
                 log.info("Creating New Map Points...")
 
                 # Create new map points
-                map.create_points(cgraph, t_frame, keyframes, bow_db)
+                map.create_track_points(cgraph, t_frame, map.keyframes, bow_db)
 
                 # Bookkeping
-                cgraph.add_keyframe(t_frame, map)
+                cgraph.add_track_keyframe(t_frame, t_map_pairs)
 
                 # Plot trajectory
-                plot_trajectory(keyframes, i, ba=False)
+                plot_trajectory(map.keyframes, i, ba=False)
 
-                # Optimize the keyframe poses using BA
-                if (len(keyframes)-1) % BA_FREQ == 0:
-                    # Perform Bundle Adjustment
-                    ba = BA(K, verbose=debug)
-                    ba.add_frames(keyframes)
-                    ba.add_observations(map)
-                    landmark_ids, landmark_poses, ba_success = ba.optimize()
-
-                    if ba_success:
-                        map.update_landmarks(landmark_ids, landmark_poses)
-                        plot_trajectory(keyframes, i)
+                # Perform Bundle Adjustment
+                ba = BA(verbose=debug)
+                ba.add_frames(map.keyframes)
+                ba.add_observations(map)
+                landmark_ids, landmark_poses, ba_success = ba.optimize()
+                if ba_success:
+                    map.update_landmarks(landmark_ids, landmark_poses)
+                    plot_trajectory(map.keyframes, i)
 
                 # Clean up map points that are not seen anymore and redundant frames
-                map.cull(keyframes, t_frame, cgraph)
+                map.cull(map.keyframes, t_frame, cgraph)
 
                 q_frame = t_frame            
 
@@ -320,8 +308,8 @@ def main():
     ba.finalize()
 
     # Save final map and trajectory
-    plot_trajectory(keyframes, i)
-    plot_trajectory_3d(keyframes)
+    plot_trajectory(map.keyframes, i)
+    plot_trajectory_3d(map.keyframes)
 
 if __name__ == "__main__":
     main()

@@ -223,89 +223,24 @@ class Map():
                     kf_pt_ids.add(point.id)
 
         return kf_pt_ids
+    
+    def get_frustum_points(self, kf_id: int):
+        """Returns the points that are seen by a specific frame"""
+        kf_pt_ids = set()
+        for point in self.points.values():
+            for obs in point.observations:
+                if obs["keyframe"].id == kf_id:
+                    kf_pt_ids.add(point.id)
+
+        return kf_pt_ids
    
-    def discard_point(self, point_id: int):
-        del self.points[point_id]
-
-    def add_keyframe(self, kf: Frame):
-        self.keyframes[kf.id] = kf
-
-    def add_point(self, 
-                   kf: Frame,
-                   pos: np.ndarray, 
-                   keypoint: List[cv2.KeyPoint], 
-                   descriptor: np.ndarray):
-        # Iterate over the new points
-        kpt_id = keypoint.class_id
-        p = mapPoint(self._kf_counter, kf, pos, keypoint, descriptor)
-        self.points[kpt_id] = p
-
-        # if debug:
-        #     log.info(f"[Map] Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
-
-    def add_points(self, 
-                   kf: Frame,
-                   points_pos: np.ndarray, 
-                   keypoints: List[cv2.KeyPoint], 
-                   descriptors: np.ndarray):
-        # Iterate over the new points
-        num_new_points = len(points_pos)
-        for i in range(num_new_points):
-            self.add_point(kf, points_pos[i], keypoints[i], descriptors[i])
-        self._kf_counter += 1
-
-        if debug:
-            log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
-
-    def update_points(self, 
-                      kf: Frame,
-                      keypoints: List[cv2.KeyPoint], 
-                      descriptors: np.ndarray):
-        for i in range(len(keypoints)):
-            kpt_id = keypoints[i].class_id
-            p = self.points[kpt_id]
-            p.observe(self._kf_counter, kf, keypoints[i], descriptors[i])
-
-        if debug:
-            log.info(f"[Map] Updating {len(keypoints)} map points.")
-        
-    def update_landmarks(self, point_ids: set, point_positions: List):
-        """Updates the 3d positions of given map points"""
-        if debug:
-            log.info("[Map] Updating landmark positions...")
-
-        prev_point_positions = self.point_positions.copy()
-        point_ids = np.array(point_ids, dtype=int)
-        point_positions = np.array(point_positions, dtype=np.float64)
-
-        # Create a boolean mask: True for IDs that exist in the map
-        mask = np.isin(point_ids, self.point_ids)
-        
-        # Filter valid point IDs and their corresponding positions
-        to_update_point_ids = point_ids[mask]
-        to_update_positions = point_positions[mask]
-        
-        # Update the positions of the landmarks
-        for pid, pos in zip(to_update_point_ids, to_update_positions):
-            # log.info(f"[Map] Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
-            self.points[pid].pos = pos
-
-        # self.show(prev_point_positions, self.point_positions)
-
     def get_points(self, point_ids: set[int]) -> list:
         """Returns the points that correspond to the given point ids"""
         points = [self.points[idx] for idx in point_ids]
         return points
 
-    def view(self, t_map_pairs: dict):
-        """Increases the counter that shows how many times a point was predicted to be visible"""
-        for pid, _ in t_map_pairs.values():
-            self.points[pid].visible_counter += 1
-
-    def found(self, t_map_pairs: dict):
-        """Increases the counter that shows how many times a point was tracked"""
-        for pid, _ in t_map_pairs.values():
-            self.points[pid].found_counter += 1
+    def get_keyframe(self, frame_id: int) -> Frame:
+        return self.keyframes[frame_id]
 
     def get_keyframes_that_see(self, point_ids: set[int]) -> set[int]:
         """Returns all the keyframes that see a set of points"""
@@ -332,8 +267,42 @@ class Map():
             count += 1
 
         return count
+    
 
-    def create_points(self, cgraph, t_frame, keyframes, bow_db):
+    def add_keyframe(self, kf: Frame):
+        self.keyframes[kf.id] = kf
+        self._kf_counter += 1
+
+    def add_init_points(self, 
+                   kf: Frame,
+                   points_pos: np.ndarray, 
+                   keypoints: List[cv2.KeyPoint], 
+                   descriptors: np.ndarray):
+        # Iterate over the new points
+        num_new_points = len(points_pos)
+        pairs = {}
+        for i in range(num_new_points):
+            self._add_point(kf, points_pos[i], keypoints[i], descriptors[i])
+
+        if debug:
+            log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
+
+        return pairs
+
+    def _add_point(self, 
+                   kf: Frame,
+                   pos: np.ndarray, 
+                   keypoint: List[cv2.KeyPoint], 
+                   descriptor: np.ndarray):
+        # Iterate over the new points
+        kpt_id = keypoint.class_id
+        p = mapPoint(self._kf_counter, kf, pos, keypoint, descriptor)
+        self.points[kpt_id] = p
+
+        # if debug:
+        #     log.info(f"[Map] Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
+
+    def create_track_points(self, cgraph, t_frame, keyframes, bow_db):
         """
         Creates and adds new points to the map, by triangulating matches in so far
         un-matched points in connected keyframes.
@@ -421,6 +390,47 @@ class Map():
         # it could be matched in others, so it is projected in the rest
         # of connected keyframes, and correspondences are searched
 
+
+    def remove_keyframe(self, frame_id: int):
+        del self.keyframes[frame_id]
+
+
+    def update_points(self, 
+                      kf: Frame,
+                      keypoints: List[cv2.KeyPoint], 
+                      descriptors: np.ndarray):
+        for i in range(len(keypoints)):
+            kpt_id = keypoints[i].class_id
+            p = self.points[kpt_id]
+            p.observe(self._kf_counter, kf, keypoints[i], descriptors[i])
+
+        if debug:
+            log.info(f"[Map] Updating {len(keypoints)} map points.")
+        
+    def update_landmarks(self, point_ids: set, point_positions: List):
+        """Updates the 3d positions of given map points"""
+        if debug:
+            log.info("[Map] Updating landmark positions...")
+
+        prev_point_positions = self.point_positions.copy()
+        point_ids = np.array(point_ids, dtype=int)
+        point_positions = np.array(point_positions, dtype=np.float64)
+
+        # Create a boolean mask: True for IDs that exist in the map
+        mask = np.isin(point_ids, self.point_ids)
+        
+        # Filter valid point IDs and their corresponding positions
+        to_update_point_ids = point_ids[mask]
+        to_update_positions = point_positions[mask]
+        
+        # Update the positions of the landmarks
+        for pid, pos in zip(to_update_point_ids, to_update_positions):
+            # log.info(f"[Map] Updating point {pid}:{self.points[pid].id} from {self.points[pid].pos} to {pos}")
+            self.points[pid].pos = pos
+
+        # self.show(prev_point_positions, self.point_positions)
+
+
     def cull(self, keyframes, frame, cgraph):
         self._cull_points(cgraph)
         self._cull_frames(keyframes, frame, cgraph)
@@ -450,7 +460,7 @@ class Map():
                 # Extract their scale
                 scale = kf.features[pid].kpt.octave
                 # Get how many keyframes observe the same point in the same or finer scale
-                observing_frame_ids = cgraph.get_frames_that_observe(pid, keyframes, scale)
+                observing_frame_ids = cgraph.get_frames_that_observe_at_scale(pid, keyframes, scale)
                 num_observing_frame_ids = len(observing_frame_ids)
                 # Check if at least 3 keyframes observe this point
                 if num_observing_frame_ids >= 3:
@@ -495,7 +505,7 @@ class Map():
             # The tracking must find the point in more than 25% of the frames in which 
             # it is predicted to be visible.
             r = p.found_counter / p.visible_counter
-            if r > MATCH_VIEW_RATIO:
+            if r < MATCH_VIEW_RATIO:
                 removed_point_ids.add(pid)
                 continue
 
@@ -520,6 +530,18 @@ class Map():
 
         if debug:
             log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
+
+
+    def view(self, t_map_pairs: dict):
+        """Increases the counter that shows how many times a point was predicted to be visible"""
+        for pid, _ in t_map_pairs.values():
+            self.points[pid].visible_counter += 1
+
+    def found(self, t_map_pairs: dict):
+        """Increases the counter that shows how many times a point was tracked"""
+        for pid, _ in t_map_pairs.values():
+            self.points[pid].found_counter += 1
+
 
     def show(self, prev_point_positions, point_positions):
         """

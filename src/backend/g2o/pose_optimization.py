@@ -22,9 +22,6 @@ def L_inv(idx: int):
     return (idx - 1) / 2
 
 
-# -----------------------------------------------------------------------------
-# Bundle Adjustment class using g2o.
-# -----------------------------------------------------------------------------
 class poseBA:
     def __init__(self, verbose=False):
         """
@@ -33,6 +30,7 @@ class poseBA:
         Args:
             verbose: If True, print debug information.
         """
+        log.info("[BA] Performing Pose Optimization...")
         self.verbose = verbose
 
         # Set up the g2o optimizer.
@@ -87,7 +85,7 @@ class poseBA:
         self.frames = frames
 
         if self.verbose:
-            log.info(f"[poseBA] Adding {len(frames)} poses...")
+            log.info(f"\t Adding {len(frames)} poses...")
 
         # Iterate over all poses
         for f in frames:
@@ -108,7 +106,7 @@ class poseBA:
     def add_observations(self, map: Map, map_t_pairs: list[tuple]):
         """Add landmarks as vertices and reprojection observations as edges based on a pairing map."""
         if self.verbose:
-            log.info(f"[poseBA] Adding {map.num_points} landmarks...")
+            log.info(f"\t Adding {map.num_points} landmarks...")
 
         # Extract the map point ids
         map_point_ids = {p[1] for p in map_t_pairs}
@@ -160,7 +158,7 @@ class poseBA:
     def add_observations(self, map: Map):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"[poseBA] Adding {map.num_points} landmarks...")
+            log.info(f"\t Adding {map.num_points} landmarks...")
 
         # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.
@@ -213,7 +211,7 @@ class poseBA:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
         if self.verbose:
-            log.info("[poseBA] Optimizing with g2o...")
+            log.info("\t Optimizing with g2o...")
 
         # Calculate initial number of edges
         n_edges = len(self.optimizer.edges())

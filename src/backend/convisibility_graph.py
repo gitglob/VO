@@ -1,7 +1,7 @@
 import numpy as np
-
+import cv2
 from src.others.frame import Frame
-from src.local_mapping.local_map import Map
+from src.local_mapping.local_map import Map, mapPoint
 from config import SETTINGS, log
 
 
@@ -68,52 +68,97 @@ class ConvisibilityGraph(Graph):
         # Loop closure edges added from separate loop detection.
         self.loop_closure_edges = {}
 
-    def add_keyframe(self, keyframe: Frame, map: Map):
+        self._first_keyframe_id = None
+
+    def add_first_keyframe(self, keyframe: Frame):
+        """Adds the first keyframe to the graph."""
+        log.info(f"[Graph] Buffering keyframe #{keyframe.id}")
+        if keyframe.id in self.nodes.keys():
+            log.warning(f"\t Keyframe {keyframe.id} already exists!")
+            return
+        
+        self._first_keyframe_id = keyframe.id
+
+    def add_init_keyframe(self, keyframe: Frame, keypoints: list[cv2.KeyPoint]):
         """
         Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
 
         Args:
             keyframe: Unique identifier for the keyframe.
-            map_points (iterable): Collection of map point identifiers observed in the keyframe.
+            pairs: Dictionary matching a feature to a map point with a distance
         """
         log.info(f"[Graph] Adding keyframe #{keyframe.id}")
         if keyframe.id in self.nodes.keys():
-            log.warning(f"[Graph] Keyframe {keyframe.id} already exists!")
+            log.warning(f"\t Keyframe {keyframe.id} already exists!")
+            return
+        
+        # Extract keyframe observations
+        kf_map_pt_ids = set([kpt.class_id for kpt in keypoints])
+        log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
+
+        # Add the first keyframe if hanging
+        if self._first_keyframe_id is not None:
+            self._add_node(self._first_keyframe_id, kf_map_pt_ids)
+            self.spanning_tree._add_node(self._first_keyframe_id, kf_map_pt_ids)
+            self._first_keyframe_id = None
+
+        # Add the current keyframe
+        self._add_node(keyframe.id, kf_map_pt_ids)
+        self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
+
+        self._update_edges(keyframe.id, kf_map_pt_ids)
+
+    def add_track_keyframe(self, keyframe: Frame, pairs: dict[int, tuple[int, int]]):
+        """
+        Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
+
+        Args:
+            keyframe: Unique identifier for the keyframe.
+            pairs: Dictionary matching a feature to a map point with a distance
+        """
+        log.info(f"[Graph] Adding keyframe #{keyframe.id}")
+        if keyframe.id in self.nodes.keys():
+            log.warning(f"\t Keyframe {keyframe.id} already exists!")
             return
         
         # Store the new keyframe observations
-        kf_map_pt_ids = map.get_points_from_frame(keyframe.id)
-        if len(kf_map_pt_ids) == 0:
-            log.info(f"\t Keyframe {keyframe.id} observes 0 map points!")
-            return
+        kf_map_pt_ids = set([v[0] for v in pairs.values()])
+        log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
         self._add_node(keyframe.id, kf_map_pt_ids)
         self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
+
+        self._update_edges(keyframe.id, kf_map_pt_ids)
         
+    def _update_edges(self, kf_id: int, kf_map_pt_ids: set):
+        """Updates the covisibility edges and the spanning tree."""
         # Spanning tree connections
         best_parent_id = None
         max_shared = -1
         
         # Loop over existing keyframes (if any) to update graph edges.
+        num_new_edges = 0
         for other_kf_id, other_kf_map_point_ids in self.nodes.items():
-            if other_kf_id == keyframe.id:
+            if other_kf_id == kf_id:
                 continue
 
             # Compute the number of shared map points with the current keyframe.
-            num_shared_points = np.intersect1d(other_kf_map_point_ids, kf_map_pt_ids).size()
+            shared_points = other_kf_map_point_ids.intersection(kf_map_pt_ids)
+            num_shared_points = len(shared_points)
             
             # For the covisibility graph, we only add an edge if num_shared_points observations >= threshold.
             if num_shared_points >= THETA_MIN:
-                edge_id = tuple(sorted((other_kf_id, keyframe.id)))
+                edge_id = tuple(sorted((other_kf_id, kf_id)))
                 # If the edge already exists, we update it with the maximum num_shared_points count observed.
                 if edge_id in self.edges.keys():
                     weight = max(self.edges[edge_id], num_shared_points)
                 else:
                     weight = num_shared_points
-                self._add_edge(other_kf_id, keyframe.id, weight)
+                self._add_edge(other_kf_id, kf_id, weight)
+                num_new_edges += 1
 
                 # If the weight is >= 100, add to the Essential Graph
                 if weight >= ESSENTIAL_THETA_MIN:
-                    self.essential_graph._add_edge(other_kf_id, keyframe.id, weight)
+                    self.essential_graph._add_edge(other_kf_id, kf_id, weight)
             
             # For the spanning tree, choose the keyframe that shares the most map points.
             if num_shared_points > max_shared:
@@ -122,9 +167,12 @@ class ConvisibilityGraph(Graph):
         
         # If there is a valid parent keyframe, add the connection in the spanning tree.
         if best_parent_id is not None:
-            self.spanning_tree._add_edge(best_parent_id, keyframe.id, max_shared)
+            self.spanning_tree._add_edge(best_parent_id, kf_id, max_shared)
             # All the spanning tree edges go to the Essential Graph too
-            self.essential_graph._add_edge(best_parent_id, keyframe.id, max_shared)
+            self.essential_graph._add_edge(best_parent_id, kf_id, max_shared)
+
+        log.info(f"\t Added {num_new_edges} edges to keyframe {kf_id}!")
+
 
     def get_frustum_point_ids(self, kf_id: int):
         """Returns the map points seen by a keyframe"""
@@ -155,17 +203,17 @@ class ConvisibilityGraph(Graph):
     def get_frames_that_observe(self, pid: int) -> set[int]:
         """Returns the keyframes that observe a specific point"""
         observing_kf_ids = set()
-        for kf_id, point_ids in self.nodes:
+        for kf_id, point_ids in self.nodes.items():
             if pid in point_ids:
                 observing_kf_ids.add(kf_id)
 
         return observing_kf_ids
 
-    def get_frames_that_observe(self, pid: int, keyframes: list[Frame], scale: int) -> set[int]:
+    def get_frames_that_observe_at_scale(self, pid: int, keyframes: list[Frame], scale: int) -> set[int]:
         """Returns the keyframes that observe a specific point at the same or a finer scale"""
         observing_kf_ids = set()
         # Iterate over all frames
-        for kf_id, point_ids in self.nodes:
+        for kf_id, point_ids in self.nodes.items():
             # Check if they see the same point
             if pid in point_ids:
                 # Check at what scale they see the point
@@ -222,10 +270,10 @@ class ConvisibilityGraph(Graph):
             # Search for a neighbor
             if kf1_id in kf_ids and kf2_id not in kf_ids:
                 neighbors.add(kf2_id)
-                neighbor_points.add(self.nodes[kf2_id])
+                neighbor_points.update(self.nodes[kf2_id])
             elif kf1_id not in kf_ids and kf2_id in kf_ids:
                 neighbors.add(kf1_id)
-                neighbor_points.add(self.nodes[kf1_id])
+                neighbor_points.update(self.nodes[kf1_id])
 
         return neighbors, neighbor_points
     

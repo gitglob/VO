@@ -83,15 +83,21 @@ class Frame():
                 tracked_point_ids.add(feat_id)
         return tracked_point_ids
 
-    def _calc_scale_factors(self, levels):
-        """Calculates the scale factors for each level in the ORB scale pyramid"""
-        self.scale_factors = np.ones(levels)
-        for i in range (1, len(self.scale_factors)):
-            self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
+    def set_time(self, t: float):
+        self.time = t
 
-    def match_map_point(self, old_kpt_id: int, new_kpt_id: int):
-        self.features[new_kpt_id] = self.features[old_kpt_id].copy(new_id=new_kpt_id, matched=True)
-        del self.features[old_kpt_id]
+    def set_gt(self, gt_pose: np.ndarray):
+        self.gt = gt_pose
+
+    def set_pose(self, pose: np.ndarray):
+        self.pose = pose
+
+    def set_matches(self, with_frame_id: int, matches: List[DMatch], match_type: str):
+        """Sets matches with another frame"""
+        self.match[with_frame_id] = {}
+        self.match[with_frame_id]["matches"] = np.array(matches, dtype=object)
+        self.match[with_frame_id]["match_type"] = match_type
+        self.match[with_frame_id]["T"] = None
 
     def get_features_at_level(self, level: int) -> tuple[list, list]:
         """Returns the feature ids of a specific ORB scale level"""
@@ -103,13 +109,6 @@ class Frame():
                 level_kpt_ids.append(kpt.class_id)
 
         return level_kpt_idxs, level_kpt_ids
-
-    def set_matches(self, with_frame_id: int, matches: List[DMatch], match_type: str):
-        """Sets matches with another frame"""
-        self.match[with_frame_id] = {}
-        self.match[with_frame_id]["matches"] = np.array(matches, dtype=object)
-        self.match[with_frame_id]["match_type"] = match_type
-        self.match[with_frame_id]["T"] = None
 
     def get_matches(self, with_frame_id: int):
         """Returns matches with a specfic frame"""
@@ -125,19 +124,20 @@ class Frame():
         """Returns matches with a specfic frame"""
         matches = self.match[with_frame_id]["tracking_matches"]
         return matches
-    
-    def set_time(self, t: float):
-        self.time = t
 
-    def set_gt(self, gt_pose: np.ndarray):
-        self.gt = gt_pose
+    def match_map_point(self, old_kpt_id: int, new_kpt_id: int):
+        self.features[new_kpt_id] = self.features[old_kpt_id].copy(new_id=new_kpt_id, matched=True)
+        del self.features[old_kpt_id]
 
-    def set_pose(self, pose: np.ndarray):
-        self.pose = pose
-    
     def optimize_pose(self, pose: np.ndarray):
         self.noopt_pose = self.pose.copy()
         self.pose = pose
+
+    def _calc_scale_factors(self, levels):
+        """Calculates the scale factors for each level in the ORB scale pyramid"""
+        self.scale_factors = np.ones(levels)
+        for i in range (1, len(self.scale_factors)):
+            self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
 
     def _extract_features(self):
         """
