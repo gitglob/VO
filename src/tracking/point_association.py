@@ -96,11 +96,11 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     map_descriptors = []
     map_point_ids = []
     map_pixels = []
-    for p in map_points:
+    for pid, p in map_points.items():
         # Get the descriptors from every observation of a point
         for obs in p.observations:
             map_descriptors.append(obs["descriptor"])
-            map_point_ids.append(p.id)
+            map_point_ids.append(pid)
             map_pixels.append(obs["keypoint"].pt)
     map_descriptors = np.array(map_descriptors)
     map_point_ids = np.array(map_point_ids)
@@ -162,16 +162,13 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     #     plot_pixels(t_frame.img, t_pixels, save_path=match_save_path)
     
     # Prepare results
-    pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
-        feature = t_frame.features[m.trainIdx]
-        pairs.append((map_point_ids[m.queryIdx], feature.id))
-        t_frame.features[m.trainIdx].matched = True
+        t_frame.features[m.trainIdx].match_map_point(map_point_ids[m.queryIdx], 0)
 
     if debug:
-        log.info(f"\t Found {len(pairs)} Point Associations!")
+        log.info(f"\t Found {len(unique_matches)} Point Associations!")
 
-    return pairs
+    return len(unique_matches)
 
 def localPointAssociation(map: Map, 
                           q_frame: Frame,
@@ -284,19 +281,18 @@ def localPointAssociation(map: Map,
                 matched_features[best_feature_id] = (point.id, best_dist)
                 
     # Update the frame<->map matches
-    for feat_id, (pid, _) in matched_features.items():
-        t_frame.match_map_point(feat_id, pid)
+    for feat_id, (pid, dist) in matched_features.items():
+        t_frame.features[feat_id].match_map_point(pid, dist)
 
     # Save the matched points
     if debug:
         match_save_path = results_dir / "matches/tracking/point_assocation/local" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.features[pid].kpt.pt for (pid, _) in matched_features.values()], dtype=np.float64)
+        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in matched_features.keys()], dtype=np.float64)
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
     
     if debug:
         log.info(f"\t Found {len(matched_features)} Point Associations!")
-
-    return matched_features
+    return len(matched_features)
 
 def globalPointAssociation(map: Map, t_frame: Frame):
     """
@@ -316,11 +312,11 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     map_descriptors = []
     map_point_ids = []
     map_pixels = []
-    for p in map_points:
+    for pid, p in map_points:
         # Get the descriptors from every observation of a point
         for obs in p.observations:
             map_descriptors.append(obs["descriptor"])
-            map_point_ids.append(p.id)
+            map_point_ids.append(pid)
             map_pixels.append(obs["keypoint"].pt)
     map_descriptors = np.array(map_descriptors)
     map_point_ids = np.array(map_point_ids)
@@ -382,17 +378,14 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     #     plot_pixels(t_frame.img, t_pixels, save_path=match_save_path)
     
     # Prepare results
-    pairs = []  # list of (map_idx, frame_idx, best_dist)
     for m in unique_matches:
-        pairs.append((map_point_ids[m.queryIdx], m.trainIdx))
-        t_frame.features[m.trainIdx].matched = True
+        t_frame.features[m.trainIdx].match_map_point(map_point_ids[m.queryIdx], 0)
 
     if debug:
-        log.info(f"\t Found {len(pairs)} Point Associations!")
+        log.info(f"\t Found {len(unique_matches)} Point Associations!")
+    return len(unique_matches)
 
-    return pairs
-
-def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame, theta: int = 15):
+def mapPointAssociation(map: Map, t_frame: Frame, theta: int = 15):
     """
     Projects all un-matched map points to a frame and searches more correspondances.
 
@@ -403,7 +396,7 @@ def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame,
     T_t2w = t_frame.pose
     
     # Extract the already matched features and map points
-    matched_point_ids = {v[0] for v in matched_features.values()}
+    matched_point_ids = t_frame.get_map_point_ids()
     new_matched_features = {}
 
     # Iterate over all the map points
@@ -424,7 +417,7 @@ def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame,
         # 2) Compute the angle between the current viewing ray v
         # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
         v1 = point.view_ray(T_t2w[:3, 3])
-        v2 = point.mean_view_ray()
+        v2 = point.mean_view_ray(map.keyframes)
         if v1.dot(v2) < np.cos(np.deg2rad(60)):
             continue
 
@@ -432,7 +425,7 @@ def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame,
         # Discard if it is out of the scale invariance region
         # of the map point [dmin , dmax ].
         d = np.linalg.norm(point.pos - T_t2w[:3, 3])
-        d_min, d_max = point.getScaleInvarianceLimits()
+        d_min, d_max = point.getScaleInvarianceLimits(map.keyframes)
         if d < d_min or d > d_max:
             continue
 
@@ -478,16 +471,15 @@ def mapPointAssociation(matched_features: list[tuple], map: Map, t_frame: Frame,
             new_matched_features[best_feature_id] = (pid, best_dist)
 
     # Update the frame<->map matches
-    for feat_id, (pid, _) in new_matched_features.items():
-        t_frame.match_map_point(feat_id, pid)
+    for feat_id, (pid, dist) in new_matched_features.items():
+        t_frame.features[feat_id].match_map_point(pid, dist)
 
     # Save the matched points
     if debug:
         match_save_path = results_dir / "matches/tracking/point_assocation/map" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.features[pid].kpt.pt for (pid, _) in new_matched_features.values()], dtype=np.float64)
+        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in new_matched_features.keys()], dtype=np.float64)
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
     
     if debug:
         log.info(f"\t Found {len(new_matched_features)} Point Associations!")
-
-    return new_matched_features
+    return len(new_matched_features)

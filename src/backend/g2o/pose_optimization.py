@@ -89,58 +89,6 @@ class poseBA:
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
 
-    def add_observations(self, map: Map, map_t_pairs: list[tuple]):
-        """Add landmarks as vertices and reprojection observations as edges based on a pairing map."""
-        if self.verbose:
-            log.info(f"\t Adding {map.num_points} landmarks...")
-
-        # Extract the map point ids
-        map_point_ids = {p[1] for p in map_t_pairs}
-
-        # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
-        # (since the measurement is 2D) so that errors above this threshold are down–weighted.
-        delta = np.sqrt(5.991)
-
-        # Iterate over all map points
-        for pid, kpt_id in map_point_ids:
-            pt = map.points[pid]
-            pos = pt.pos      # 3D position of landmark
-            l_idx = pt.id     # landmark id
-            assert pid == l_idx
-
-            # Create landmark vertex
-            v_landmark = g2o.VertexPointXYZ()
-            v_landmark.set_id(L(l_idx))
-            v_landmark.set_estimate(pos)
-            v_landmark.set_marginalized(True)
-            
-            # In motion-only optimization, we fix the landmarks
-            v_landmark.set_fixed(True)
-                    
-            # Add landmark vertex
-            self.optimizer.add_vertex(v_landmark)
-
-            # Iterate over all map point observations
-            pose_idx = self.frame.id               # id of keyframe that observed the landmark
-            kpt = self.frame.features[kpt_id].kpt  # keypoint of the observation
-            u, v = kpt.pt                          # pixels of the keypoint
-
-            # Create the reprojection edge.
-            edge = g2o.EdgeProjectXYZ2UV()
-            # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
-            edge.set_vertex(0, v_landmark)
-            edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
-            edge.set_measurement([u, v])
-            edge.set_information(self.measurement_information)
-            # Add a Huber kernel to lessen the effect of outliers
-            robust_kernel = g2o.RobustKernelHuber(delta)
-            edge.set_robust_kernel(robust_kernel)
-            # Link the camera parameters (parameter id 0)
-            edge.set_parameter_id(0, 0)
-
-            # Add observation edge
-            self.optimizer.add_edge(edge)
-
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:

@@ -1,14 +1,12 @@
-from typing import Literal
 import numpy as np
 import g2o
 from config import SETTINGS, log, K
-from src.backend.convisibility_graph import ConvisibilityGraph
-from src.local_mapping.local_map import Map, mapPoint
+from src.local_mapping.local_map import mapPoint
 from src.others.frame import Frame
 
 # Set parameters from the config
 MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
-NUM_OBSERVATIONS = int(SETTINGS["ba"]["num_observations"])
+# NUM_OBSERVATIONS = int(SETTINGS["ba"]["num_observations"])
 
 
 def X(idx: int):
@@ -23,16 +21,8 @@ def L_inv(idx: int):
 
 
 class BA:
-    def __init__(self, map: Map, verbose=False):
-        """
-        Initializes BA_g2o with a g2o optimizer and camera intrinsics.
-        
-        Args:
-            verbose: If True, show debug information.
-        """
-        log.info("[BA] Performing full BA...")
-        self.verbose = verbose
-
+    def __init__(self):
+        """Initializes BA with a g2o optimizer and camera intrinsics."""
         # Set up the g2o optimizer.
         self.optimizer = g2o.SparseOptimizer()
         # Create the linear solver and block solver for SE3 (poses)
@@ -52,32 +42,8 @@ class BA:
         self.measurement_sigma = MEASUREMENT_SIGMA
         self.measurement_information = np.eye(2) * (1.0 / (self.measurement_sigma ** 2))
 
-        # Buffers and tracking dictionaries.
-        self.obs_buffer = {}        # Buffer for observation edges per landmark id.
-
-        # The keyframes to optimize
-        self.map = map
-        self._add_frames()
-        self._add_observations()
-
-    def _add_frames(self):
-        """
-        Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
-        The first pose is fixed to anchor the graph.
-        """
-        if self.verbose:
-            log.info(f"\t Adding {self.map.num_keyframes()} poses...")
-        
-        frames = list(self.map.keyframes.values())
-        self._add_frame(frames[0], fixed=True)
-        for frame in frames[1:]:
-            self._add_frame(frame)
-
-    def _add_frame(self, frame: Frame, fixed: bool = False):
-        """
-        Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
-        The first pose is fixed to anchor the graph.
-        """
+    def _add_frame(self, frame: Frame, fixed: bool=False):
+        """Adds a pose (4x4 transformation matrix) as a VertexSE3Expmap."""
         p_id = frame.id
         p = frame.pose 
 
@@ -96,101 +62,61 @@ class BA:
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
 
-    def _add_observations(self):
-        """Add landmarks as vertices and reprojection observations as edges."""
-        if self.verbose:
-            log.info(f"\t Adding {self.map.num_points()} landmarks...")
+    def _add_observation(self, mp: mapPoint, fixed: bool=False):
+        """Adds a landmark as vertex and reprojection observations as edges."""
+        pos = mp.pos      # 3D position of landmark
+        l_idx = mp.id     # landmark id
 
-        # Iterate over all map points
-        for pt in self.map.points.values():
-            pos = pt.pos      # 3D position of landmark
-            l_idx = pt.id     # landmark id
+        # Create landmark vertex
+        v_landmark = g2o.VertexPointXYZ()
+        v_landmark.set_id(L(l_idx))
+        v_landmark.set_estimate(pos)
+        v_landmark.set_marginalized(True)
+        v_landmark.set_fixed(fixed)
+                
+        # Add landmark vertex
+        self.optimizer.add_vertex(v_landmark)
 
-            # Create landmark vertex
-            v_landmark = g2o.VertexPointXYZ()
-            v_landmark.set_id(L(l_idx))
-            v_landmark.set_estimate(pos)
-            v_landmark.set_marginalized(True)
-                    
-            # Add landmark vertex
-            self.optimizer.add_vertex(v_landmark)
+        # Iterate over all map point observations
+        for obs in mp.observations:
+            pose_idx = obs["kf_id"] # id of keyframe that observed the landmark
+            kpt = obs["keypoint"]   # keypoint of the observation
+            u, v = kpt.pt           # pixels of the keypoint
 
-            # Iterate over all map point observations
-            for obs in pt.observations:
-                pose_idx = obs["keyframe"].id  # id of keyframe that observed the landmark
-                kpt = obs["keypoint"]       # keypoint of the observation
-                u, v = kpt.pt               # pixels of the keypoint
+            # Create the reprojection edge.
+            edge = g2o.EdgeProjectXYZ2UV()
+            # edge = g2o.EdgeSE3ProjectXYZ()
+            # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
+            edge.set_vertex(0, v_landmark)
+            edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
+            edge.set_measurement([u, v])
+            edge.set_information(self.measurement_information)
+            # Link the camera parameters (parameter id 0)
+            edge.set_parameter_id(0, 0)
+            # edge.set_level(0)
 
-                # Create the reprojection edge.
-                edge = g2o.EdgeProjectXYZ2UV()
-                # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
-                edge.set_vertex(0, v_landmark)
-                edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
-                edge.set_measurement([u, v])
-                edge.set_information(self.measurement_information)
-                # Link the camera parameters (parameter id 0)
-                edge.set_parameter_id(0, 0)
+            # Add observation edge
+            self.optimizer.add_edge(edge)
 
-                # Add observation edge
-                self.optimizer.add_edge(edge)
+        # # Buffer the edge until enough observations are accumulated.
+        # if l_idx not in self.obs_buffer:
+        #     self.obs_buffer[l_idx] = {
+        #         "edge_list": [edge],
+        #         "estimate": pos,
+        #         "num_observations": 1
+        #     }
+        # else:
+        #     self.obs_buffer[l_idx]["num_observations"] += 1
+        #     if self.obs_buffer[l_idx]["num_observations"] < NUM_OBSERVATIONS:
+        #         self.obs_buffer[l_idx]["edge_list"].append(edge)
+        #     else:
+        #         # Add all buffered reprojection edges and the current one.
+        #         for buffered_edge in self.obs_buffer[l_idx]["edge_list"]:
+        #             self.optimizer.add_edge(buffered_edge)
+        #         # Add the current edge
+        #         self.optimizer.add_edge(edge)
 
-            # # Buffer the edge until enough observations are accumulated.
-            # if l_idx not in self.obs_buffer:
-            #     self.obs_buffer[l_idx] = {
-            #         "edge_list": [edge],
-            #         "estimate": pos,
-            #         "num_observations": 1
-            #     }
-            # else:
-            #     self.obs_buffer[l_idx]["num_observations"] += 1
-            #     if self.obs_buffer[l_idx]["num_observations"] < NUM_OBSERVATIONS:
-            #         self.obs_buffer[l_idx]["edge_list"].append(edge)
-            #     else:
-            #         # Add all buffered reprojection edges and the current one.
-            #         for buffered_edge in self.obs_buffer[l_idx]["edge_list"]:
-            #             self.optimizer.add_edge(buffered_edge)
-            #         # Add the current edge
-            #         self.optimizer.add_edge(edge)
-
-    def optimize(self, num_iterations=10):
-        """
-        Optimize the graph and return optimized poses and landmark positions.
-        
-        Returns:
-            A tuple (pose_ids, poses, landmark_ids, landmarks, success)
-        """
-        if self.verbose:
-            log.info("\t Optimizing with g2o...")
-
-        self.optimizer.initialize_optimization()
-        self.optimizer.optimize(num_iterations)
-
-        # Optimize poses and landmarks
-        self.update_poses_and_landmarks()
-
-        return True
-
-    def finalize(self):
-        """
-        Returns the final poses (optimized).
-        """
-        self.update_poses_and_landmarks()
-
-    def update_poses_and_landmarks(self):
-        """
-        Retrieves optimized pose and landmark estimates from the optimizer.
-        
-        Returns:
-            (pose_ids, pose_array, landmark_ids, landmark_array)
-        """
-        # Iterate over all vertices.
-        for vertex in self.optimizer.vertices().values():
-            if isinstance(vertex, g2o.VertexSE3Expmap):
-                frame_id = X_inv(vertex.id())
-                self.map.keyframes[frame_id].optimize_pose(vertex.estimate().matrix())
-            elif isinstance(vertex, g2o.VertexPointXYZ):
-                pid = L_inv(vertex.id())
-                self.map.points[pid].pos = vertex.estimate()
+    ############################################### DEBUG ###############################################
 
     def print_x_nodes_in_graph(self):
         """

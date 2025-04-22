@@ -17,14 +17,18 @@ class orbFeature():
     def __init__(self, kpt: cv2.KeyPoint, desc: np.ndarray):
         self.kpt = kpt
         self.desc = desc
-        self.matched = False
         self.id = kpt.class_id
 
-    def copy(self, new_id=None, matched=None):
-        feat = orbFeature(self.kpt, self.desc)
-        feat.matched = matched if matched else self.matched
-        feat.id = new_id if new_id else self.id
-        return feat
+        self.mp = None
+        self.matched = False
+
+    def match_map_point(self, mp_id: int, dist: np.float64):
+        self.mp = {
+            "id": mp_id,
+            "dist": dist  
+        }
+        self.matched = True
+
 
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
@@ -130,9 +134,22 @@ class Frame():
         return matches
 
 
-    def match_map_point(self, old_kpt_id: int, new_kpt_id: int):
-        self.features[new_kpt_id] = self.features[old_kpt_id].copy(new_id=new_kpt_id, matched=True)
-        del self.features[old_kpt_id]
+    def get_map_point_ids(self):
+        """Returns all the map points that are matched to a feature"""
+        map_point_ids = set()
+        for feat in self.features.values():
+            if feat.matched:
+                map_point_ids.add(feat.mp["id"])
+        return map_point_ids
+
+    def get_map_matches(self) -> set[tuple[int, int]]:
+        """Returns all feature <-> map matches"""
+        map_matches = set()
+        for feat in self.features.values():
+            if feat.matched:
+                map_matches.add((feat.id, feat.mp["id"]))
+        return map_matches
+
 
     def optimize_pose(self, pose: np.ndarray):
         self.noopt_pose = self.pose.copy()

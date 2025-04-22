@@ -67,13 +67,6 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     matches = matches[epipolar_constraint_mask]
     q_kpt_pixels = q_kpt_pixels[epipolar_constraint_mask]
     t_kpt_pixels = t_kpt_pixels[epipolar_constraint_mask]
-
-    # Flag the frame features as matched
-    for m in matches:
-        q_kpt_id = q_frame.keypoints[m.queryIdx].class_id
-        q_frame.features[q_kpt_id].matched = True
-        t_kpt_id = t_frame.keypoints[m.trainIdx].class_id
-        t_frame.features[t_kpt_id].matched = True
         
     # ------------------------------------------------------------------------
     # 3. Recover pose (R, t) from Essential or Homography
@@ -258,6 +251,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     matches = matches[parallax_mask]
     q_points = q_points[parallax_mask]
     t_points = t_points[parallax_mask]
+    w_points = transform_points(t_points, t_frame.pose)
 
     # ------------------------------------------------------------------------
     # 8. Save the triangulated points and masks to the t_frame
@@ -267,9 +261,11 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     t_frame.match[q_frame.id]["init_matches"] = matches
 
     # Save the triangulated points keypoints and descriptors
+    q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
     t_kpts = np.array([t_frame.keypoints[m.trainIdx] for m in matches])
+    q_descriptors = np.uint8([q_frame.descriptors[m.queryIdx] for m in matches])
     t_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in matches])
 
     # Return the initial pose and filtered points
-    return t_points, t_kpts, t_descriptors, True
+    return w_points, q_kpts, t_kpts, q_descriptors, t_descriptors, True
       

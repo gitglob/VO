@@ -19,7 +19,7 @@ from src.place_recognition.bow import load_vocabulary, query_recognition_candida
 from src.local_mapping.keyframe import is_keyframe
 from src.local_mapping.local_map import Map
 
-from src.backend.g2o.ba import BA
+from src.backend.g2o.full_ba import fullBA
 from src.backend.g2o.pose_optimization import poseBA
 from src.backend.g2o.single_pose_optimization import singlePoseBA
 from src.backend.convisibility_graph import ConvisibilityGraph
@@ -96,12 +96,9 @@ def main():
 
             # Bookkeping
             t_frame.set_pose(pose)
-            map.add_keyframe(t_frame)
             cgraph.add_first_keyframe(t_frame)
             if debug:
                 save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
-                
-            plot_trajectory(map, i, ba=False)
             q_frame = t_frame
         else:                    
             # ########### Initialization ###########
@@ -138,26 +135,26 @@ def main():
                 t_frame.set_pose(T_t2w)
 
                 # Triangulate the 3D points using the initial pose
-                t_points, t_kpts, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, scale)
+                w_points, q_kpts, t_kpts, q_descriptors, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, scale)
                 if not is_initialized:
                     log.info("Triangulation failed!")
                     continue
 
-                # Transfer the points to the world frame
-                points_w = transform_points(t_points, T_t2w)
-
-                # Push the triangulated points to the map
-                t_map_pairs = map.add_init_points(t_frame, points_w, t_kpts, t_descriptors)
+                # Push the keyframes and triangulated points to the map
+                map.add_keyframe(q_frame)
+                map.add_keyframe(t_frame)
+                map.add_init_points(w_points, 
+                                    q_frame, q_kpts, q_descriptors, 
+                                    t_frame, t_kpts, t_descriptors)
 
                 # Add the keyframe to the convisibility graph
-                cgraph.add_init_keyframe(t_frame, t_kpts)
-                map.add_keyframe(t_frame)
+                cgraph.add_init_keyframe(t_frame)
 
                 # Validate the scale
                 validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.pose])
                 
                 # Perform Bundle Adjustment
-                ba = BA(map, verbose=debug)
+                ba = fullBA(map, verbose=debug)
                 ba_success = ba.optimize()
                 if not ba_success:
                     log.error("Bundle Adjustment failed!")
@@ -177,18 +174,18 @@ def main():
                     T_w2t = constant_velocity_model(t, map.keyframes)
 
                     # Match these map points with the current frame
-                    t_map_pairs = localPointAssociation(map, q_frame, t_frame, cgraph, T_w2t, theta=15)
-                    if len(t_map_pairs) < MIN_ASSOCIATIONS:
-                        log.warning(f"Scale-based Point association failed! Only {len(t_map_pairs)} matches found!")
-                        t_map_pairs = localPointAssociation(map, q_frame, t_frame, cgraph, T_w2t, search_window=SEARCH_WINDOW_SIZE)
-                        if len(t_map_pairs) < MIN_ASSOCIATIONS:
-                            log.warning(f"Window-based Point association failed! Only {len(t_map_pairs)} matches found!")
+                    num_matches = localPointAssociation(map, q_frame, t_frame, cgraph, T_w2t, theta=15)
+                    if num_matches < MIN_ASSOCIATIONS:
+                        log.warning(f"Scale-based Point association failed! Only {num_matches} matches found!")
+                        num_matches = localPointAssociation(map, q_frame, t_frame, cgraph, T_w2t, search_window=SEARCH_WINDOW_SIZE)
+                        if num_matches < MIN_ASSOCIATIONS:
+                            log.warning(f"Window-based Point association failed! Only {num_matches} matches found!")
                             is_initialized = False
                             tracking_success = False
                             continue
 
                     # Perform pose optimization
-                    ba = BA(map, verbose=debug)
+                    ba = fullBA(map, verbose=debug)
                     ba.optimize()
 
                     # Bookkeeping
@@ -211,9 +208,9 @@ def main():
                         # Extract the candidate keyframe
                         cand_frame = map.get_keyframe(kf_id)
                         # Perform point association of its map points with the current frame
-                        t_map_pairs = bowPointAssociation(map, cand_frame, t_frame, cgraph)
+                        num_matches = bowPointAssociation(map, cand_frame, t_frame, cgraph)
                         # Estimate the new world pose using PnP (3d-2d)
-                        T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame, t_map_pairs)
+                        T_w2t, num_tracked_points = estimate_relative_pose(map, t_frame)
                         T_t2w = invert_transform(T_w2t)
                         if T_w2t is not None:
                             log.info(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
@@ -238,17 +235,16 @@ def main():
                 log.info("~~~~Local Mapping~~~~")
 
                 # Set the visible mask
-                map.view(t_map_pairs)
+                map.view(t_frame)
 
                 # Extract a local map from the map
-                local_map = cgraph.create_local_map(t_frame, map, t_map_pairs)
+                local_map = cgraph.create_local_map(t_frame, map)
 
                 # Project the local map to the frame and search more correspondances
-                t_map_pairs1 = mapPointAssociation(t_map_pairs, local_map, t_frame)
-                t_map_pairs.update(t_map_pairs1)
+                mapPointAssociation(local_map, t_frame)
 
                 # Set the found mask
-                map.found(t_map_pairs)
+                map.found(t_frame)
 
                 # Optimize the camera pose with all the map points found in the frame
                 ba = singlePoseBA(map, i, verbose=debug)
@@ -278,13 +274,13 @@ def main():
                 map.create_track_points(cgraph, t_frame, map.keyframes, bow_db)
 
                 # Bookkeping
-                cgraph.add_track_keyframe(t_frame, t_map_pairs)
+                cgraph.add_track_keyframe(t_frame)
 
                 # Plot trajectory
                 plot_trajectory(map, i, ba=False)
 
                 # Perform Bundle Adjustment
-                ba = BA(map, verbose=debug)
+                ba = fullBA(map, verbose=debug)
                 ba_success = ba.optimize()
                 if ba_success:
                     plot_trajectory(map, i)

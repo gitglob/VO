@@ -3,20 +3,14 @@ import cv2
 from src.local_mapping.local_map import Map
 from src.others.frame import Frame
 from src.others.visualize import plot_reprojection
-from config import SETTINGS, results_dir, log
+from config import SETTINGS, results_dir, log, K
 
 
 debug = SETTINGS["generic"]["debug"]
 
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(
-    map: Map,
-    t_frame: Frame,
-    map_t_pairs: list,
-    K: np.ndarray,
-    dist_coeffs=None
-):
+def estimate_relative_pose(map: Map, t_frame: Frame, dist_coeffs=None):
     """
     Estimate the relative camera displacement using a 3D-2D PnP approach.
 
@@ -41,16 +35,17 @@ def estimate_relative_pose(
 
         If the function fails, returns (None, None).
     """
-    map_points_w = map.get_frustum_points(t_frame)
-    num_points = len(map_t_pairs)
+    t_map_point_ids = t_frame.get_map_matches()
+    num_matches = len(t_map_point_ids)
     if debug:
-        log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_points}/{len(map_points_w)} map points...")
+        log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_matches}/{map.num_points()} map points...")
 
     # 1) Build 3D <-> 2D correspondences
     map_points = []
     image_pxs = []
-    for (point_id, feature_idx) in map_t_pairs:
-        map_points.append(map.points[point_id])  # 3D in world coords
+    t_map_pairs = t_frame.get_map_matches()
+    for (feature_idx, pid) in t_map_pairs:
+        map_points.append(map.points[pid])  # 3D in world coords
         kp = t_frame.keypoints[feature_idx]
         image_pxs.append(kp.pt)                   # 2D pixel (u, v)
 
@@ -77,11 +72,11 @@ def estimate_relative_pose(
     inliers = inliers.flatten()
 
     # Build an inliers mask
-    inliers_mask = np.zeros(num_points, dtype=bool)
+    inliers_mask = np.zeros(num_matches, dtype=bool)
     inliers_mask[inliers] = True
     num_tracked_points = inliers_mask.sum()
     if debug:
-        log.info(f"\t solvePnPRansac filtered {num_points - num_tracked_points}/{num_points} points.")
+        log.info(f"\t solvePnPRansac filtered {num_matches - num_tracked_points}/{num_matches} points.")
     
     # 3) Refine the pose using Levenberg-Marquardt on the inlier correspondences.
     rvec, tvec = cv2.solvePnPRefineLM(
@@ -97,12 +92,6 @@ def estimate_relative_pose(
     t_wc = tvec.flatten()
     R_wc, _ = cv2.Rodrigues(rvec)
     
-    # Save the PnP tracked flags in the map points
-    tracking_mask = np.zeros(map.num_points, dtype=bool)
-    for i, (map_idx, _) in enumerate(map_t_pairs): 
-        tracking_mask[map_idx] = inliers_mask[i]
-    map.set_tracking_mask(tracking_mask)
-
     # 5) Compute reprojection error
     ## Project the 3D points to 2D using the estimated pose
     projected_world_pxs, _ = cv2.projectPoints(map_point_positions, rvec, t_wc, dist_coeffs)

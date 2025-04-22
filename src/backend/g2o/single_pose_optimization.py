@@ -54,7 +54,7 @@ class singlePoseBA:
 
         # The keyframes to optimize
         self.map: Map = map
-        self.frame_id = frame_id
+        self.frame = map.keyframes[frame_id]
         self._add_frame()
         self._add_observations()
 
@@ -64,39 +64,37 @@ class singlePoseBA:
         The first pose is fixed to anchor the graph.
         """
         if self.verbose:
-            log.info(f"\t Adding frame {self.frame_id}...")
+            log.info(f"\t Adding frame {self.frame.id}...")
 
-        frame = self.map.keyframes[self.frame_id]
-
-        p = frame.pose
+        p = self.frame.pose
 
         # Convert the 4x4 pose matrix into an SE3Quat.
         R = p[:3, :3]
         t = p[:3, 3]
         se3 = g2o.SE3Quat(R, t)
         vertex = g2o.VertexSE3Expmap()
-        vertex.set_id(X(frame.id))
+        vertex.set_id(X(self.frame.id))
         vertex.set_estimate(se3)
         vertex.set_fixed(False)
             
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
 
-    def add_observations(self, map: Map, map_t_pairs: list[tuple]):
+    def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges based on a pairing map."""
         if self.verbose:
-            log.info(f"\t Adding {map.num_points} landmarks...")
+            log.info(f"\t Adding {self.map.num_points()} landmarks...")
 
         # Extract the map point ids
-        map_point_ids = {p[1] for p in map_t_pairs}
+        feat_map_matches = self.frame.get_map_matches()
 
         # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.
         delta = np.sqrt(5.991)
 
         # Iterate over all map points
-        for pid, kpt_id in map_point_ids:
-            pt = map.points[pid]
+        for kpt_id, pid in feat_map_matches:
+            pt = self.map.points[pid]
             pos = pt.pos      # 3D position of landmark
             l_idx = pt.id     # landmark id
             assert pid == l_idx
@@ -120,6 +118,7 @@ class singlePoseBA:
 
             # Create the reprojection edge.
             edge = g2o.EdgeProjectXYZ2UV()
+                # edge = g2o.EdgeSE3ProjectXYZ()
             # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
             edge.set_vertex(0, v_landmark)
             edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
@@ -130,59 +129,10 @@ class singlePoseBA:
             edge.set_robust_kernel(robust_kernel)
             # Link the camera parameters (parameter id 0)
             edge.set_parameter_id(0, 0)
+            edge.set_level(0)
 
             # Add observation edge
             self.optimizer.add_edge(edge)
-
-    def _add_observations(self):
-        """Add landmarks as vertices and reprojection observations as edges."""
-        if self.verbose:
-            log.info(f"\t Adding {self.map.num_points()} landmarks...")
-
-        # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
-        # (since the measurement is 2D) so that errors above this threshold are down–weighted.
-        delta = np.sqrt(5.991)
-
-        # Iterate over all map points
-        for pt in self.map.points.values():
-            pos = pt.pos      # 3D position of landmark
-            l_idx = pt.id     # landmark id
-
-            # Create landmark vertex
-            v_landmark = g2o.VertexPointXYZ()
-            v_landmark.set_id(L(l_idx))
-            v_landmark.set_estimate(pos)
-            v_landmark.set_marginalized(True)
-            
-            # In motion-only optimization, we fix the landmarks
-            v_landmark.set_fixed(True)
-                    
-            # Add landmark vertex
-            self.optimizer.add_vertex(v_landmark)
-
-            # Iterate over all map point observations
-            for obs in pt.observations:
-                pose_idx = obs["keyframe"].id # id of keyframe that observed the landmark
-                kpt = obs["keypoint"]         # keypoint of the observation
-                u, v = kpt.pt                 # pixels of the keypoint
-
-                # Create the reprojection edge.
-                edge = g2o.EdgeProjectXYZ2UV()
-                # edge = g2o.EdgeSE3ProjectXYZ()
-                # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
-                edge.set_vertex(0, v_landmark)
-                edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
-                edge.set_measurement([u, v])
-                edge.set_information(self.measurement_information)
-                # Add a Huber kernel to lessen the effect of outliers
-                robust_kernel = g2o.RobustKernelHuber(delta)
-                edge.set_robust_kernel(robust_kernel)
-                # Link the camera parameters (parameter id 0)
-                edge.set_parameter_id(0, 0)
-                edge.set_level(0)
-
-                # Add observation edge
-                self.optimizer.add_edge(edge)
 
     def optimize(self):
         """

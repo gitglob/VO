@@ -22,36 +22,38 @@ debug = SETTINGS["generic"]["debug"]
 
 
 class mapPoint():
-    def __init__(self, 
-                 kf_number: int,
-                 kf: Frame, 
-                 pos: np.ndarray, 
-                 keypoint: cv2.KeyPoint, 
-                 desc: np.ndarray):
-        self.observations = [
+    # This is a class-level (static) variable that all mapPoint instances share.
+    _mp_id_counter = -1
+    def __init__(self, pos: np.ndarray):
+        mapPoint._mp_id_counter += 1
+
+        self.observations = []
+        """
+        observations = [
             { 
-                "kf_number": kf_number, # The keyframe number (not ID!) when it was obsrved
-                "keyframe": kf,         # The keyframe that observed it
+                "kf_number": kf_number, # The keyframe number (not ID!) when it was observed
+                "kf_id": kf_id,         # The id of the keyframe that observed it
                 "keypoint": keypoint,   # ORB keypoint
                 "descriptor": desc      # ORB descriptor
             }
         ]
+        """
 
         self.pos: np.ndarray = pos          # 3D position
-        self.id: int = keypoint.class_id    # The unique id of the keypoint
+        self.id: int = mapPoint._mp_id_counter       # The unique id of this map point
 
         self.found_counter: int = 1         # Number of times the point was tracked
         self.visible_counter: int = 1       # Number of times the point was predicted to be visible by a Frame
 
     def observe(self,
                 kf_number: int, 
-                kf: Frame, 
+                kf_id: int, 
                 keypoint: cv2.KeyPoint, 
                 desc: np.ndarray):
         
         new_observation = {
             "kf_number": kf_number,
-            "keyframe": kf,    
+            "kf_id": kf_id,    
             "keypoint": keypoint, 
             "descriptor": desc
         }
@@ -91,22 +93,32 @@ class mapPoint():
         
         return best_desc
 
+    def get_observation(self, kf_id: int):
+        """Returns the observation from a specific keyframe"""
+        for obs in self.observations:
+            if obs["kf_id"] == kf_id:
+                return obs
+
     def view_ray(self, cam_pos: np.ndarray):
         v = self.pos - cam_pos
         v = v / np.linalg.norm(v)
         return v
     
-    def mean_view_ray(self):
+    def mean_view_ray(self, map_keyframes: dict[int, Frame]):
         view_rays = []
         for obs in self.observations:
-            v = self.view_ray(obs["keyframe"].pose[:3, 3])
+            frame = map_keyframes[obs["kf_id"]]
+            v = self.view_ray(frame.pose[:3, 3])
             view_rays.append(v)
 
         return np.mean(view_rays, axis=0)
 
-    def getScaleInvarianceLimits(self):
-        cam_pos = self.observations[-1]["keyframe"].pose[:3, 3]
-        level = self.observations[-1]["keypoint"].octave
+    def getScaleInvarianceLimits(self, map_keyframes: dict[int, Frame]):
+        last_obs = self.observations[-1]
+
+        last_obs_frame = map_keyframes[last_obs["kf_id"]]
+        cam_pos = last_obs_frame.pose[:3, 3]
+        level = last_obs["keypoint"].octave
 
         dist = np.linalg.norm(self.pos - cam_pos)
         minLevelScaleFactor = scale_factor**level
@@ -204,20 +216,20 @@ class Map():
     def get_points_from_frame(self, kf_id: int):
         """Returns the points that are seen by a specific frame"""
         kf_pt_ids = set()
-        for point in self.points.values():
+        for pid, point in self.points.items():
             for obs in point.observations:
-                if obs["keyframe"].id == kf_id:
-                    kf_pt_ids.add(point.id)
+                if obs["kf_id"] == kf_id:
+                    kf_pt_ids.add(pid)
 
         return kf_pt_ids
     
     def get_frustum_points(self, kf_id: int):
         """Returns the points that are seen by a specific frame"""
         kf_pt_ids = set()
-        for point in self.points.values():
+        for pid, point in self.points.items():
             for obs in point.observations:
-                if obs["keyframe"].id == kf_id:
-                    kf_pt_ids.add(point.id)
+                if obs["kf_id"] == kf_id:
+                    kf_pt_ids.add(pid)
 
         return kf_pt_ids
    
@@ -239,12 +251,27 @@ class Map():
             # Iterate over all the point observations
             for obs in point.observations:
                 # Extract the keyframe of that observation
-                kf = obs["keyframe"]
-                keyframe_observers_ids.add(kf.id)
+                kf_id = obs["kf_id"]
+                keyframe_observers_ids.add(kf_id)
 
         return keyframe_observers_ids
     
+    def get_keyframes_that_see_at_scale(self, pid: int, scale: int) -> set[int]:
+        """Returns all the keyframes that see a point at a specific or finer scale"""
+        keyframe_observers_ids = set()
+        # Extract point
+        point = self.points[pid]
+        # Iterate over all the point observations
+        for obs in point.observations:
+            # Extract the octave of the observation
+            octave = obs["keypoint"].octave
+            # Compare the observing octave with the desired one
+            if octave <= scale:
+                keyframe_observers_ids.add(obs["kf_id"])
+
+        return keyframe_observers_ids
     
+
     def num_points(self) -> int:
         return len(self.points.keys())
 
@@ -253,48 +280,34 @@ class Map():
     
     def num_keyframes_that_see(self, pid: int) -> set[int]:
         """Returns the number of keyframes that see a single point"""
-        count = 0
-        point = self.points[pid]
-        for obs in point.observations:
-            # Extract the keyframe of that observation
-            kf = obs["keyframe"]
-            count += 1
-
-        return count
+        return len(self.points[pid].observations)
 
 
     def add_keyframe(self, kf: Frame):
         self.keyframes[kf.id] = kf
         self._kf_counter += 1
 
-    def add_init_points(self, 
-                   kf: Frame,
-                   points_pos: np.ndarray, 
-                   keypoints: List[cv2.KeyPoint], 
-                   descriptors: np.ndarray):
+    def add_init_points(self, points_pos: np.ndarray, 
+                        q_kf: Frame, q_kpts: List[cv2.KeyPoint], q_descriptors: np.ndarray, 
+                        t_kf: Frame, t_kpts: List[cv2.KeyPoint], t_descriptors: np.ndarray):
         # Iterate over the new points
         num_new_points = len(points_pos)
-        pairs = {}
         for i in range(num_new_points):
-            self._add_point(kf, points_pos[i], keypoints[i], descriptors[i])
+            # Create a point
+            pos = points_pos[i]
+            point = mapPoint(pos)
+            self.points[point.id] = point
+
+            # Add 2 point observations (for the q_frame and t_frame that matched)
+            point.observe(self._kf_counter-1, q_kf.id, q_kpts[i], q_descriptors[i])
+            point.observe(self._kf_counter,   t_kf.id, t_kpts[i], t_descriptors[i])    
+            
+            # Set the feature <-> mapPoint matches
+            q_kf.features[q_kpts[i].class_id].match_map_point(point.id, 0)
+            t_kf.features[t_kpts[i].class_id].match_map_point(point.id, 0)
 
         if debug:
             log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
-
-        return pairs
-
-    def _add_point(self, 
-                   kf: Frame,
-                   pos: np.ndarray, 
-                   keypoint: List[cv2.KeyPoint], 
-                   descriptor: np.ndarray):
-        # Iterate over the new points
-        kpt_id = keypoint.class_id
-        p = mapPoint(self._kf_counter, kf, pos, keypoint, descriptor)
-        self.points[kpt_id] = p
-
-        # if debug:
-        #     log.info(f"[Map] Added point #{kpt_id} to the Map. Total: {len(self.points)} points.")
 
     def create_track_points(self, cgraph, t_frame, keyframes, bow_db):
         """
@@ -392,19 +405,6 @@ class Map():
         del self.points[pid]
 
 
-    def update_points(self, 
-                      kf: Frame,
-                      keypoints: List[cv2.KeyPoint], 
-                      descriptors: np.ndarray):
-        for i in range(len(keypoints)):
-            kpt_id = keypoints[i].class_id
-            p = self.points[kpt_id]
-            p.observe(self._kf_counter, kf, keypoints[i], descriptors[i])
-
-        if debug:
-            log.info(f"[Map] Updating {len(keypoints)} map points.")
-        
-
     def cull(self, frame, cgraph):
         self._cull_points(cgraph)
         self._cull_keyframes(frame, cgraph)
@@ -423,18 +423,20 @@ class Map():
         # Iterate over all connected keyframes
         removed_kf_ids = set()
         for kf_id in neighbor_kf_ids:
-            kf = self.keyframes[kf_id]
             # Extract their map points
-            kf_point_ids = cgraph.get_frustum_point_ids(kf_id)
-            num_points = len(kf_point_ids)
+            kf_mp_ids = cgraph.get_frustum_point_ids(kf_id)
+            num_points = len(kf_mp_ids)
+            
             # Count the number of co-observing points
             count_coobserving_points = 0
-            # Iterate over all the points
-            for pid in kf_point_ids:
-                # Extract their scale
-                scale = kf.features[pid].kpt.octave
+            # Iterate over all their map points
+            for pid in kf_mp_ids:
+                # Extract the scale of their observation
+                point = self.points[pid]
+                obs = point.get_observation(kf_id)
+                scale = obs["keypoint"].octave
                 # Get how many keyframes observe the same point in the same or finer scale
-                observing_frame_ids = cgraph.get_frames_that_observe_at_scale(pid, self.keyframes, scale)
+                observing_frame_ids = self.get_keyframes_that_see_at_scale(pid, scale)
                 num_observing_frame_ids = len(observing_frame_ids)
                 # Check if at least 3 keyframes observe this point
                 if num_observing_frame_ids >= 3:
@@ -507,15 +509,19 @@ class Map():
             log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
 
 
-    def view(self, t_map_pairs: dict):
+    def view(self, frame: Frame):
         """Increases the counter that shows how many times a point was predicted to be visible"""
-        for pid, _ in t_map_pairs.values():
-            self.points[pid].visible_counter += 1
+        for feat in frame.features.values():
+            if feat.matched:
+                pid = feat.mp["id"]
+                self.points[pid].visible_counter += 1
 
-    def found(self, t_map_pairs: dict):
+    def found(self, frame: Frame):
         """Increases the counter that shows how many times a point was tracked"""
-        for pid, _ in t_map_pairs.values():
-            self.points[pid].found_counter += 1
+        for feat in frame.features.values():
+            if feat.matched:
+                pid = feat.mp["id"]
+                self.points[pid].found_counter += 1
 
 
     def show(self, prev_point_positions, point_positions):

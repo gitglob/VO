@@ -81,7 +81,7 @@ class ConvisibilityGraph(Graph):
         
         self._first_keyframe_id = keyframe.id
 
-    def add_init_keyframe(self, keyframe: Frame, keypoints: list[cv2.KeyPoint]):
+    def add_init_keyframe(self, keyframe: Frame):
         """
         Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
 
@@ -94,8 +94,8 @@ class ConvisibilityGraph(Graph):
             log.warning(f"\t Keyframe {keyframe.id} already exists!")
             return
         
-        # Extract keyframe observations
-        kf_map_pt_ids = set([kpt.class_id for kpt in keypoints])
+        # Extract map point matches
+        kf_map_pt_ids = keyframe.get_map_point_ids()
         log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
 
         # Add the first keyframe if hanging
@@ -110,7 +110,7 @@ class ConvisibilityGraph(Graph):
 
         self._update_edges_on_new_frame(keyframe.id, kf_map_pt_ids)
 
-    def add_track_keyframe(self, keyframe: Frame, pairs: dict[int, tuple[int, int]]):
+    def add_track_keyframe(self, keyframe: Frame):
         """
         Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
 
@@ -118,13 +118,14 @@ class ConvisibilityGraph(Graph):
             keyframe: Unique identifier for the keyframe.
             pairs: Dictionary matching a feature to a map point with a distance
         """
+        kf_map_pt_ids = keyframe.get_map_point_ids()
+
         log.info(f"[Graph] Adding keyframe #{keyframe.id}")
         if keyframe.id in self.nodes.keys():
             log.warning(f"\t Keyframe {keyframe.id} already exists!")
             return
         
         # Store the new keyframe observations
-        kf_map_pt_ids = set([v[0] for v in pairs.values()])
         log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
         self._add_node(keyframe.id, kf_map_pt_ids)
         self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
@@ -226,8 +227,8 @@ class ConvisibilityGraph(Graph):
     def get_frustum_points(self, frame: Frame, map: Map):
         """Returns the points that are in the view of a given frame"""
         points = set()
-        for p_id in self.nodes[frame.id]:
-            points.add(map.points[p_id])
+        for pid in self.nodes[frame.id]:
+            points.add(map.points[pid])
         return points
     
     def get_connected_frames(self, kf_id: int) -> set[int]:
@@ -251,22 +252,6 @@ class ConvisibilityGraph(Graph):
         for kf_id, point_ids in self.nodes.items():
             if pid in point_ids:
                 observing_kf_ids.add(kf_id)
-
-        return observing_kf_ids
-
-    def get_frames_that_observe_at_scale(self, pid: int, keyframes: list[Frame], scale: int) -> set[int]:
-        """Returns the keyframes that observe a specific point at the same or a finer scale"""
-        observing_kf_ids = set()
-        # Iterate over all frames
-        for kf_id, point_ids in self.nodes.items():
-            # Check if they see the same point
-            if pid in point_ids:
-                # Check at what scale they see the point
-                kf = keyframes[kf_id]
-                octave = kf.features[pid].kpt.octave
-                # Compare the observing octave with the desired one
-                if octave <= scale:
-                    observing_kf_ids.add(kf_id)
 
         return observing_kf_ids
 
@@ -360,7 +345,7 @@ class ConvisibilityGraph(Graph):
         self._update_edges_on_point_culling()
 
 
-    def create_local_map(self, frame: Frame, map: Map, map_t_pairs: set):
+    def create_local_map(self, frame: Frame, map: Map):
         """
         Projects the map into a given frame and returns a local map.
         This local map contains: 
@@ -369,16 +354,18 @@ class ConvisibilityGraph(Graph):
         - A reference frame Kref in K1 which shares the most points with the current frame
         """
         log.info("[Graph] Creating local map...")
+        frame_map_point_ids = frame.get_map_point_ids()
+
         # Find the frames that share map points and their points
         K1_frame_ids = set()
         K1_frame_counts = {}
         # Iterate over all the matched map points
-        for _, (pid, _) in map_t_pairs.items():
+        for pid in frame_map_point_ids:
             point = map.points[pid]
             # Iterate over all the point observations
             for obs in point.observations:
                 # Keep the frame ids that are different than the current frame
-                frame_id = obs["keyframe"].id
+                frame_id = obs["kf_id"]
                 if frame_id != frame.id:
                     K1_frame_ids.add(frame_id)
                     # Increase the counter of the shared map points
