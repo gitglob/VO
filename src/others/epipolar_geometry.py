@@ -1,31 +1,40 @@
 import numpy as np
 import cv2
+from src.others.linalg import invert_transform
 from src.others.linalg import skew_symmetric
-from config import K
+from config import K, log
 
 
+def print_mean_reprojection_error(q_kpts, t_kpts, q_frame, t_frame):
+    """Prints the re-projection error between 2 frames with poses at specific keypoints"""
+    q_pxs = np.array([kpt.pt for kpt in q_kpts], dtype=np.float64)
+    t_pxs = np.array([kpt.pt for kpt in t_kpts], dtype=np.float64)
+    T_q2t = invert_transform(t_frame.pose @ invert_transform(q_frame.pose))
+
+    e = reprojection_error(q_pxs, t_pxs, T_q2t)
+    log.info(f"Mean Reprojection Error: {np.mean(e):.2f}")
 
 def reprojection_error(pxs1, pxs2, T):
     """
     Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
 
     Args:
-        pxs1: Pixel coordinates in frame 1.
-        pxs2: Pixel coordinates in frame 2.
-        T: relative pose from from O1 to O2.
+        pxs1 (N, 2): Pixel coordinates in frame 1.
+        pxs2 (N, 2): Pixel coordinates in frame 2.
+        T    (4, 4): relative pose from from O1 to O2.
 
     Returns:
         np.array: Updated boolean mask with matches having large reprojection errors filtered out.
     """
     R = T[:3, :3]
-    t = T[:3, 3]
+    t = T[:3, 3].reshape(-1,1)
     
     # Projection matrices
     M1 = K @ np.eye(3,4)        # Reference frame (identity)
     M2 = K @ np.hstack((R, t))  # Current frame
 
     # Triangulate points
-    pts1_4d = cv2.triangulatePoints(M1, M2, pxs1, pxs2)
+    pts1_4d = cv2.triangulatePoints(M1, M2, pxs1.T, pxs2.T)
     pts1_3d = (pts1_4d[:3] / pts1_4d[3]).T
 
     # Reproject points into the second (current) camera

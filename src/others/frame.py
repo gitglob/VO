@@ -2,9 +2,10 @@ from typing import List, Tuple, Dict
 import numpy as np
 import cv2
 from cv2 import DMatch
+from src.others.linalg import invert_transform
 from src.others.visualize import plot_keypoints
 
-from config import results_dir, SETTINGS, log
+from config import results_dir, SETTINGS, log, K
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -43,9 +44,9 @@ class Frame():
         self.keypoints: Tuple                # The extracted ORB keypoints
         self.descriptors: np.ndarray         # The extracted ORB descriptors
         self.scale_factors: np.ndarray       # The per-octave scale factors
+        self.scale_uncertainties: np.ndarray # The per-octave measurement uncertainties
         self.gt: np.ndarray = None           # The camera -> world Ground Truth pose
         self.pose: np.ndarray = None         # The camera -> world pose transformation matrix
-        self.match: Dict = {}                # The matches between this frame's keypoints and others'
         self.relocalization: bool = False    # Whether global relocalization using vBoW was performed
 
         self.bow_hist: np.ndarray = None     # Histogram of visual words (1, vocab_size)
@@ -96,6 +97,27 @@ class Frame():
 
         return level_kpt_idxs, level_kpt_ids
 
+    def project(self, point: np.ndarray) -> tuple[float, float]:
+        # make homogeneous
+        pw_h = np.hstack([point, 1.0])            # shape (4,)
+
+        # transform into camera frame
+        T_world2cam = invert_transform(self.pose)
+        pc_h = T_world2cam @ pw_h                 # shape (4,)
+        x, y, z = pc_h[:3]
+
+        if z <= 0:
+            raise ValueError("Point is behind the camera (z <= 0)")
+
+        # normalize to unit plane
+        xn = x / z
+        yn = y / z
+
+        # apply intrinsics
+        p_pix_h = K @ np.array([xn, yn, 1.0])     # shape (3,)
+        u, v = p_pix_h[0], p_pix_h[1]
+        return (u, v)
+
 
     def get_map_point_ids(self):
         """Returns all the map points that are matched to a feature"""
@@ -118,11 +140,13 @@ class Frame():
         self.noopt_pose = self.pose.copy()
         self.pose = pose
 
-    def _calc_scale_factors(self, levels):
+    def _calc_scale_factors(self, levels: int):
         """Calculates the scale factors for each level in the ORB scale pyramid"""
         self.scale_factors = np.ones(levels)
+        self.scale_uncertainties = np.ones(levels)
         for i in range (1, len(self.scale_factors)):
             self.scale_factors[i] = self.scale_factors[i-1] * ORB_SETTINGS["scale_factor"]
+            self.scale_uncertainties[i] = self.scale_factors[i] * self.scale_factors[i]
 
     def _extract_features(self):
         """

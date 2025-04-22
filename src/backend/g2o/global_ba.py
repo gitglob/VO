@@ -12,12 +12,11 @@ class globalBA(BA):
         Args:
             verbose: If True, show debug information.
         """
-        super().__init__()
+        super().__init__(map)
         log.info("[BA] Performing full BA...")
         self.verbose = verbose
 
         # The keyframes to optimize
-        self.map = map
         self._add_frames()
         self._add_observations()
 

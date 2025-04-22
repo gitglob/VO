@@ -23,7 +23,7 @@ orb:
 initialization:
     min_num_triang_points: 100 
     reprojection_threshold: 4.0
-    min_parallax: 1.0
+    min_parallax: 2.0
     matches:
         min: 200
         lowe_ratio: 0.9
@@ -57,7 +57,7 @@ convisibility:
 ba:
     num_observations: 3
     frequency: 5
-    measurement_noise: 2.0  # Std. deviation for camera measurements (pixels)
+    measurement_noise: 2.0
 
 place_recognition:
     vocab_size: 1000

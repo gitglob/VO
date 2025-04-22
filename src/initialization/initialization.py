@@ -165,8 +165,6 @@ def initialize_pose(matches: list[cv2.DMatch], q_frame: Frame, t_frame: Frame):
     T_q2t = np.eye(4)
     T_q2t[:3, :3] = R
     T_q2t[:3, 3] = t.flatten()
-    # Extract the c2 to c1 pose (this is the new robot's pose in the old coordinate system)
-    T_t2q = invert_transform(T_q2t)
 
     # The translation should be a unit vector before scaling
     assert np.linalg.norm(T_q2t[:3, 3]) - 1 < 1e-6

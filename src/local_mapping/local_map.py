@@ -38,8 +38,8 @@ class mapPoint():
         ]
         """
 
-        self.pos: np.ndarray = pos          # 3D position
-        self.id: int = mapPoint._mp_id_counter       # The unique id of this map point
+        self.pos: np.ndarray = pos             # 3D position
+        self.id: int = mapPoint._mp_id_counter # The unique id of this map point
 
         self.found_counter: int = 1         # Number of times the point was tracked
         self.visible_counter: int = 1       # Number of times the point was predicted to be visible by a Frame
@@ -270,6 +270,27 @@ class Map():
 
         return keyframe_observers_ids
     
+    def get_mean_projection_error(self) -> float:
+        errors = []
+        # Iterate over all map points
+        for mp in self.points.values():
+            # Extract their positions
+            pos = mp.pos
+            # Iterate over all their observations
+            for obs in mp.observations:
+                # Extract the pixel of the observation
+                px = np.array(obs["keypoint"].pt)
+                # Extract the frame of the observation
+                frame = self.keyframes[obs["kf_id"]]
+                # Project the point in the frame
+                proj_px = np.array(frame.project(pos))
+                # Calculate the error
+                errors.append(np.linalg.norm(px - proj_px))
+
+        mean_error = np.sqrt( np.mean( np.square(errors) ) )
+        log.info(f"[Map] RMS Re-Projection Error: {mean_error:.2f}")
+        return mean_error
+
 
     def num_points(self) -> int:
         return len(self.points.keys())
