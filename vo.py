@@ -188,14 +188,14 @@ def main():
                             tracking_success = False
                             continue
 
-                    # Perform pose optimization
-                    ba = globalBA(map, verbose=debug)
-                    ba.optimize()
-
                     # Bookkeeping
                     t_frame.set_pose(T_t2w)
                     map.add_keyframe(t_frame)
                     tracking_success = True
+
+                    # Perform pose optimization
+                    ba = singlePoseBA(map, t_frame, verbose=debug)
+                    ba.optimize()
                 else:
                     # ########### Relocalization ###########
                     log.info("Performing Relocalization!")

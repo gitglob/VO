@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 import g2o
 from config import SETTINGS, log, fx, fy, cx, cy
@@ -18,7 +19,7 @@ def L_inv(idx: int):
 
 
 class BA:
-    def __init__(self, map: Map):
+    def __init__(self):
         """Initializes BA with a g2o optimizer and camera intrinsics."""
         # Set up the g2o optimizer.
         self.optimizer = g2o.SparseOptimizer()
@@ -36,9 +37,6 @@ class BA:
         # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.
         self._delta = np.sqrt(5.991)
-
-        # The map
-        self.map = map
 
     def _add_frame(self, frame: Frame, fixed: bool=False):
         """
@@ -63,8 +61,8 @@ class BA:
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
 
-    def _add_observation(self, mp: mapPoint, fixed: bool=False, kernel: bool=True, level: int = None):
-        """Adds a landmark as vertex and reprojection observations as edges."""
+    def _add_landmark(self, mp: mapPoint, fixed=False):
+        """Adds a landmark as vertex."""
         pos = mp.pos      # 3D position of landmark
         l_idx = mp.id     # landmark id
 
@@ -78,42 +76,49 @@ class BA:
         # Add landmark vertex
         self.optimizer.add_vertex(v_landmark)
 
-        # Iterate over all map point observations
-        for obs in mp.observations:
-            kf_id = obs["kf_id"]    # id of keyframe that observed the landmark
-            kpt = obs["keypoint"]   # keypoint of the observation
-            u, v = kpt.pt           # pixels of the keypoint
+    def _add_observation(self, pid: int, kf: Frame, pt: tuple, octave: int, 
+                         kernel: bool=True, level: int = None):
+        """
+        Adds reprojection observation as edge.
+        
+        Args:
+            pid: The observed map point
+            kf: The keyframe that observed the map point
+            pt: The pixel that corresponded to the map point
+            octave: The ORB octave (scale) that the matched ORB keypoint belonged to
+            kernel:
+            level:        
+        """
+        u, v = pt  # pixels of the keypoint
 
-            # Create the reprojection edge.
-            edge = g2o.EdgeProjectXYZ2UV()
-            # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
-            edge.set_vertex(0, v_landmark)
-            edge.set_vertex(1, self.optimizer.vertex(X(kf_id)))
-            edge.set_measurement([u, v])
-            
-            # Add the information matrix based on the octave's uncertainty
-            octave = kpt.octave
-            kf = self.map.keyframes[kf_id]
-            measurement_uncertainty = kf.scale_uncertainties[octave]
-            measurement_information = np.eye(2) * (1.0 / measurement_uncertainty)
-            edge.set_information(measurement_information)
+        # Create the reprojection edge.
+        edge = g2o.EdgeProjectXYZ2UV()
+        # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
+        edge.set_vertex(0, self.optimizer.vertex(L(pid)))
+        edge.set_vertex(1, self.optimizer.vertex(X(kf.id)))
+        edge.set_measurement([u, v])
+        
+        # Add the information matrix based on the octave's uncertainty
+        measurement_uncertainty = kf.scale_uncertainties[octave]
+        measurement_information = np.eye(2) * (1.0 / measurement_uncertainty)
+        edge.set_information(measurement_information)
 
-            # Add a Huber kernel to lessen the effect of outliers
-            if kernel:
-                robust_kernel = g2o.RobustKernelHuber(self._delta)
-                edge.set_robust_kernel(robust_kernel)
-            
-            # Link the camera parameters (parameter id 0)
-            set_param_success = edge.set_parameter_id(0, 0)
-            if set_param_success is False:
-                raise(ValueError("Couldn't set parameter ID."))
+        # Add a Huber kernel to lessen the effect of outliers
+        if kernel:
+            robust_kernel = g2o.RobustKernelHuber(self._delta)
+            edge.set_robust_kernel(robust_kernel)
+        
+        # Link the camera parameters (parameter id 0)
+        set_param_success = edge.set_parameter_id(0, 0)
+        if set_param_success is False:
+            raise(ValueError("Couldn't set parameter ID."))
 
-            # Set the level
-            if level is not None:
-                edge.set_level(level)
+        # Set the level
+        if level is not None:
+            edge.set_level(level)
 
-            # Add observation edge
-            self.optimizer.add_edge(edge)
+        # Add observation edge
+        self.optimizer.add_edge(edge)
 
     ############################################### DEBUG ###############################################
 

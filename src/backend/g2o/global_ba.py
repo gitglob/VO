@@ -8,9 +8,10 @@ from config import log
 class globalBA(BA):
     def __init__(self, map: Map, verbose=False):
         """Performs global Bungle Adjustment fixing only the very first pose"""
-        super().__init__(map)
+        super().__init__()
         log.info("[BA] Performing full BA...")
         self.verbose = verbose
+        self.map = map
 
         # The keyframes to optimize
         self._add_frames()
@@ -35,8 +36,14 @@ class globalBA(BA):
             log.info(f"\t Adding {self.map.num_points()} landmarks...")
 
         # Iterate over all map points
-        for pt in self.map.points.values():
-            self._add_observation(pt, fixed=False)
+        for pid, pt in self.map.points.items():
+            self._add_landmark(pt, fixed=False)
+            # Iterate over all the point observations
+            for obs in pt.observations:
+                kf_id = obs["kf_id"]  # id of keyframe that observed the landmark
+                kf = self.map.keyframes[kf_id]
+                kpt = obs["keypoint"] # keypoint of the observation
+                self._add_observation(pid, kf, kpt.pt, kpt.octave)
 
     def optimize(self, num_iterations=20):
         """
