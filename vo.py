@@ -2,7 +2,6 @@ import numpy as np
 
 from src.others.data import Dataset
 from src.others.frame import Frame
-from src.others.epipolar_geometry import print_mean_reprojection_error
 from src.others.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d, plot_BA, plot_BA2d
 from src.others.linalg import invert_transform
 from src.others.utils import save_image, delete_subdirectories
@@ -91,12 +90,11 @@ def main():
 
         # Iteration #0
         if t_frame.id == 0:
-            log.info("First iteration)")
-            pose = gt_pose
-            assert np.all(np.eye(4) - pose < 1e-6)
+            log.info("~~~~First Frame~~~~")
+            assert np.all(np.eye(4) - gt_pose < 1e-6)
 
             # Bookkeping
-            t_frame.set_pose(pose)
+            t_frame.set_pose(gt_pose)
             cgraph.add_first_keyframe(t_frame)
             if debug:
                 save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
@@ -155,13 +153,11 @@ def main():
                 validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.pose])
 
                 # Perform Bundle Adjustment
-                map.get_mean_projection_error()
                 prev_pts = map.point_positions.copy()
                 ba = globalBA(map, verbose=debug)
                 ba_success = ba.optimize()
-                map.get_mean_projection_error()
 
-                plot_BA(prev_pts, map.point_positions)
+                # plot_BA(prev_pts, map.point_positions)
                 plot_BA2d(prev_pts, map.point_positions, i)
 
                 if not ba_success:

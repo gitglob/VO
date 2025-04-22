@@ -1,6 +1,7 @@
 import numpy as np
 import g2o
 from config import SETTINGS, log, fx, fy, cx, cy
+from src.others.linalg import invert_transform
 from src.local_mapping.local_map import Map, mapPoint
 from src.others.frame import Frame
 
@@ -40,16 +41,19 @@ class BA:
         self.map = map
 
     def _add_frame(self, frame: Frame, fixed: bool=False):
-        """Adds a pose (4x4 transformation matrix) as a VertexSE3Expmap."""
-        p_id = frame.id
-        p = frame.pose 
+        """
+        Adds a pose (4x4 transformation matrix) as a VertexSE3Expmap.
+        Note: g2o expects world2frame transformations.
+        """
+        kf_id = frame.id
+        T_w2f = invert_transform(frame.pose) 
 
         # Convert the 4x4 pose matrix into an SE3Quat.
-        R = p[:3, :3]
-        t = p[:3, 3]
+        R = T_w2f[:3, :3]
+        t = T_w2f[:3, 3]
         se3 = g2o.SE3Quat(R, t)
         vertex = g2o.VertexSE3Expmap()
-        vertex.set_id(X(p_id))
+        vertex.set_id(X(kf_id))
         vertex.set_estimate(se3)
 
         # We optimize both poses and landmarks, but fix the first pose
@@ -82,7 +86,6 @@ class BA:
 
             # Create the reprojection edge.
             edge = g2o.EdgeProjectXYZ2UV()
-            # edge = g2o.EdgeSE3ProjectXYZ()
             # In g2o, convention is vertex 0 = landmark, vertex 1 = pose.
             edge.set_vertex(0, v_landmark)
             edge.set_vertex(1, self.optimizer.vertex(X(kf_id)))
@@ -101,7 +104,9 @@ class BA:
                 edge.set_robust_kernel(robust_kernel)
             
             # Link the camera parameters (parameter id 0)
-            edge.set_parameter_id(0, 0)
+            set_param_success = edge.set_parameter_id(0, 0)
+            if set_param_success is False:
+                raise(ValueError("Couldn't set parameter ID."))
 
             # Set the level
             if level is not None:
