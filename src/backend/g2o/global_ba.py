@@ -4,7 +4,7 @@ from src.local_mapping.local_map import Map
 from config import log
 
 
-class fullBA(BA):
+class globalBA(BA):
     def __init__(self, map: Map, verbose=False):
         """
         Initializes BA_g2o with a g2o optimizer and camera intrinsics.
@@ -43,7 +43,7 @@ class fullBA(BA):
         for pt in self.map.points.values():
             self._add_observation(pt, fixed=False)
 
-    def optimize(self, num_iterations=10):
+    def optimize(self, num_iterations=20):
         """
         Optimize the graph and return optimized poses and landmark positions.
         

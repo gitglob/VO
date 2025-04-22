@@ -42,6 +42,10 @@ class BA:
         self.measurement_sigma = MEASUREMENT_SIGMA
         self.measurement_information = np.eye(2) * (1.0 / (self.measurement_sigma ** 2))
 
+        # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
+        # (since the measurement is 2D) so that errors above this threshold are down–weighted.
+        self._delta = np.sqrt(5.991)
+
     def _add_frame(self, frame: Frame, fixed: bool=False):
         """Adds a pose (4x4 transformation matrix) as a VertexSE3Expmap."""
         p_id = frame.id
@@ -62,7 +66,7 @@ class BA:
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
 
-    def _add_observation(self, mp: mapPoint, fixed: bool=False):
+    def _add_observation(self, mp: mapPoint, fixed: bool=False, kernel: bool=True):
         """Adds a landmark as vertex and reprojection observations as edges."""
         pos = mp.pos      # 3D position of landmark
         l_idx = mp.id     # landmark id
@@ -91,6 +95,10 @@ class BA:
             edge.set_vertex(1, self.optimizer.vertex(X(pose_idx)))
             edge.set_measurement([u, v])
             edge.set_information(self.measurement_information)
+            # Add a Huber kernel to lessen the effect of outliers
+            if kernel:
+                robust_kernel = g2o.RobustKernelHuber(self._delta)
+                edge.set_robust_kernel(robust_kernel)
             # Link the camera parameters (parameter id 0)
             edge.set_parameter_id(0, 0)
             # edge.set_level(0)

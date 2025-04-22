@@ -2,8 +2,8 @@ import numpy as np
 
 from src.others.data import Dataset
 from src.others.frame import Frame
-from src.others.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d
-from src.others.linalg import transform_points, invert_transform
+from src.others.visualize import plot_trajectory, plot_ground_truth, plot_trajectory_3d, plot_BA, plot_BA2d
+from src.others.linalg import invert_transform
 from src.others.utils import save_image, delete_subdirectories
 from src.others.scale import estimate_depth_scale, validate_scale
 
@@ -19,7 +19,7 @@ from src.place_recognition.bow import load_vocabulary, query_recognition_candida
 from src.local_mapping.keyframe import is_keyframe
 from src.local_mapping.local_map import Map
 
-from src.backend.g2o.full_ba import fullBA
+from src.backend.g2o.global_ba import globalBA
 from src.backend.g2o.pose_optimization import poseBA
 from src.backend.g2o.single_pose_optimization import singlePoseBA
 from src.backend.convisibility_graph import ConvisibilityGraph
@@ -154,8 +154,12 @@ def main():
                 validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.pose])
                 
                 # Perform Bundle Adjustment
-                ba = fullBA(map, verbose=debug)
+                prev_pts = map.point_positions.copy()
+                ba = globalBA(map, verbose=debug)
                 ba_success = ba.optimize()
+                # plot_BA(prev_pts, map.point_positions)
+                plot_BA2d(prev_pts, map.point_positions, i)
+
                 if not ba_success:
                     log.error("Bundle Adjustment failed!")
                 else:
@@ -185,7 +189,7 @@ def main():
                             continue
 
                     # Perform pose optimization
-                    ba = fullBA(map, verbose=debug)
+                    ba = globalBA(map, verbose=debug)
                     ba.optimize()
 
                     # Bookkeeping
@@ -280,7 +284,7 @@ def main():
                 plot_trajectory(map, i, ba=False)
 
                 # Perform Bundle Adjustment
-                ba = fullBA(map, verbose=debug)
+                ba = globalBA(map, verbose=debug)
                 ba_success = ba.optimize()
                 if ba_success:
                     plot_trajectory(map, i)

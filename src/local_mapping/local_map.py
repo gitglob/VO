@@ -1,6 +1,5 @@
 from typing import List
 import numpy as np
-import matplotlib.pyplot as plt
 import cv2
 from src.others.frame import Frame
 from src.others.linalg import invert_transform, transform_points
@@ -522,43 +521,3 @@ class Map():
             if feat.matched:
                 pid = feat.mp["id"]
                 self.points[pid].found_counter += 1
-
-
-    def show(self, prev_point_positions, point_positions):
-        """
-        Visualize the map points in 3D.
-        """
-        # Create a new figure and a 3D subplot
-        fig = plt.figure(figsize=(14, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        
-        # Plot the previous point positions in red
-        ax.scatter(prev_point_positions[:, 0],
-                prev_point_positions[:, 1],
-                prev_point_positions[:, 2],
-                facecolors='none', edgecolors='r', marker='o', label='Landmarks')
-        
-        # Plot the current point positions in blue
-        ax.scatter(point_positions[:, 0],
-                point_positions[:, 1],
-                point_positions[:, 2],
-                c='b', marker='o', alpha=0.2, label='Optimized Landmarks')
-        
-        # Label the axes
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        
-        # Add a legend to differentiate the point clouds
-        ax.legend()
-        errors = point_positions - prev_point_positions
-        errors_norm = np.linalg.norm(errors, axis=1)
-        ax.set_title("Map Points <-> Error" + 
-                     f"\nTotal: {np.sum(errors):.2f}" +
-                     f", Mean: {np.mean(errors_norm):.2f}" +
-                     f", Median: {np.median(errors_norm):.2f}" +
-                     f"\nMin: {np.min(errors_norm):.2f}" +
-                     f", Max: {np.max(errors_norm):.2f}")
-        
-        # Display the plot
-        plt.show()
