@@ -52,21 +52,6 @@ class Frame():
         self.features: dict = {}             # Mapping: keypoint_id -> ORB feature (keypoint, descriptor)
         self.feature_vector: dict = {}       # Mapping: visual word -> keypoint id
 
-        
-        """
-        The match dictionary looks like this:
-        {
-            frame_id: 
-            {
-                "matches": List[DMatch],  # The feature matches between the two frames
-                "init_matches":
-                "tracking_matches":
-                "match_type": string,     # Whether the frame acted as query or train in the match
-                "T": np.ndarray,          # The Transformation Matrix to get from the query frame (this frame) to the train frame (the one with frame_id)
-            }
-        }
-        """
-
         self._extract_features()    # Extract ORB features from the image
         if debug:
             self.log_keypoints()
@@ -99,13 +84,6 @@ class Frame():
     def reset_pose(self):
         self.pose = None
 
-    def set_matches(self, with_frame_id: int, matches: List[DMatch], match_type: str):
-        """Sets matches with another frame"""
-        self.match[with_frame_id] = {}
-        self.match[with_frame_id]["matches"] = np.array(matches, dtype=object)
-        self.match[with_frame_id]["match_type"] = match_type
-        self.match[with_frame_id]["T"] = None
-
 
     def get_features_at_level(self, level: int) -> tuple[list, list]:
         """Returns the feature ids of a specific ORB scale level"""
@@ -117,21 +95,6 @@ class Frame():
                 level_kpt_ids.append(kpt.class_id)
 
         return level_kpt_idxs, level_kpt_ids
-
-    def get_matches(self, with_frame_id: int):
-        """Returns matches with a specfic frame"""
-        matches = self.match[with_frame_id]["matches"]
-        return matches
-
-    def get_init_matches(self, with_frame_id: int):
-        """Returns matches with a specfic frame"""
-        matches = self.match[with_frame_id]["init_matches"]
-        return matches
-
-    def get_tracking_matches(self, with_frame_id: int):
-        """Returns matches with a specfic frame"""
-        matches = self.match[with_frame_id]["tracking_matches"]
-        return matches
 
 
     def get_map_point_ids(self):

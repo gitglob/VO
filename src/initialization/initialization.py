@@ -15,7 +15,7 @@ REPROJECTION_THREHSOLD = SETTINGS["initialization"]["reprojection_threshold"]
 MIN_PARALLAX = SETTINGS["initialization"]["min_parallax"]
 
 
-def initialize_pose(q_frame: Frame, t_frame: Frame):
+def initialize_pose(matches: list[cv2.DMatch], q_frame: Frame, t_frame: Frame):
     """
     Initializes the camera pose by estimating the relative rotation and translation 
     between two consecutive frames using feature matches.
@@ -41,9 +41,6 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
     # ------------------------------------------------------------------------
-
-    # Extract the matches between the previous and current frame
-    matches = q_frame.get_matches(t_frame.id)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
     q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
@@ -170,43 +167,32 @@ def initialize_pose(q_frame: Frame, t_frame: Frame):
     T_q2t[:3, 3] = t.flatten()
     # Extract the c2 to c1 pose (this is the new robot's pose in the old coordinate system)
     T_t2q = invert_transform(T_q2t)
-    
-    # Initialize the frames
-    q_frame.match[t_frame.id]["T"] = T_q2t
-    q_frame.match[t_frame.id]["init_matches"] = matches
-    t_frame.match[q_frame.id]["T"] = T_t2q
-    t_frame.match[q_frame.id]["init_matches"] = matches
 
     # The translation should be a unit vector before scaling
     assert np.linalg.norm(T_q2t[:3, 3]) - 1 < 1e-6
 
-    return T_q2t, True
+    return matches, T_q2t, True
       
-def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
+def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: Frame, t_frame: Frame, scale: int):
     if debug:
         log.info(f"[Initialization] Triangulating points between frames {q_frame.id} & {t_frame.id}...")
-    # Extract the Rotation and Translation arrays between the 2 frames
-    T_qt = q_frame.match[t_frame.id]["T"] # [q->t]
 
     # ------------------------------------------------------------------------
     # 6. Triangulate 3D points
     # ------------------------------------------------------------------------
-
-    # Extract inlier matches
-    matches = q_frame.get_init_matches(t_frame.id)
 
     # Extract keypoint pixel coordinates and indices for both frames from the feature match
     q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
     t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
 
     # Triangulate
-    q_points = triangulate(q_kpt_pixels, t_kpt_pixels, T_qt) # (N, 3)
+    q_points = triangulate(q_kpt_pixels, t_kpt_pixels, T_q2t) # (N, 3)
     if q_points is None or len(q_points) == 0:
         log.warning("\t Triangulation returned no 3D points.")
         return None, None, None, False
 
     # Transfer the points to the current coordinate frame [t->q]
-    t_points = transform_points(q_points, T_qt) # (N, 3)
+    t_points = transform_points(q_points, T_q2t) # (N, 3)
 
     # Scale the points
     q_points = scale * q_points
@@ -234,7 +220,7 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     q_points = q_points[cheirality_mask]
     t_points = t_points[cheirality_mask]
 
-    parallax_mask = filter_parallax(q_points, t_points, T_qt, MIN_PARALLAX)
+    parallax_mask = filter_parallax(q_points, t_points, T_q2t, MIN_PARALLAX)
 
     # If too few points or too small median angle, return None
     if parallax_mask is None or parallax_mask.sum() < MIN_NUM_TRIANG_POINTS:
@@ -256,9 +242,6 @@ def triangulate_points(q_frame: Frame, t_frame: Frame, scale: int):
     # ------------------------------------------------------------------------
     # 8. Save the triangulated points and masks to the t_frame
     # ------------------------------------------------------------------------
-
-    q_frame.match[t_frame.id]["init_matches"] = matches
-    t_frame.match[q_frame.id]["init_matches"] = matches
 
     # Save the triangulated points keypoints and descriptors
     q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])

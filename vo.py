@@ -111,7 +111,7 @@ def main():
                     continue
 
                 # Extract the initial pose using the Essential or Homography matrix (2d-2d)
-                T_q2t, is_initialized = initialize_pose(q_frame, t_frame)
+                matches, T_q2t, is_initialized = initialize_pose(matches, q_frame, t_frame)
                 if not is_initialized:
                     log.info("Pose initialization failed!")
                     continue
@@ -135,7 +135,7 @@ def main():
                 t_frame.set_pose(T_t2w)
 
                 # Triangulate the 3D points using the initial pose
-                w_points, q_kpts, t_kpts, q_descriptors, t_descriptors, is_initialized = triangulate_points(q_frame, t_frame, scale)
+                w_points, q_kpts, t_kpts, q_descriptors, t_descriptors, is_initialized = triangulate_points(matches, T_q2t, q_frame, t_frame, scale)
                 if not is_initialized:
                     log.info("Triangulation failed!")
                     continue

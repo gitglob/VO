@@ -47,16 +47,12 @@ def matchFeatures(q_frame: Frame, t_frame: Frame):
     # 3) **Propagate keypoint IDs**
     propagate_keypoints(q_frame, t_frame, matches)
 
-    # 4) Store the matches in each frame
-    q_frame.set_matches(t_frame.id, matches, "query")
-    t_frame.set_matches(q_frame.id, matches, "train")
-            
     # Save the matches
     if debug:
         match_save_path = results_dir / f"matches/initialization/0-raw" / f"{q_frame.id}_{t_frame.id}.png"
         plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
-    return matches
+    return np.array(matches, dtype=object)
 
 def propagate_keypoints(q_frame: Frame, t_frame: Frame, matches: List[cv2.DMatch]):
     """Merges the keypoint identifiers for the matches features between query and train frames."""
