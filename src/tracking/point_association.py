@@ -2,7 +2,7 @@ import bisect
 import numpy as np
 import cv2
 from scipy.linalg import expm, logm
-from src.local_mapping.local_map import Map, mapPoint
+from src.local_mapping.map import Map, localMap, mapPoint
 from src.backend.convisibility_graph import ConvisibilityGraph
 from src.others.frame import Frame
 from src.others.linalg import invert_transform
@@ -46,36 +46,6 @@ def constant_velocity_model(t: float, frames: list):
     T_wc = invert_transform(T_cw)
 
     return T_wc
-
-def project_point(p_w: np.ndarray, T_wc: np.ndarray):
-    """
-    Projects a 3D point from world coordinates into the image given a camera pose and intrinsic matrix.
-    
-    Args:
-        p_w: A 3-element iterable representing the 3D point (e.g. np.array([x,y,z])).
-        T_wc: A 4x4 homogeneous transformation matrix mapping world coordinates to camera coordinates.
-        K:   The 3x3 camera intrinsic matrix.
-    
-    Returns:
-        A tuple (u, v) representing the predicted pixel coordinate or None if the point projects behind the camera.
-    """
-    # Convert point to homogeneous coordinates (4-vector).
-    p_w_hom = np.array([p_w[0], p_w[1], p_w[2], 1.0])
-    # Transform into camera coordinate system.
-    p_cam = T_wc @ p_w_hom
-    # Check if the point is in front of the camera.
-    if p_cam[2] <= 0:
-        return None
-    # Normalize to obtain (x/z, y/z, 1).
-    p_cam_norm = p_cam[:3] / p_cam[2]
-    # Project to pixel coordinates.
-    p_proj = K @ p_cam_norm
-    u, v, _ = p_proj
-    # Check if the pixel is outside the image boundaries
-    if u < 0 or u > W or v < 0 or v > H:
-        return None
-
-    return (u, v)
 
 def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: ConvisibilityGraph):
     """
@@ -163,7 +133,9 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     
     # Prepare results
     for m in unique_matches:
-        t_frame.features[m.trainIdx].match_map_point(map_point_ids[m.queryIdx], 0)
+        feat = t_frame.features[m.trainIdx]
+        feat.match_map_point(map_point_ids[m.queryIdx], 0)
+        map.points[pid].observe(map._kf_counter, t_frame.id, feat.kpt, feat.desc)
 
     if debug:
         log.info(f"\t Found {len(unique_matches)} Point Associations!")
@@ -174,8 +146,7 @@ def localPointAssociation(map: Map,
                           q_frame: Frame,
                           t_frame: Frame, 
                           cgraph: ConvisibilityGraph,
-                          T_wc: np.ndarray, 
-                          theta: int = None, 
+                          theta: int=None, 
                           search_window: int=None):
     """
     Associates map points with current frame keypoints by searching only within a local window
@@ -224,7 +195,7 @@ def localPointAssociation(map: Map,
                  - t_frame.keypoints: a list of keypoints (each with a .pt attribute, e.g. (u,v)).
                  - t_frame.descriptors: an array of descriptors for those keypoints.
         K: The camera intrinsic matrix.
-        T_wc: The predicted current camera pose (4x4 homogeneous transformation), mapping world
+        T_w2f: The predicted current camera pose (4x4 homogeneous transformation), mapping world
               coordinates to camera coordinates.
 
     Returns:
@@ -239,7 +210,7 @@ def localPointAssociation(map: Map,
     # Loop over the points
     for point in q_map_points:
         # Project the map point's 3D location into the current frame.
-        pred_px = project_point(point.pos, T_wc)
+        pred_px = point.project2frame(t_frame)
         if pred_px is None:
             continue  # Skip points that project behind the camera.
         else:
@@ -257,7 +228,7 @@ def localPointAssociation(map: Map,
                 candidates.add(kpt_id)
         
         # If no keypoints are found in the window, skip to the next map point.
-        if not candidates:
+        if len(candidates) == 0:
             continue
         
         # We choose the last descriptor to represent the map point
@@ -282,10 +253,12 @@ def localPointAssociation(map: Map,
                 
     # Update the frame<->map matches
     for feat_id, (pid, dist) in matched_features.items():
-        t_frame.features[feat_id].match_map_point(pid, dist)
+        feat = t_frame.features[feat_id]
+        feat.match_map_point(pid, dist)
+        map.points[pid].observe(map._kf_counter, t_frame.id, feat.kpt, feat.desc)
 
     # Save the matched points
-    if debug:
+    if debug and len(matched_features.keys()) > 0:
         match_save_path = results_dir / "matches/tracking/point_assocation/local" / f"map_{t_frame.id}.png"
         t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in matched_features.keys()], dtype=np.float64)
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
@@ -379,13 +352,15 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     
     # Prepare results
     for m in unique_matches:
-        t_frame.features[m.trainIdx].match_map_point(map_point_ids[m.queryIdx], 0)
+        feat = t_frame.features[m.trainIdx]
+        feat.match_map_point(map_point_ids[m.queryIdx], 0)
+        map.points[pid].observe(map._kf_counter, t_frame.id, feat.kpt, feat.desc)
 
     if debug:
         log.info(f"\t Found {len(unique_matches)} Point Associations!")
     return len(unique_matches)
 
-def mapPointAssociation(map: Map, t_frame: Frame, theta: int = 15):
+def mapPointAssociation(local_map: localMap, map: Map, t_frame: Frame, theta: int = 15):
     """
     Projects all un-matched map points to a frame and searches more correspondances.
 
@@ -393,22 +368,21 @@ def mapPointAssociation(map: Map, t_frame: Frame, theta: int = 15):
         matched_features: A list of tuples (map_idx, frame_idx) indicating the association of map points
                to current frame keypoints.      
     """
-    T_t2w = t_frame.pose
-    
     # Extract the already matched features and map points
     matched_point_ids = t_frame.get_map_point_ids()
     new_matched_features = {}
 
     # Iterate over all the map points
-    point: mapPoint
-    for pid, point in map.points.items():
+    for pid in local_map.point_ids:
+        point: mapPoint = map.points[pid]
+
         # Skip matched map points
         if pid in matched_point_ids:
             continue
 
         # 1) Compute the map point projection x in the current 
         # frame. Discard if it lays out of the image bounds.
-        x = point.project2frame(T_t2w)
+        x = point.project2frame(t_frame)
         if x is None:
             continue
         else:
@@ -416,7 +390,7 @@ def mapPointAssociation(map: Map, t_frame: Frame, theta: int = 15):
         
         # 2) Compute the angle between the current viewing ray v
         # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
-        v1 = point.view_ray(T_t2w[:3, 3])
+        v1 = point.view_ray(t_frame.pose[:3, 3])
         v2 = point.mean_view_ray(map.keyframes)
         if v1.dot(v2) < np.cos(np.deg2rad(60)):
             continue
@@ -424,7 +398,7 @@ def mapPointAssociation(map: Map, t_frame: Frame, theta: int = 15):
         # 3) Compute the distance d from map point to cameracenter. 
         # Discard if it is out of the scale invariance region
         # of the map point [dmin , dmax ].
-        d = np.linalg.norm(point.pos - T_t2w[:3, 3])
+        d = np.linalg.norm(point.pos - t_frame.pose[:3, 3])
         d_min, d_max = point.getScaleInvarianceLimits(map.keyframes)
         if d < d_min or d > d_max:
             continue
@@ -442,7 +416,7 @@ def mapPointAssociation(map: Map, t_frame: Frame, theta: int = 15):
 
         # Collect candidate current frame un-matched keypoints whose pixel coordinates 
         # fall within a window around the predicted pixel
-        octave_idx = bisect.bisect_left(t_frame.scale_factors, scale)
+        octave_idx = np.abs(t_frame.scale_factors - d).argmin()
         radius = theta * t_frame.scale_factors[octave_idx]
         candidates = []
         for feat_id, feat in t_frame.features.items():
@@ -466,20 +440,24 @@ def mapPointAssociation(map: Map, t_frame: Frame, theta: int = 15):
                 best_dist = d
                 best_feature_id = feat_id
         
-        # Make sure that we only keep 1 match per frame pixel
-        if best_feature_id not in new_matched_features.keys() or best_dist < new_matched_features[best_feature_id][1]:
-            new_matched_features[best_feature_id] = (pid, best_dist)
-
-    # Update the frame<->map matches
-    for feat_id, (pid, dist) in new_matched_features.items():
-        t_frame.features[feat_id].match_map_point(pid, dist)
-
-    # Save the matched points
-    if debug:
-        match_save_path = results_dir / "matches/tracking/point_assocation/map" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in new_matched_features.keys()], dtype=np.float64)
-        plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
+        # Accept the match only if the best distance is below the threshold.
+        if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
+            # Make sure that we only keep 1 match per frame pixel
+            if best_feature_id not in new_matched_features.keys() or best_dist < new_matched_features[best_feature_id][1]:
+                new_matched_features[best_feature_id] = (pid, best_dist)
     
     if debug:
         log.info(f"\t Found {len(new_matched_features)} Point Associations!")
+
+    # Update the frame<->map matches
+    for feat_id, (pid, dist) in new_matched_features.items():
+        feat = t_frame.features[feat_id]
+        feat.match_map_point(pid, dist)
+        map.points[pid].observe(map._kf_counter, t_frame.id, feat.kpt, feat.desc)
+    
+    if debug and len(new_matched_features.keys()) > 0:
+        match_save_path = results_dir / "matches/tracking/point_assocation/map" / f"map_{t_frame.id}.png"
+        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in new_matched_features.keys()], dtype=np.float64)        
+        plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
+
     return len(new_matched_features)

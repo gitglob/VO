@@ -3,7 +3,7 @@ import numpy as np
 import g2o
 from config import SETTINGS, log, fx, fy, cx, cy
 from src.others.linalg import invert_transform
-from src.local_mapping.local_map import Map, mapPoint
+from src.local_mapping.map import Map, mapPoint
 from src.others.frame import Frame
 
 

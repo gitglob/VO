@@ -2,7 +2,7 @@ from typing import Literal
 import numpy as np
 import g2o
 from config import SETTINGS
-from src.local_mapping.local_map import Map
+from src.local_mapping.map import Map
 from src.others.frame import Frame
 from config import K, log
 

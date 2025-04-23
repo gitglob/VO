@@ -1,7 +1,7 @@
 import g2o
 from src.backend.g2o.ba import BA, X_inv, L_inv
 from src.others.linalg import invert_transform
-from src.local_mapping.local_map import Map
+from src.local_mapping.map import Map
 from config import log
 
 

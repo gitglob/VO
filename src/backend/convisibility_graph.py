@@ -1,7 +1,8 @@
+from copy import deepcopy
 import numpy as np
 import cv2
 from src.others.frame import Frame
-from src.local_mapping.local_map import Map, mapPoint
+from src.local_mapping.map import Map, localMap, mapPoint
 from config import SETTINGS, log
 
 
@@ -364,9 +365,9 @@ class ConvisibilityGraph(Graph):
             point = map.points[pid]
             # Iterate over all the point observations
             for obs in point.observations:
-                # Keep the frame ids that are different than the current frame
+                # Keep the frame ids that are different than the current frame and exist in the graph
                 frame_id = obs["kf_id"]
-                if frame_id != frame.id:
+                if frame_id != frame.id and frame_id in self.nodes.keys():
                     K1_frame_ids.add(frame_id)
                     # Increase the counter of the shared map points
                     if frame_id not in K1_frame_counts.keys():
@@ -387,16 +388,8 @@ class ConvisibilityGraph(Graph):
         ref_frame_ids = [k for k, v in K1_frame_counts.items() if v == max_shared_count]
         ref_frame_id = ref_frame_ids[0]
 
-        # Merge the frame and point ids
-        local_map_point_ids = K1_point_ids.union(K2_point_ids)
-        local_map_frame_ids = K1_frame_ids.union(K2_frame_ids).union({ref_frame_id})
-
-        # Create a local map with the K1 and K2 points
-        local_map = Map(ref_frame_id)
-        for pid in local_map_point_ids:
-            local_map.points[pid] = map.points[pid]
-        for kf_id in local_map_frame_ids:
-            local_map.keyframes[kf_id] = map.keyframes[kf_id]
+        # Create the local map
+        local_map = localMap(ref_frame_id, K1_frame_ids, K1_point_ids, K2_frame_ids, K2_point_ids)
 
         return local_map
 

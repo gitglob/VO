@@ -1,12 +1,13 @@
 import os
 import cv2
+from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
 from scipy.spatial.transform import Rotation as R
 from src.others.utils import get_yaw
 from config import results_dir
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 
 
 ############################### Map Visualization ###############################
@@ -20,9 +21,8 @@ def plot_map(map):
     ax = fig.add_subplot(111, projection='3d')
     
     # Plot the previous point positions in red
-    ax.scatter(map.point_positions[:, 0],
-            map.point_positions[:, 1],
-            map.point_positions[:, 2],
+    positions = map.point_positions()
+    ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2],
             facecolors='none', edgecolors='r', marker='o', label='Landmarks')
     
     # Label the axes
@@ -44,8 +44,8 @@ def plot_map2d(map, i, save_path=results_dir / "map"):
     ax = fig.add_subplot(111)
     
     # Plot the previous point positions in red
-    ax.scatter(map.point_positions[:, 0],
-            map.point_positions[:, 1],
+    positions = map.point_positions()
+    ax.scatter(positions[:, 0], positions[:, 1],
             facecolors='none', edgecolors='r', marker='o', label='Landmarks')
     
     # Label the axes
@@ -339,7 +339,7 @@ def plot_keypoints(image, keypoints, save_path):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     # Save the image with matched features
-    cv2.imwrite(save_path, img_with_keypoints)
+    cv2.imwrite(str(save_path), img_with_keypoints)
 
 # Function to visualize the found feature matches
 def plot_matches(matches, q_frame, t_frame, save_path: str = None):
@@ -362,7 +362,7 @@ def plot_matches(matches, q_frame, t_frame, save_path: str = None):
     if not save_path:
         save_path = results_dir / f"matches/" / f"{q_frame.id}_{t_frame.id}.png"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    cv2.imwrite(save_path, matched_image)
+    cv2.imwrite(str(save_path), matched_image)
 
 def plot_reprojection(img: np.ndarray, pxs: np.ndarray, reproj_pxs: np.ndarray, path: str):
     reproj_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -382,5 +382,5 @@ def plot_pixels(img: np.ndarray, pixels: np.ndarray, save_path: str):
         x, y = int(u), int(v)
         cv2.circle(img, (x, y), 3, (0, 255, 0), 1)  # Draw the keypoint
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(save_path, img)
+    cv2.imwrite(str(save_path), img)
     

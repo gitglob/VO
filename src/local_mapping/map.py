@@ -5,7 +5,7 @@ from src.others.frame import Frame
 from src.others.linalg import invert_transform, transform_points
 from src.others.epipolar_geometry import dist_epipolar_line, compute_F12, compute_T12, triangulate, triangulation_angles, reprojection_error
 from src.others.scale import get_scale_invariance_limits
-from config import SETTINGS, K, log
+from config import SETTINGS, K, log, fx, fy, cx, cy
 
 
 scale_factor = SETTINGS["orb"]["scale_factor"]
@@ -18,6 +18,12 @@ W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
 
 debug = SETTINGS["generic"]["debug"]
+
+
+class Observation():
+    """Represents a single observation of a map point"""
+    def __init__(self):
+        pass
 
 
 class mapPoint():
@@ -97,6 +103,7 @@ class mapPoint():
         for obs in self.observations:
             if obs["kf_id"] == kf_id:
                 return obs
+        return None
 
     def view_ray(self, cam_pos: np.ndarray):
         v = self.pos - cam_pos
@@ -132,15 +139,13 @@ class mapPoint():
         """Projects a point into a frame"""
         # Get the world2frame coord
         T_w2f = invert_transform(frame.pose)
+        R = T_w2f[:3, :3]
+        t = T_w2f[:3, 3]
         
         # Convert the world coordinates to frame coordinates
-        pos_c = T_w2f @ self.pos
+        pos_c = R @ self.pos + t
 
         # Convert the xyz coordinates to pixels
-        fx = K[0,0]
-        fy = K[1,1]
-        cx = K[2,0]
-        cy = K[2,1]
         x, y, z = pos_c
 
         if z <= 0:
@@ -155,32 +160,24 @@ class mapPoint():
         else:
             return (u, v)
         
-    def project2frame(self, T_f2w: np.ndarray) -> tuple[int]:
-        """Projects a point into a frame"""
-        # Get the world2frame coord
-        T_w2f = invert_transform(T_f2w)
-        
-        # Convert the world coordinates to frame coordinates
-        pos_c = T_w2f[:3, :3] @ self.pos + T_w2f[:3, 3]
 
-        # Convert the xyz coordinates to pixels
-        fx = K[0,0]
-        fy = K[1,1]
-        cx = K[2,0]
-        cy = K[2,1]
-        x, y, z = pos_c
+class localMap():
+    def __init__(self, ref_frame_id: int, 
+                 K1_frames: set[int], K1_points: set[int], 
+                 K2_frames: set[int], K2_points: set[int]):
+        self.ref: int = ref_frame_id
+        self.K1 = {
+            "frames": K1_frames,
+            "points": K1_points
+        }
+        self.K2 = {
+            "frames": K2_frames,
+            "points": K2_points
+        }
 
-        if z <= 0:
-            return None
-        
-        u = fx * x / z + cx
-        v = fy * y / z + cy
+        self.point_ids = K1_points.union(K2_points)
+        self.frame_ids = K1_frames.union(K2_frames).union({ref_frame_id})
 
-        # Ensure it is inside the image bounds
-        if u < 0 or u >= W or v < 0 or v >= H:
-            return None
-        else:
-            return (u, v)
 
 class Map():
     def __init__(self, ref_frame_id: int = None):
@@ -202,24 +199,19 @@ class Map():
         if ref_frame_id is not None:
             self.ref_frame_id = ref_frame_id
    
-    @property
     def point_positions(self):
         """Returns the points xyz positions"""
-        positions = []
-        for k,v in self.points.items():
-            positions.append(v.pos)
-        positions = np.vstack(positions, dtype=np.float64)
+        positions = np.empty((len(self.points.keys()), 3), dtype=np.float64)
+        for i, v in enumerate(self.points.values()):
+            positions[i] = v.pos
         return positions
 
-    @property
     def point_ids(self):
         """Returns the points IDs"""
-        ids = []
-        for k in self.points.keys():
-            ids.append(k)
-        ids = np.array(ids, dtype=int)
+        ids = np.array(self.points.keys(), dtype=int)
         return ids
-       
+
+
     def get_points_from_frame(self, kf_id: int):
         """Returns the points that are seen by a specific frame"""
         kf_pt_ids = set()
@@ -281,6 +273,7 @@ class Map():
     def get_mean_projection_error(self) -> float:
         errors = []
         # Iterate over all map points
+        mp: mapPoint
         for mp in self.points.values():
             # Extract their positions
             pos = mp.pos
@@ -289,7 +282,7 @@ class Map():
                 # Extract the pixel of the observation
                 px = np.array(obs["keypoint"].pt)
                 # Extract the frame of the observation
-                frame = self.keyframes[obs["kf_id"]]
+                frame: Frame = self.keyframes[obs["kf_id"]]
                 # Project the point in the frame
                 proj_px = frame.project(pos)
                 # Skip points that lie behind the camera
@@ -297,8 +290,8 @@ class Map():
                     continue
                 # Calculate the error
                 e = np.linalg.norm(px - np.array(proj_px))
-                if e == np.nan:
-                    pass
+                assert not np.isnan(e)
+                
                 errors.append(e)
 
         mean_error = np.sqrt( np.mean( np.square(errors) ) )
@@ -329,6 +322,7 @@ class Map():
         for i in range(num_new_points):
             # Create a point
             pos = points_pos[i]
+            assert not np.any(np.isnan(pos))
             point = mapPoint(pos)
             self.points[point.id] = point
 
@@ -443,49 +437,6 @@ class Map():
         self._cull_points(cgraph)
         self._cull_keyframes(frame, cgraph)
 
-    def _cull_keyframes(self, frame, cgraph):
-        """
-        Discard all the connected keyframes whose 90% of the
-        map points have been seen in at least other three keyframes in
-        the same or finer scale.
-        """
-        if debug:
-            log.info("[Map] Cleaning up frames...")
-        # Get the neighbor keyframes in the convisibility graph
-        neighbor_kf_ids = cgraph.get_connected_frames(frame.id)
-
-        # Iterate over all connected keyframes
-        removed_kf_ids = set()
-        for kf_id in neighbor_kf_ids:
-            # Extract their map points
-            kf_mp_ids = cgraph.get_frustum_point_ids(kf_id)
-            num_points = len(kf_mp_ids)
-            
-            # Count the number of co-observing points
-            count_coobserving_points = 0
-            # Iterate over all their map points
-            for pid in kf_mp_ids:
-                # Extract the scale of their observation
-                point = self.points[pid]
-                obs = point.get_observation(kf_id)
-                scale = obs["keypoint"].octave
-                # Get how many keyframes observe the same point in the same or finer scale
-                observing_frame_ids = self.get_keyframes_that_see_at_scale(pid, scale)
-                num_observing_frame_ids = len(observing_frame_ids)
-                # Check if at least 3 keyframes observe this point
-                if num_observing_frame_ids >= 3:
-                    count_coobserving_points += 1
-
-            # Calculate the percentage of co-observing points
-            if count_coobserving_points / num_points > 0.9:
-                # Remove keyframe
-                removed_kf_ids.add(kf_id)
-
-        for kf_id in removed_kf_ids:
-            if debug:
-                log.info(f"\t Removed Keyframe {kf_id}!")
-            cgraph.remove_keyframe(kf_id)
-
     def _cull_points(self, cgraph):
         """
         A point must fulfill these two conditions during the first three keyframes after creation:
@@ -542,6 +493,48 @@ class Map():
         if debug:
             log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
 
+    def _cull_keyframes(self, frame, cgraph):
+        """
+        Discard all the connected keyframes whose 90% of the
+        map points have been seen in at least other three keyframes in
+        the same or finer scale.
+        """
+        if debug:
+            log.info("[Map] Cleaning up frames...")
+        # Get the neighbor keyframes in the convisibility graph
+        neighbor_kf_ids = cgraph.get_connected_frames(frame.id)
+
+        # Iterate over all connected keyframes
+        removed_kf_ids = set()
+        for kf_id in neighbor_kf_ids:
+            # Extract their map points
+            kf_mp_ids = cgraph.get_frustum_point_ids(kf_id)
+            num_points = len(kf_mp_ids)
+            
+            # Count the number of co-observing points
+            count_coobserving_points = 0
+            # Iterate over all their map points
+            for pid in kf_mp_ids:
+                # Extract the scale of their observation
+                point = self.points[pid]
+                obs = point.get_observation(kf_id)
+                scale = obs["keypoint"].octave
+                # Get how many keyframes observe the same point in the same or finer scale
+                observing_frame_ids = self.get_keyframes_that_see_at_scale(pid, scale)
+                num_observing_frame_ids = len(observing_frame_ids)
+                # Check if at least 3 keyframes observe this point
+                if num_observing_frame_ids >= 3:
+                    count_coobserving_points += 1
+
+            # Calculate the percentage of co-observing points
+            if count_coobserving_points / num_points > 0.9:
+                # Remove keyframe
+                removed_kf_ids.add(kf_id)
+
+        for kf_id in removed_kf_ids:
+            if debug:
+                log.info(f"\t Removed Keyframe {kf_id}!")
+            cgraph.remove_keyframe(kf_id)
 
     def view(self, frame: Frame):
         """Increases the counter that shows how many times a point was predicted to be visible"""

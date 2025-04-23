@@ -3,7 +3,7 @@ import numpy as np
 import g2o
 from config import SETTINGS, log, K
 from src.backend.convisibility_graph import ConvisibilityGraph
-from src.local_mapping.local_map import Map, mapPoint
+from src.local_mapping.map import Map, mapPoint
 from src.others.frame import Frame
 
 # Set parameters from the config

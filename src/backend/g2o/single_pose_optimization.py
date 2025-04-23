@@ -1,8 +1,9 @@
 import g2o
+import numpy as np
 from config import SETTINGS
-from src.local_mapping.local_map import Map
+from src.local_mapping.map import Map
 from src.others.frame import Frame
-from src.backend.g2o.ba import BA, X_inv
+from src.backend.g2o.ba import BA, X
 from src.others.linalg import invert_transform
 from config import K, log
 
@@ -96,11 +97,9 @@ class singlePoseBA(BA):
 
     def update_poses(self):
         """Optimizes pose estimates from the optimizer."""
-        # Iterate over all vertices.
-        for vertex in self.optimizer.vertices().values():
-            # Find pose verticies
-            if isinstance(vertex, g2o.VertexSE3Expmap):
-                # Update poses
-                pose = invert_transform(vertex.estimate().matrix())
-                frame_id = X_inv(vertex.id())
-                self.map.keyframes[frame_id].optimize_pose(pose)
+        log.info(f"[BA] Optimizing Pose #{self.frame.id}...")
+
+        frame_id = self.frame.id
+        vertex = self.optimizer.vertex(X(frame_id))
+        pose = invert_transform(vertex.estimate().matrix())
+        self.map.keyframes[frame_id].optimize_pose(pose)

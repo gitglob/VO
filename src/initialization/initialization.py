@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from src.others.frame import Frame
-from src.others.linalg import invert_transform, transform_points
+from src.others.linalg import transform_points
 from src.others.visualize import plot_matches
 from src.others.filtering import enforce_epipolar_constraint, filter_by_reprojection, filter_cheirality, filter_parallax
 from src.others.epipolar_geometry import triangulate
@@ -236,6 +236,8 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: Fr
     q_points = q_points[parallax_mask]
     t_points = t_points[parallax_mask]
     w_points = transform_points(t_points, t_frame.pose)
+    if np.any(np.isnan(w_points)):
+        breakpoint()
 
     # ------------------------------------------------------------------------
     # 8. Save the triangulated points and masks to the t_frame

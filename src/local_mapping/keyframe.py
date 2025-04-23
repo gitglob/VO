@@ -1,6 +1,6 @@
 import numpy as np
 from src.others.frame import Frame
-from src.local_mapping.local_map import Map
+from src.local_mapping.map import Map
 from config import SETTINGS, log
 
 
@@ -25,13 +25,14 @@ def is_keyframe(t_frame: Frame, keyframes: dict[Frame], local_map: Map):
 
     cond3 = t_frame.num_tracked_points > 50
 
-    ref_frame = keyframes[local_map.ref_frame_id]
+    ref_frame = keyframes[local_map.ref]
     A = ref_frame.tracked_points
     B = t_frame.tracked_points
     common_features_ratio = len(A.intersection(B)) / len(A)
     cond4 = common_features_ratio < 0.9
     
-    if cond1 and cond2 and cond3 and cond4:
+    is_keyframe = cond1 and cond2 and cond3 and cond4
+    if is_keyframe:
         log.info("\t\t Keyframe!")
     else:
         log.info("\t\t Not a keyframe!")

@@ -98,13 +98,12 @@ class Frame():
         return level_kpt_idxs, level_kpt_ids
 
     def project(self, point: np.ndarray) -> tuple[float, float]:
-        # make homogeneous
-        pw_h = np.hstack([point, 1.0])
-
         # transform into camera frame
         T_world2cam = invert_transform(self.pose)
-        pc_h = T_world2cam @ pw_h
-        x, y, z = pc_h[:3]
+        R = T_world2cam[:3, :3]
+        t = T_world2cam[:3, 3]
+        point_cam = R @ point + t
+        x, y, z = point_cam
 
         if z <= 0:
             return None

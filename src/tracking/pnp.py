@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from src.local_mapping.local_map import Map
+from src.local_mapping.map import Map
 from src.others.frame import Frame
 from src.others.visualize import plot_reprojection
 from config import SETTINGS, results_dir, log, K
