@@ -37,7 +37,7 @@ class singlePoseBA(BA):
             # Extract the map point
             mp = self.map.points[pid]
             # Add the landmark observation
-            self._add_landmark(mp, fixed=False)
+            self._add_landmark(mp, fixed=True)
 
             # Extract the frame feature
             kpt = self.frame.features[feat_id].kpt
@@ -84,7 +84,9 @@ class singlePoseBA(BA):
         n_inlier_edges = n_edges - n_outlier_edges
 
         # Optimize poses
+        self.map.get_mean_projection_error()
         self.update_poses()
+        self.map.get_mean_projection_error()
 
         return n_inlier_edges
 

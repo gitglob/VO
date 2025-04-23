@@ -251,7 +251,7 @@ def main():
                 map.found(t_frame)
 
                 # Optimize the camera pose with all the map points found in the frame
-                ba = singlePoseBA(map, i, verbose=debug)
+                ba = singlePoseBA(map, t_frame, verbose=debug)
                 ba.optimize()
     
                 # ########### New Keyframe Decision ###########

@@ -142,11 +142,15 @@ class mapPoint():
         cx = K[2,0]
         cy = K[2,1]
         x, y, z = pos_c
-        u = int(fx * x / z + cx)
-        v = int(fy * y / z + cy)
+
+        if z <= 0:
+            return None
+
+        u = fx * x / z + cx
+        v = fy * y / z + cy
 
         # Ensure it is inside the image bounds
-        if u < 0 or u > W or v < 0 or v > H:
+        if u < 0 or u >= W or v < 0 or v >= H:
             return None
         else:
             return (u, v)
@@ -165,11 +169,15 @@ class mapPoint():
         cx = K[2,0]
         cy = K[2,1]
         x, y, z = pos_c
-        u = int(fx * x / z + cx)
-        v = int(fy * y / z + cy)
+
+        if z <= 0:
+            return None
+        
+        u = fx * x / z + cx
+        v = fy * y / z + cy
 
         # Ensure it is inside the image bounds
-        if u < 0 or u > W or v < 0 or v > H:
+        if u < 0 or u >= W or v < 0 or v >= H:
             return None
         else:
             return (u, v)
@@ -283,9 +291,15 @@ class Map():
                 # Extract the frame of the observation
                 frame = self.keyframes[obs["kf_id"]]
                 # Project the point in the frame
-                proj_px = np.array(frame.project(pos))
+                proj_px = frame.project(pos)
+                # Skip points that lie behind the camera
+                if proj_px is None:
+                    continue
                 # Calculate the error
-                errors.append(np.linalg.norm(px - proj_px))
+                e = np.linalg.norm(px - np.array(proj_px))
+                if e == np.nan:
+                    pass
+                errors.append(e)
 
         mean_error = np.sqrt( np.mean( np.square(errors) ) )
         log.info(f"[Map] RMS Re-Projection Error: {mean_error:.2f}")

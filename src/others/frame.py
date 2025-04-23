@@ -5,7 +5,7 @@ from cv2 import DMatch
 from src.others.linalg import invert_transform
 from src.others.visualize import plot_keypoints
 
-from config import results_dir, SETTINGS, log, K
+from config import results_dir, SETTINGS, log, fx, fy, cx, cy
 
 
 debug = SETTINGS["generic"]["debug"]
@@ -99,23 +99,23 @@ class Frame():
 
     def project(self, point: np.ndarray) -> tuple[float, float]:
         # make homogeneous
-        pw_h = np.hstack([point, 1.0])            # shape (4,)
+        pw_h = np.hstack([point, 1.0])
 
         # transform into camera frame
         T_world2cam = invert_transform(self.pose)
-        pc_h = T_world2cam @ pw_h                 # shape (4,)
+        pc_h = T_world2cam @ pw_h
         x, y, z = pc_h[:3]
 
         if z <= 0:
-            raise ValueError("Point is behind the camera (z <= 0)")
-
-        # normalize to unit plane
-        xn = x / z
-        yn = y / z
+            return None
 
         # apply intrinsics
-        p_pix_h = K @ np.array([xn, yn, 1.0])     # shape (3,)
-        u, v = p_pix_h[0], p_pix_h[1]
+        u = fx * x / z + cx
+        v = fy * y / z + cy
+        
+        if u < 0 or u >= W or v < 0 or v >= H:
+            return None 
+        
         return (u, v)
 
 
