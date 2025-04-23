@@ -1,9 +1,10 @@
+from copy import deepcopy
 import g2o
 import numpy as np
 from config import SETTINGS
 from src.local_mapping.map import Map
 from src.others.frame import Frame
-from src.backend.g2o.ba import BA, X
+from src.backend.g2o.ba import BA, X, L_inv
 from src.others.linalg import invert_transform
 from config import K, log
 
@@ -35,14 +36,14 @@ class singlePoseBA(BA):
 
         # Iterate over all matches
         for feat_id, pid in feat_mp_matches:
-            # Extract the map point
+            # Extract the map point position
             mp = self.map.points[pid]
             # Add the landmark observation
-            self._add_landmark(mp, fixed=True)
+            self._add_landmark(mp.id, deepcopy(mp.pos), fixed=True)
 
             # Extract the frame feature
             kpt = self.frame.features[feat_id].kpt
-            pt = kpt.pt
+            pt = deepcopy(kpt.pt)
             octave = kpt.octave
             # Add the observation
             self._add_observation(pid, self.frame, pt, octave, level=0)
@@ -101,5 +102,5 @@ class singlePoseBA(BA):
 
         frame_id = self.frame.id
         vertex = self.optimizer.vertex(X(frame_id))
-        pose = invert_transform(vertex.estimate().matrix())
-        self.map.keyframes[frame_id].optimize_pose(pose)
+        new_pose = invert_transform(vertex.estimate().matrix()).copy()
+        self.map.keyframes[frame_id].optimize_pose(new_pose)

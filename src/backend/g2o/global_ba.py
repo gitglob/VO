@@ -1,4 +1,5 @@
 import g2o
+import numpy as np
 from src.backend.g2o.ba import BA, X_inv, L_inv
 from src.others.linalg import invert_transform
 from src.local_mapping.map import Map
@@ -36,10 +37,10 @@ class globalBA(BA):
             log.info(f"\t Adding {self.map.num_points()} landmarks...")
 
         # Iterate over all map points
-        for pid, pt in self.map.points.items():
-            self._add_landmark(pt, fixed=False)
+        for pid, mp in self.map.points.items():
+            self._add_landmark(mp.id, mp.pos, fixed=False)
             # Iterate over all the point observations
-            for obs in pt.observations:
+            for obs in mp.observations:
                 kf_id = obs["kf_id"]  # id of keyframe that observed the landmark
                 kf = self.map.keyframes[kf_id]
                 kpt = obs["keypoint"] # keypoint of the observation
@@ -58,12 +59,9 @@ class globalBA(BA):
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
 
-        # Optimize poses and landmarks
         self.map.get_mean_projection_error()
         self.update_poses_and_landmarks()
         self.map.get_mean_projection_error()
-
-        return True
 
     def finalize(self):
         """Returns the final poses (optimized)."""
@@ -75,9 +73,10 @@ class globalBA(BA):
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):
-                pose = invert_transform(vertex.estimate().matrix())
+                new_pose = invert_transform(vertex.estimate().matrix()).copy()
                 frame_id = X_inv(vertex.id())
-                self.map.keyframes[frame_id].optimize_pose(pose)
+                self.map.keyframes[frame_id].optimize_pose(new_pose)
             elif isinstance(vertex, g2o.VertexPointXYZ):
                 pid = L_inv(vertex.id())
-                self.map.points[pid].pos = vertex.estimate()
+                new_pos = vertex.estimate().copy()
+                self.map.points[pid].pos = new_pos

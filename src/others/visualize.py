@@ -7,7 +7,7 @@ import matplotlib
 from scipy.spatial.transform import Rotation as R
 from src.others.utils import get_yaw
 from config import results_dir
-matplotlib.use('Agg')
+matplotlib.use('tkAgg')
 
 
 ############################### Map Visualization ###############################

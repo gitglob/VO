@@ -153,24 +153,20 @@ def main():
                 validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.pose])
 
                 # Perform Bundle Adjustment
-                # prev_pts = map.point_positions().copy()
-                # ba = globalBA(map, verbose=debug)
-                # ba_success = ba.optimize()
+                prev_pts = map.point_positions().copy()
+                ba = globalBA(map, verbose=debug)
+                ba.optimize()
 
-                # plot_BA(prev_pts, map.point_positions)
-                # plot_BA2d(prev_pts, map.point_positions(), i)
+                # plot_BA(prev_pts, map.point_positions())
+                plot_BA2d(prev_pts, map.point_positions(), i)
+                plot_trajectory(map, i)
 
-                # if not ba_success:
-                    # log.error("Bundle Adjustment failed!")
-                # else:
-                    # plot_trajectory(map, i)
-                
                 tracking_success = True
                 q_frame = t_frame
                     
             # ########### Tracking ###########
             else:
-                log.info("~~~~Tracking~~~~")    
+                log.info("~~~~Tracking~~~~")
                 if tracking_success:
                     # ########### Track from Previous Frame ###########
                     log.info("Using constant velocity model...")
@@ -195,8 +191,8 @@ def main():
                     tracking_success = True
 
                     # Perform pose optimization
-                    # ba = singlePoseBA(map, t_frame, verbose=debug)
-                    # ba.optimize()
+                    ba = singlePoseBA(map, t_frame, verbose=debug)
+                    ba.optimize()
                 else:
                     # ########### Relocalization ###########
                     log.info("Performing Relocalization!")
@@ -252,8 +248,8 @@ def main():
                 map.found(t_frame)
                 
                 # Optimize the camera pose with all the map points found in the frame
-                # ba = singlePoseBA(map, t_frame, verbose=debug)
-                # ba.optimize()
+                ba = singlePoseBA(map, t_frame, verbose=debug)
+                ba.optimize()
     
                 # ########### New Keyframe Decision ###########
                 log.info("Checking for Keyframe...")
@@ -282,13 +278,12 @@ def main():
                 cgraph.add_track_keyframe(t_frame)
 
                 # Plot trajectory
-                plot_trajectory(map, i, ba=False)
+                # plot_trajectory(map, i, ba=False)
 
                 # Perform Bundle Adjustment
-                # ba = globalBA(map, verbose=debug)
-                # ba_success = ba.optimize()
-                # if ba_success:
-                #     plot_trajectory(map, i)
+                ba = globalBA(map, verbose=debug)
+                ba.optimize()
+                # plot_trajectory(map, i)
 
                 # Clean up map points that are not seen anymore and redundant frames
                 map.cull(t_frame, cgraph)
@@ -299,7 +294,7 @@ def main():
     ba.finalize()
 
     # Save final map and trajectory
-    plot_trajectory(map, i)
+    # plot_trajectory(map, i)
     plot_trajectory_3d(map.keyframes)
 
 if __name__ == "__main__":

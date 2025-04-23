@@ -1,4 +1,5 @@
 import cv2
+from copy import deepcopy
 import numpy as np
 import g2o
 from config import SETTINGS, log, fx, fy, cx, cy
@@ -8,14 +9,14 @@ from src.others.frame import Frame
 
 
 def X(idx: int):
-    return 2 * idx
+    return int(2 * idx)
 def X_inv(idx: int):
-    return idx / 2
+    return int(idx / 2)
 
 def L(idx: int):
-    return 2 * idx + 1
+    return int(2 * idx + 1)
 def L_inv(idx: int):
-    return (idx - 1) / 2
+    return int((idx - 1) / 2)
 
 
 class BA:
@@ -61,11 +62,14 @@ class BA:
         # Add the vertex to the graph
         self.optimizer.add_vertex(vertex)
 
-    def _add_landmark(self, mp: mapPoint, fixed=False):
-        """Adds a landmark as vertex."""
-        pos = mp.pos      # 3D position of landmark
-        l_idx = mp.id     # landmark id
-
+    def _add_landmark(self, l_idx: int, pos: np.ndarray, fixed=False):
+        """
+        Adds a landmark as vertex.
+        
+        Args:
+            l_idx: landmark id
+            pos: 3D position of landmark in world coordinates
+        """
         # Create landmark vertex
         v_landmark = g2o.VertexPointXYZ()
         v_landmark.set_id(L(l_idx))

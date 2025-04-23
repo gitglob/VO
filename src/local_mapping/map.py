@@ -113,6 +113,9 @@ class mapPoint():
     def mean_view_ray(self, map_keyframes: dict[int, Frame]):
         view_rays = []
         for obs in self.observations:
+            kf_id = obs["kf_id"]
+            if kf_id not in map_keyframes.keys():
+                continue
             frame = map_keyframes[obs["kf_id"]]
             v = self.view_ray(frame.pose[:3, 3])
             view_rays.append(v)
@@ -120,9 +123,11 @@ class mapPoint():
         return np.mean(view_rays, axis=0)
 
     def getScaleInvarianceLimits(self, map_keyframes: dict[int, Frame]):
-        last_obs = self.observations[-1]
-
-        last_obs_frame = map_keyframes[last_obs["kf_id"]]
+        for last_obs in reversed(self.observations):
+            kf_id = last_obs["kf_id"]
+            if kf_id not in map_keyframes.keys():
+                continue
+            last_obs_frame = map_keyframes[kf_id]
         cam_pos = last_obs_frame.pose[:3, 3]
         level = last_obs["keypoint"].octave
 
@@ -177,7 +182,7 @@ class localMap():
 
         self.point_ids = K1_points.union(K2_points)
         self.frame_ids = K1_frames.union(K2_frames).union({ref_frame_id})
-
+        log.info(f"[Local Map] Created map with {len(self.frame_ids)} frames and {len(self.point_ids)} points")
 
 class Map():
     def __init__(self, ref_frame_id: int = None):
