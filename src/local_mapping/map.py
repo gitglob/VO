@@ -105,6 +105,13 @@ class mapPoint():
                 return obs
         return None
 
+    def remove_observation(self, kf_id: int):
+        """Removes the observation from a specific keyframe"""
+        for obs in self.observations:
+            if obs["kf_id"] == kf_id:
+                self.observations.remove(obs)
+                break
+
     def view_ray(self, cam_pos: np.ndarray):
         v = self.pos - cam_pos
         v = v / np.linalg.norm(v)
@@ -342,7 +349,7 @@ class Map():
         if debug:
             log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
 
-    def create_track_points(self, cgraph, t_frame, keyframes, bow_db):
+    def create_track_points(self, cgraph, t_frame: Frame, keyframes, bow_db):
         """
         Creates and adds new points to the map, by triangulating matches in so far
         un-matched points in connected keyframes.
@@ -438,11 +445,7 @@ class Map():
         del self.points[pid]
 
 
-    def cull(self, frame, cgraph):
-        self._cull_points(cgraph)
-        self._cull_keyframes(frame, cgraph)
-
-    def _cull_points(self, cgraph):
+    def cull_points(self, cgraph):
         """
         A point must fulfill these two conditions during the first three keyframes after creation:
 
@@ -498,7 +501,7 @@ class Map():
         if debug:
             log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
 
-    def _cull_keyframes(self, frame, cgraph):
+    def cull_keyframes(self, frame, cgraph):
         """
         Discard all the connected keyframes whose 90% of the
         map points have been seen in at least other three keyframes in

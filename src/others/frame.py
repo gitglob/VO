@@ -30,6 +30,10 @@ class orbFeature():
         }
         self.matched = True
 
+    def reset_mp_match(self):
+        self.mp = {}
+        self.matched = False
+
 
 class Frame():
     # This is a class-level (static) variable that all Frame instances share.
@@ -82,8 +86,16 @@ class Frame():
     def set_pose(self, pose: np.ndarray):
         self.pose = pose
 
+
     def reset_pose(self):
         self.pose = None
+
+    def remove_mp_match(self, pid: int):
+        """Removes matches with the given map point"""
+        for feat in self.features.values():
+            if feat.matched:
+                if feat.mp["id"] == pid:
+                    feat.reset_mp_match()
 
 
     def get_features_at_level(self, level: int) -> tuple[list, list]:

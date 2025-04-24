@@ -19,6 +19,7 @@ from src.place_recognition.bow import load_vocabulary, query_recognition_candida
 from src.local_mapping.keyframe import is_keyframe
 from src.local_mapping.map import Map
 
+from src.backend.g2o.local_ba import localBA
 from src.backend.g2o.global_ba import globalBA
 from src.backend.g2o.pose_optimization import poseBA
 from src.backend.g2o.single_pose_optimization import singlePoseBA
@@ -271,22 +272,23 @@ def main():
                 # ########### New Map Point Creation ###########
                 log.info("Creating New Map Points...")
 
+                # Add frame to graph
+                cgraph.add_track_keyframe(t_frame)
+
+                # Clean up map points that are not seen anymore
+                map.cull_points(cgraph)
+
                 # Create new map points
                 map.create_track_points(cgraph, t_frame, map.keyframes, bow_db)
 
-                # Bookkeping
-                cgraph.add_track_keyframe(t_frame)
-
-                # Plot trajectory
-                # plot_trajectory(map, i, ba=False)
-
                 # Perform Bundle Adjustment
-                ba = globalBA(map, verbose=debug)
+                ba = localBA(t_frame, map, cgraph, verbose=debug)
                 ba.optimize()
-                # plot_trajectory(map, i)
 
-                # Clean up map points that are not seen anymore and redundant frames
-                map.cull(t_frame, cgraph)
+                # Clean up redundant frames
+                map.cull_keyframes(t_frame, cgraph)
+
+                plot_trajectory(map, i)
 
                 q_frame = t_frame            
 

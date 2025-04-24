@@ -285,10 +285,10 @@ class ConvisibilityGraph(Graph):
             # If it is, the other node and its points are of interest
             if kf1_id == kf_id:
                 connected_kf_ids.add(kf2_id)
-                connected_kf_point_ids.add(self.nodes[kf2_id])
+                connected_kf_point_ids.update(self.nodes[kf2_id])
             elif kf2_id == kf_id:
                 connected_kf_ids.add(kf1_id)
-                connected_kf_point_ids.add(self.nodes[kf1_id])
+                connected_kf_point_ids.update(self.nodes[kf1_id])
 
         return connected_kf_ids, connected_kf_point_ids
     
