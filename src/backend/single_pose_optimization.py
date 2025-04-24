@@ -1,10 +1,8 @@
 from copy import deepcopy
-import g2o
-import numpy as np
 from config import SETTINGS
 from src.local_mapping.map import Map
 from src.others.frame import Frame
-from src.backend.g2o.ba import BA, X, L_inv
+from src.backend.ba import BA, X
 from src.others.linalg import invert_transform
 from config import K, log
 

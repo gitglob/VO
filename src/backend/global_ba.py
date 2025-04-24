@@ -1,6 +1,6 @@
 import g2o
 import numpy as np
-from src.backend.g2o.ba import BA, X_inv, L_inv
+from src.backend.ba import BA, X_inv, L_inv
 from src.others.linalg import invert_transform
 from src.local_mapping.map import Map
 from config import log

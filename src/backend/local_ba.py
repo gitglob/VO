@@ -1,6 +1,6 @@
 import g2o
 import numpy as np
-from src.backend.g2o.ba import BA, X_inv, L_inv
+from src.backend.ba import BA, X_inv, L_inv
 from src.backend.convisibility_graph import ConvisibilityGraph
 from src.local_mapping.map import Map, mapPoint
 from src.others.frame import Frame
@@ -101,7 +101,6 @@ class localBA(BA):
                 removed_edges.add((mp_id, kf_id))
                 # Remove edge from the graph
                 self.optimizer.remove_edge(e)
-
 
         # Remove feature<->map point match and map point observation
         for (mp_id, kf_id) in removed_edges:

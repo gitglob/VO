@@ -19,10 +19,10 @@ from src.place_recognition.bow import load_vocabulary, query_recognition_candida
 from src.local_mapping.keyframe import is_keyframe
 from src.local_mapping.map import Map
 
-from src.backend.g2o.local_ba import localBA
-from src.backend.g2o.global_ba import globalBA
-from src.backend.g2o.pose_optimization import poseBA
-from src.backend.g2o.single_pose_optimization import singlePoseBA
+from src.backend.local_ba import localBA
+from src.backend.global_ba import globalBA
+from src.backend.pose_optimization import poseBA
+from src.backend.single_pose_optimization import singlePoseBA
 from src.backend.convisibility_graph import ConvisibilityGraph
 
 
