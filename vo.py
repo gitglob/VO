@@ -40,10 +40,8 @@ Important notes:
 
 
 debug = SETTINGS["generic"]["debug"]
-BA_FREQ = SETTINGS["ba"]["frequency"]
 MIN_ASSOCIATIONS = SETTINGS["point_association"]["num_matches"]
 SEARCH_WINDOW_SIZE = SETTINGS["point_association"]["search_window"]
-MIN_MATCHES = SETTINGS["initialization"]["matches"]["min"]
 
 
 def main():

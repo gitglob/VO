@@ -41,7 +41,7 @@ class localBA(BA):
         connected_points: list[mapPoint] = self.map.get_points(connected_point_ids)
 
         # Get all the other keyframes that see the points but are not connected to the current keyframe
-        kfs_that_see_points_ids = self.map.get_keyframes_that_see(connected_point_ids)
+        kfs_that_see_points_ids = self.cgraph.get_frames_that_observe_points(connected_point_ids)
         unconnected_kfs_that_see_points_ids = kfs_that_see_points_ids - connected_kf_ids
         unconnected_kfs_that_see_points = [self.map.keyframes[idx] for idx in unconnected_kfs_that_see_points_ids]
 
@@ -63,9 +63,9 @@ class localBA(BA):
             self._add_landmark(point.id, point.pos)
             # Iterate over all the landmark observations
             for obs in point.observations:
-                kf_id = obs["kf_id"]
+                kf_id = obs.kf_id
                 kf = self.map.keyframes[kf_id]
-                kpt = obs["keypoint"]
+                kpt = obs.kpt
                 pt = kpt.pt
                 octave = kpt.octave
                 # If the observation was done by a connected keyframe...

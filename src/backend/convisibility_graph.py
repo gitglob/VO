@@ -238,12 +238,22 @@ class ConvisibilityGraph(Graph):
 
         return connected_kf_ids
    
-    def get_frames_that_observe(self, pid: int) -> set[int]:
+    def get_frames_that_observe_point(self, pid: int) -> set[int]:
         """Returns the keyframes that observe a specific point"""
         observing_kf_ids = set()
         for kf_id, point_ids in self.nodes.items():
             if pid in point_ids:
                 observing_kf_ids.add(kf_id)
+
+        return observing_kf_ids
+    
+    def get_frames_that_observe_points(self, pids: set[int]) -> set[int]:
+        """Returns the keyframes that observe a set of points"""
+        observing_kf_ids = set()
+        for pid in pids:
+            for kf_id, point_ids in self.nodes.items():
+                if pid in point_ids:
+                    observing_kf_ids.add(kf_id)
 
         return observing_kf_ids
 
@@ -361,7 +371,7 @@ class ConvisibilityGraph(Graph):
             # Iterate over all the point observations
             for obs in point.observations:
                 # Keep the frame ids that are different than the current frame and exist in the graph
-                frame_id = obs["kf_id"]
+                frame_id = obs.kf_id
                 if frame_id != frame.id and frame_id in self.nodes.keys():
                     K1_frame_ids.add(frame_id)
                     # Increase the counter of the shared map points

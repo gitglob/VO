@@ -69,9 +69,9 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
     for pid, p in map_points.items():
         # Get the descriptors from every observation of a point
         for obs in p.observations:
-            map_descriptors.append(obs["descriptor"])
+            map_descriptors.append(obs.desc)
             map_point_ids.append(pid)
-            map_pixels.append(obs["keypoint"].pt)
+            map_pixels.append(obs.kpt.pt)
     map_descriptors = np.array(map_descriptors)
     map_point_ids = np.array(map_point_ids)
     map_pixels = np.array(map_pixels)
@@ -232,7 +232,7 @@ def localPointAssociation(map: Map,
             continue
         
         # We choose the last descriptor to represent the map point
-        map_desc = point.observations[-1]["descriptor"]
+        map_desc = point.observations[-1].desc
         
         # For each candidate, compute the descriptor distance using the Hamming norm.
         best_dist = np.inf
@@ -288,9 +288,9 @@ def globalPointAssociation(map: Map, t_frame: Frame):
     for pid, p in map_points:
         # Get the descriptors from every observation of a point
         for obs in p.observations:
-            map_descriptors.append(obs["descriptor"])
+            map_descriptors.append(obs.desc)
             map_point_ids.append(pid)
-            map_pixels.append(obs["keypoint"].pt)
+            map_pixels.append(obs.kpt.pt)
     map_descriptors = np.array(map_descriptors)
     map_point_ids = np.array(map_point_ids)
     map_pixels = np.array(map_pixels)

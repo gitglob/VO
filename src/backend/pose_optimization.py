@@ -118,7 +118,7 @@ class poseBA:
             # Iterate over all map point observations
             for obs in pt.observations:
                 pose_idx = obs["keyframe"].id # id of keyframe that observed the landmark
-                kpt = obs["keypoint"]         # keypoint of the observation
+                kpt = obs.kpt         # keypoint of the observation
                 u, v = kpt.pt                 # pixels of the keypoint
 
                 # Create the reprojection edge.

@@ -20,48 +20,36 @@ H = SETTINGS["camera"]["height"]
 debug = SETTINGS["generic"]["debug"]
 
 
-class Observation():
+class mpObservation():
     """Represents a single observation of a map point"""
-    def __init__(self):
-        pass
+    def __init__(self, kf_number: int, kf_id: int, kpt: cv2.KeyPoint, desc: np.ndarray):
+        self.kf_number: int=kf_number # The keyframe map number (not ID!) when it was observed
+        self.kf_id: int=kf_id         # The id of the keyframe that observed it
+        self.kpt: cv2.KeyPoint=kpt    # ORB keypoint
+        self.desc: np.ndarray=desc    # ORB descriptor
 
 
 class mapPoint():
+    """Represents a single point inside a map"""
     # This is a class-level (static) variable that all mapPoint instances share.
     _mp_id_counter = -1
     def __init__(self, pos: np.ndarray):
         mapPoint._mp_id_counter += 1
 
-        self.observations = []
-        """
-        observations = [
-            { 
-                "kf_number": kf_number, # The keyframe number (not ID!) when it was observed
-                "kf_id": kf_id,         # The id of the keyframe that observed it
-                "keypoint": keypoint,   # ORB keypoint
-                "descriptor": desc      # ORB descriptor
-            }
-        ]
-        """
-
         self.pos: np.ndarray = pos             # 3D position
         self.id: int = mapPoint._mp_id_counter # The unique id of this map point
 
+        self.observations = []
         self.found_counter: int = 1         # Number of times the point was tracked
         self.visible_counter: int = 1       # Number of times the point was predicted to be visible by a Frame
 
     def observe(self,
                 kf_number: int, 
                 kf_id: int, 
-                keypoint: cv2.KeyPoint, 
+                kpt: cv2.KeyPoint, 
                 desc: np.ndarray):
         
-        new_observation = {
-            "kf_number": kf_number,
-            "kf_id": kf_id,    
-            "keypoint": keypoint, 
-            "descriptor": desc
-        }
+        new_observation = mpObservation(kf_number, kf_id, kpt, desc)
         self.observations.append(new_observation)
 
     @property
@@ -76,7 +64,7 @@ class mapPoint():
         best_obs_idx = 0
         for i, obs in enumerate(self.observations):
             # Get the descriptor
-            desc = obs["descriptor"]
+            desc = obs.desc
             dist_sum = 0
             # Iterate over all other observations
             for j, other_obs in enumerate(self.observations):
@@ -84,7 +72,7 @@ class mapPoint():
                     continue
                 # Calculate the distance with their descriptor
                 else:
-                    other_desc = other_obs["descriptor"]
+                    other_desc = other_obs.desc
                     dist = cv2.norm(desc, other_desc, cv2.NORM_HAMMING)
                     dist_sum += dist
 
@@ -94,21 +82,21 @@ class mapPoint():
                 best_obs_idx = i
 
         # Keep the descriptor of the observation with the minimum distance to the others
-        best_desc = self.observations[best_obs_idx]["descriptor"]
+        best_desc = self.observations[best_obs_idx].desc
         
         return best_desc
 
     def get_observation(self, kf_id: int):
         """Returns the observation from a specific keyframe"""
         for obs in self.observations:
-            if obs["kf_id"] == kf_id:
+            if obs.kf_id == kf_id:
                 return obs
         return None
 
     def remove_observation(self, kf_id: int):
         """Removes the observation from a specific keyframe"""
         for obs in self.observations:
-            if obs["kf_id"] == kf_id:
+            if obs.kf_id == kf_id:
                 self.observations.remove(obs)
                 break
 
@@ -120,10 +108,10 @@ class mapPoint():
     def mean_view_ray(self, map_keyframes: dict[int, Frame]):
         view_rays = []
         for obs in self.observations:
-            kf_id = obs["kf_id"]
+            kf_id = obs.kf_id
             if kf_id not in map_keyframes.keys():
                 continue
-            frame = map_keyframes[obs["kf_id"]]
+            frame = map_keyframes[obs.kf_id]
             v = self.view_ray(frame.pose[:3, 3])
             view_rays.append(v)
 
@@ -131,12 +119,12 @@ class mapPoint():
 
     def getScaleInvarianceLimits(self, map_keyframes: dict[int, Frame]):
         for last_obs in reversed(self.observations):
-            kf_id = last_obs["kf_id"]
+            kf_id = last_obs.kf_id
             if kf_id not in map_keyframes.keys():
                 continue
             last_obs_frame = map_keyframes[kf_id]
         cam_pos = last_obs_frame.pose[:3, 3]
-        level = last_obs["keypoint"].octave
+        level = last_obs.kpt.octave
 
         dist = np.linalg.norm(self.pos - cam_pos)
         minLevelScaleFactor = scale_factor**level
@@ -229,7 +217,7 @@ class Map():
         kf_pt_ids = set()
         for pid, point in self.points.items():
             for obs in point.observations:
-                if obs["kf_id"] == kf_id:
+                if obs.kf_id == kf_id:
                     kf_pt_ids.add(pid)
 
         return kf_pt_ids
@@ -239,7 +227,7 @@ class Map():
         kf_pt_ids = set()
         for pid, point in self.points.items():
             for obs in point.observations:
-                if obs["kf_id"] == kf_id:
+                if obs.kf_id == kf_id:
                     kf_pt_ids.add(pid)
 
         return kf_pt_ids
@@ -252,20 +240,6 @@ class Map():
     def get_keyframe(self, frame_id: int) -> Frame:
         return self.keyframes[frame_id]
 
-    def get_keyframes_that_see(self, point_ids: set[int]) -> set[int]:
-        """Returns all the keyframes that see a set of points"""
-        keyframe_observers_ids = set()
-
-        # Iterate over the points
-        for pid in point_ids:
-            point = self.points[pid]
-            # Iterate over all the point observations
-            for obs in point.observations:
-                # Extract the keyframe of that observation
-                kf_id = obs["kf_id"]
-                keyframe_observers_ids.add(kf_id)
-
-        return keyframe_observers_ids
     
     def get_keyframes_that_see_at_scale(self, pid: int, scale: int) -> set[int]:
         """Returns all the keyframes that see a point at a specific or finer scale"""
@@ -275,10 +249,10 @@ class Map():
         # Iterate over all the point observations
         for obs in point.observations:
             # Extract the octave of the observation
-            octave = obs["keypoint"].octave
+            octave = obs.kpt.octave
             # Compare the observing octave with the desired one
             if octave <= scale:
-                keyframe_observers_ids.add(obs["kf_id"])
+                keyframe_observers_ids.add(obs.kf_id)
 
         return keyframe_observers_ids
     
@@ -292,9 +266,9 @@ class Map():
             # Iterate over all their observations
             for obs in mp.observations:
                 # Extract the pixel of the observation
-                px = np.array(obs["keypoint"].pt)
+                px = np.array(obs.kpt.pt)
                 # Extract the frame of the observation
-                frame: Frame = self.keyframes[obs["kf_id"]]
+                frame: Frame = self.keyframes[obs.kf_id]
                 # Project the point in the frame
                 proj_px = frame.project(pos)
                 # Skip points that lie behind the camera
@@ -479,8 +453,8 @@ class Map():
 
             # If more than one keyframe has passed from map point creation, 
             # it must be observed from at least three keyframes.
-            num_kf_passed_since_creation = self._kf_counter - p.observations[0]["kf_number"]
-            num_observations = len(cgraph.get_frames_that_observe(pid))
+            num_kf_passed_since_creation = self._kf_counter - p.observations[0].kf_number
+            num_observations = len(cgraph.get_frames_that_observe_point(pid))
             if num_kf_passed_since_creation > 1 and num_observations < 3:
                 removed_point_ids.add(pid)
                 continue
@@ -488,7 +462,7 @@ class Map():
             # Once a map point has passed this test, it can only be 
             # removed if at any time it is observed from less than three keyframes.
             # elif num_kf_passed_since_creation > 2:
-            #     num_observations = cgraph.get_frames_that_observe(pid)
+            #     num_observations = cgraph.get_frames_that_observe_point(pid)
             #     if num_observations < 3:
             #         removed_point_ids.add(pid)
             #         continue
@@ -525,7 +499,7 @@ class Map():
                 # Extract the scale of their observation
                 point: mapPoint = self.points[pid]
                 obs = point.get_observation(kf_id)
-                scale = obs["keypoint"].octave
+                scale = obs.kpt.octave
                 # Get how many keyframes observe the same point in the same or finer scale
                 observing_frame_ids = self.get_keyframes_that_see_at_scale(pid, scale)
                 num_observing_frame_ids = len(observing_frame_ids)

@@ -41,9 +41,9 @@ class globalBA(BA):
             self._add_landmark(mp.id, mp.pos, fixed=False)
             # Iterate over all the point observations
             for obs in mp.observations:
-                kf_id = obs["kf_id"]  # id of keyframe that observed the landmark
+                kf_id = obs.kf_id  # id of keyframe that observed the landmark
                 kf = self.map.keyframes[kf_id]
-                kpt = obs["keypoint"] # keypoint of the observation
+                kpt = obs.kpt # keypoint of the observation
                 self._add_observation(pid, kf, kpt.pt, kpt.octave)
 
     def optimize(self, num_iterations=20):
