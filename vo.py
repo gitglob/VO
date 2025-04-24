@@ -204,7 +204,7 @@ def main():
                     t_frame.compute_bow(vocab, bow_db)
 
                     # Find keyframe candidates from the BoW database for global relocalization
-                    kf_candidate_ids = query_recognition_candidate(t_frame, bow_db)
+                    kf_candidate_ids = query_recognition_candidate(map, t_frame, bow_db)
 
                     # Iterate over all candidates
                     log.info(f"Iterating over {len(kf_candidate_ids)} keyframe candidates!")

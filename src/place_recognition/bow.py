@@ -5,6 +5,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from config import SETTINGS, log
 from src.others.frame import Frame
+from src.local_mapping.map import Map
 
 
 SIM_THRESHOLD = SETTINGS["place_recognition"]["similarity_threshold"]
@@ -19,39 +20,49 @@ def load_vocabulary(type: Literal["dbow", "cv2"]):
     else:
         raise(ValueError(f"Vocabulary {vocab_path} does not exist!"))
 
-def query_recognition_candidate(frame: Frame, database: list):
+def query_recognition_candidate(map: Map, frame: Frame, database: list):
     """
-    Compute the BoW descriptor for a new image and compare it against all descriptors in the database.
+    Compare the BoW descriptor in an image with all descriptors in a database.
     Returns the best matching frame id and the similarity score if the highest similarity exceeds the threshold.
     Otherwise, returns None.
     """
+    log.info(f"\t Querying database with frame {frame.id}")
     if frame.bow_hist is None:
-        log.warning("No BoW descriptor computed for the new image.")
+        log.warning("\t No BoW descriptor computed for the new image.")
         return None
 
     candidates_ids = set()
     best_match_id = None
     best_similarity = 0.0
 
-    # Compare the new histogram with each entry in the database.
-    for entry in database:
-        # Skip itself
-        if entry["frame_id"] == frame.id:
-            continue
+    # Iterate over all database visual words
+    for v_word_id in database.keys():
+        other_kf_id_list = database[v_word_id]
+        # Iterate over the keyframes that saw it
+        for other_kf_id in other_kf_id_list:
+            # Skip itself
+            if other_kf_id == frame.id:
+                continue
+            other_kf = map.keyframes[other_kf_id]
 
-        # Use cosine similarity: higher score indicates greater similarity.
-        score = cosine_similarity(frame.bow_hist, entry["hist"])[0][0]
-        log.info(f"Comparing to frame {entry['frame_id']}, similarity score: {score:.3f}")
-        if score > best_similarity:
-            best_similarity = score
-            best_match_id = entry["frame_id"]
+            # Compare the histograms of the 2 frames
+            # Use cosine similarity: higher score indicates greater similarity.
+            score = cosine_similarity(frame.bow_hist, other_kf.bow_hist)[0][0]
+            log.info(f"\t Comparing to frame {other_kf_id}, similarity score: {score:.3f}")
+            if score > best_similarity:
+                best_similarity = score
+                best_match_id = other_kf_id
 
-        # Find recognition candidates_ids
-        if score > SIM_THRESHOLD:
-            log.info(f"Recognition candidate: Frame {entry['frame_id']} with similarity {best_similarity:.3f}")
-            candidates_ids.add(entry["frame_id"])
+            # Find recognition candidates_ids
+            if score > SIM_THRESHOLD:
+                candidates_ids.add(other_kf_id)
 
     if len(candidates_ids) == 0:
-        log.warning(f"Recognition candidate not found! Keyframe {best_match_id} with similarity: {best_similarity:.3f}")
+        log.warning("\t Recognition candidate not found!")
+    else:
+        log.info(f"\t Found {len(candidates_ids)} relocalization candidates.")
+
+    if best_match_id is not None:
+        log.info(f"\t Best match: Keyframe #{best_match_id} with similarity: {best_similarity:.3f}")
 
     return candidates_ids
