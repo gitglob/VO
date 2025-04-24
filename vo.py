@@ -56,7 +56,7 @@ def main():
     data = Dataset(data_dir, scene, use_dist)
 
     # Read the vocabulary and initialize the BoW database
-    vocab = load_vocabulary("cv2") # Basically contains 1000 descriptors
+    vocab = load_vocabulary("cv2").astype(np.uint8) # Basically contains 1000 descriptors
     bow_db: dict[list] = {} # contains visual_word_id -> keyframe_that_sees_it dicts
     for i in range(len(vocab)): bow_db[i] = []
 

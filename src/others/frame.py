@@ -237,7 +237,7 @@ class Frame():
         
     def compute_bow(self, vocab, bow_db: list[dict]):
         # Create the descriptor matcher
-        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
         # Create the BoW extractor
         bow_extractor = cv2.BOWImgDescriptorExtractor(self._detector, matcher)
@@ -258,12 +258,12 @@ class Frame():
         matches = matcher.match(self.descriptors, vocab)
         self.feature_vector = {}
         for match in matches:
-            word_id = match.trainIdx         # Index of the visual word in the vocabulary.
-            kp_idx = match.queryIdx          # Index of the keypoint in the image.
-            kp_id = self.features[kp_idx].id # ID of the keypoint in the image.
-            if word_id not in self.feature_vector:
-                self.feature_vector[word_id] = []
-            self.feature_vector[word_id].append(kp_id)
+            word_idx = match.trainIdx        # Index of the visual word in the vocabulary.
+            q_idx = match.queryIdx           # Index of the keypoint in the image.
+            kp_id = self.keypoints[q_idx].class_id  # ID of the keypoint in the image.
+            if word_idx not in self.feature_vector:
+                self.feature_vector[word_idx] = []
+            self.feature_vector[word_idx].append(kp_id)
 
         # Loop over each visual word (i.e., each bin in the histogram)
         # and add this frame's ID to the database for every visual word that occurs in the image.
