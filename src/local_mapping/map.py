@@ -307,7 +307,6 @@ class Map():
                 errors.append(e)
 
         mean_error = np.sqrt( np.mean( np.square(errors) ) )
-        log.info(f"[Map] RMS Re-Projection Error: {mean_error:.2f}")
         return mean_error
 
 
@@ -524,7 +523,7 @@ class Map():
             # Iterate over all their map points
             for pid in kf_mp_ids:
                 # Extract the scale of their observation
-                point = self.points[pid]
+                point: mapPoint = self.points[pid]
                 obs = point.get_observation(kf_id)
                 scale = obs["keypoint"].octave
                 # Get how many keyframes observe the same point in the same or finer scale

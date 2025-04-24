@@ -78,8 +78,7 @@ def main():
     while not data.finished():
         # Advance the iteration
         i+=1
-        log.info("")
-        log.info(f"\tIteration: {i} / {data.length()}")
+        log.info(f"\n\n\t Iteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
         t, img, gt_pose = data.get()
@@ -91,7 +90,7 @@ def main():
 
         # Iteration #0
         if t_frame.id == 0:
-            log.info("~~~~First Frame~~~~")
+            log.info("\n ~~~~First Frame~~~~")
             assert np.all(np.eye(4) - gt_pose < 1e-6)
 
             # Bookkeping
@@ -103,7 +102,7 @@ def main():
         else:                    
             # ########### Initialization ###########
             if not is_initialized:
-                log.info("~~~~Initialization~~~~")
+                log.info("\n ~~~~Initialization~~~~")
                 # Feature matching
                 matches = matchFeatures(q_frame, t_frame) # (N) : N < M
                 if matches is None:
@@ -167,7 +166,7 @@ def main():
                     
             # ########### Tracking ###########
             else:
-                log.info("~~~~Tracking~~~~")
+                log.info("\n ~~~~Tracking~~~~")
                 if tracking_success:
                     # ########### Track from Previous Frame ###########
                     log.info("Using constant velocity model...")
@@ -234,7 +233,7 @@ def main():
                         continue
                 
                 # ########### Track Local Map ###########
-                log.info("~~~~Local Mapping~~~~")
+                log.info("\n ~~~~Local Mapping~~~~")
 
                 # Set the visible mask
                 map.view(t_frame)
@@ -284,11 +283,10 @@ def main():
                 # Perform Bundle Adjustment
                 ba = localBA(t_frame, map, cgraph, verbose=debug)
                 ba.optimize()
+                plot_trajectory(map, i)
 
                 # Clean up redundant frames
                 map.cull_keyframes(t_frame, cgraph)
-
-                plot_trajectory(map, i)
 
                 q_frame = t_frame            
 

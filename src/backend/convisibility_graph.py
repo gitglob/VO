@@ -1,6 +1,7 @@
 from copy import deepcopy
 import numpy as np
 import cv2
+from itertools import combinations
 from src.others.frame import Frame
 from src.local_mapping.map import Map, localMap, mapPoint
 from config import SETTINGS, log
@@ -152,12 +153,7 @@ class ConvisibilityGraph(Graph):
             
             # For the covisibility graph, we only add an edge if num_shared_points observations >= threshold.
             if num_shared_points >= THETA_MIN:
-                edge_id = tuple(sorted((other_kf_id, kf_id)))
-                # If the edge already exists, we update it with the maximum num_shared_points count observed.
-                if edge_id in self.edges.keys():
-                    weight = max(self.edges[edge_id], num_shared_points)
-                else:
-                    weight = num_shared_points
+                weight = num_shared_points
                 self._add_edge(other_kf_id, kf_id, weight)
                 num_new_edges += 1
 
@@ -185,40 +181,35 @@ class ConvisibilityGraph(Graph):
         max_shared = -1
 
         # Iterate over all node combinations
-        for kf_id, kf_pt_ids in self.nodes.items():
-            for other_kf_id, other_kf_pt_ids in self.nodes.items():
-                # Skip node edges with itself
-                if other_kf_id == kf_id:
-                    continue
+        for kf_id, other_kf_id in combinations(self.nodes.keys(), 2):
+            kf_pt_ids = self.nodes[kf_id]
+            other_kf_pt_ids = self.nodes[kf_id]
+            # Skip node edges with itself
+            assert(other_kf_id != kf_id)
 
-                # Compute the number of shared map points with the current keyframe.
-                shared_points = kf_pt_ids.intersection(other_kf_pt_ids)
-                num_shared_points = len(shared_points)
-            
-                # For the covisibility graph, we only add an edge if num_shared_points observations >= threshold.
-                if num_shared_points >= THETA_MIN:
-                    edge_id = tuple(sorted((other_kf_id, kf_id)))
-                    # If the edge already exists, we update it with the maximum num_shared_points count observed.
-                    if edge_id in self.edges.keys():
-                        weight = max(self.edges[edge_id], num_shared_points)
-                    else:
-                        weight = num_shared_points
-                    self._add_edge(other_kf_id, kf_id, weight)
+            # Compute the number of shared map points with the current keyframe.
+            shared_points = kf_pt_ids.intersection(other_kf_pt_ids)
+            num_shared_points = len(shared_points)
+        
+            # For the covisibility graph, we only add an edge if num_shared_points observations >= threshold.
+            if num_shared_points >= THETA_MIN:
+                weight = num_shared_points
+                self._add_edge(other_kf_id, kf_id, weight)
 
-                    # If the weight is >= 100, add to the Essential Graph
-                    if weight >= ESSENTIAL_THETA_MIN:
-                        self.essential_graph._add_edge(other_kf_id, kf_id, weight)
-            
-                # For the spanning tree, choose the keyframe that shares the most map points.
-                if num_shared_points > max_shared:
-                    best_parent_id = other_kf_id
-                    max_shared = num_shared_points
-            
-            # If there is a valid parent keyframe, add the connection in the spanning tree.
-            if best_parent_id is not None:
-                self.spanning_tree._add_edge(best_parent_id, kf_id, max_shared)
-                # All the spanning tree edges go to the Essential Graph too
-                self.essential_graph._add_edge(best_parent_id, kf_id, max_shared)
+                # If the weight is >= 100, add to the Essential Graph
+                if weight >= ESSENTIAL_THETA_MIN:
+                    self.essential_graph._add_edge(other_kf_id, kf_id, weight)
+        
+            # For the spanning tree, choose the keyframe that shares the most map points.
+            if num_shared_points > max_shared:
+                best_parent_id = other_kf_id
+                max_shared = num_shared_points
+        
+        # If there is a valid parent keyframe, add the connection in the spanning tree.
+        if best_parent_id is not None:
+            self.spanning_tree._add_edge(best_parent_id, kf_id, max_shared)
+            # All the spanning tree edges go to the Essential Graph too
+            self.essential_graph._add_edge(best_parent_id, kf_id, max_shared)
 
 
     def get_frustum_point_ids(self, kf_id: int):
@@ -336,6 +327,10 @@ class ConvisibilityGraph(Graph):
         
         # Note: In a fully featured system you might want to re-compute or update the spanning tree
         # to ensure full connectivity, but for simplicity we are only removing associated edges here.
+
+    def remove_point(self, kf_id: int, pid: int):
+        """Remove a set of points along and adjust the edges"""
+        self.nodes[kf_id].remove(pid)
 
     def remove_points(self, pids: set[int]):
         """Remove a set of points along and adjust the edges"""

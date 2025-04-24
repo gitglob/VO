@@ -194,6 +194,7 @@ class poseBA:
         Returns:
             (pose_ids, pose_array, landmark_ids, landmark_array)
         """
+        log.info(f"\t Updating poses...")
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             # Find pose verticies
@@ -201,82 +202,3 @@ class poseBA:
                 # Update poses
                 frame_id = X_inv(vertex.id())
                 self.map.keyframes[frame_id].pose = vertex.estimate().matrix()
-
-
-    def print_x_nodes_in_graph(self):
-        """
-        Print the pose (x) and landmark (l) node IDs currently in the graph.
-        """
-        x_node_names = []
-        l_node_names = []
-        for vertex in self.optimizer.vertices().values():
-            if isinstance(vertex, g2o.VertexSE3Expmap):
-                x_node_names.append(f"x{vertex.id()}")
-            elif isinstance(vertex, g2o.VertexPointXYZ):
-                l_node_names.append(f"l{vertex.id()}")
-        log.info("\tx nodes in graph:", sorted(x_node_names))
-        log.info("\tl nodes in graph:", sorted(l_node_names))
-
-    def is_key_in_graph(self, key) -> bool:
-        """
-        Check whether a vertex with the given key exists in the graph.
-        """
-        return key in self.optimizer.vertices()
-
-    def get_factors_for_variable(self, variable_key: int) -> list:
-        """
-        Returns a list of edges (factors) that reference the given vertex id.
-        """
-        factors_for_variable = []
-        for edge in self.optimizer.edges():
-            # Loop over the edge’s vertices.
-            num_vertices = edge.num_vertices()
-            for j in range(num_vertices):
-                if edge.vertex(j).id() == variable_key:
-                    factors_for_variable.append(edge)
-                    break
-        return factors_for_variable
-
-    def get_landmarks_for_pose(self, pose_key: int) -> int:
-        """
-        Returns the number of unique landmark vertices observed from a given pose.
-        """
-        related_landmark_keys = set()
-        for edge in self.optimizer.edges():
-            # Check for projection edges.
-            if isinstance(edge, g2o.EdgeProjectXYZ2UV):
-                # Convention: vertex 1 is the pose.
-                if edge.vertex(1).id() == pose_key:
-                    related_landmark_keys.add(edge.vertex(0).id())
-        return len(related_landmark_keys)
-
-    def get_poses_for_landmark(self, landmark_key: int) -> set:
-        """
-        Returns a set of pose vertex ids that observe the specified landmark.
-        """
-        related_pose_keys = set()
-        for edge in self.optimizer.edges():
-            if isinstance(edge, g2o.EdgeProjectXYZ2UV):
-                # Convention: vertex 0 is the landmark.
-                if edge.vertex(0).id() == landmark_key:
-                    related_pose_keys.add(edge.vertex(1).id())
-        return related_pose_keys
-
-    def sanity_check(self):
-        """
-        Checks that:
-          - Each pose vertex has an estimate and observes at least 2 landmarks.
-          - Each landmark vertex has an estimate and is observed by at least 3 poses.
-        """
-        for edge in self.optimizer.edges():
-            if isinstance(edge, g2o.EdgeProjectXYZ2UV):
-                pose_vertex = edge.vertex(1)
-                if pose_vertex is None or not self.is_key_in_graph(pose_vertex.id()):
-                    raise ValueError(f"Pose {pose_vertex} missing or not in graph")
-                if self.get_landmarks_for_pose(pose_vertex.id()) < 2:
-                    raise ValueError(f"Pose x({pose_vertex.id()}) observes less than 2 landmarks")
-                landmark_vertex = edge.vertex(0)
-                if landmark_vertex is None or not self.is_key_in_graph(landmark_vertex.id()):
-                    raise ValueError(f"Landmark {landmark_vertex} missing or not in graph")
-                if len(self.get_poses_for_landmark(landmark_vertex.id())) < 3:
-                    raise ValueError(f"Landmark l({landmark_vertex.id()}) is observed by less than 3 poses")

@@ -86,9 +86,13 @@ class singlePoseBA(BA):
         n_inlier_edges = n_edges - n_outlier_edges
 
         # Optimize poses
-        self.map.get_mean_projection_error()
+        e = self.map.get_mean_projection_error()
+        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
+
         self.update_poses()
-        self.map.get_mean_projection_error()
+        
+        e = self.map.get_mean_projection_error()
+        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
 
         return n_inlier_edges
 
@@ -98,7 +102,7 @@ class singlePoseBA(BA):
 
     def update_poses(self):
         """Optimizes pose estimates from the optimizer."""
-        log.info(f"[BA] Optimizing Pose #{self.frame.id}...")
+        log.info(f"\t Updating Pose #{self.frame.id}...")
 
         frame_id = self.frame.id
         vertex = self.optimizer.vertex(X(frame_id))

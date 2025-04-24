@@ -59,9 +59,13 @@ class globalBA(BA):
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
 
-        self.map.get_mean_projection_error()
+        e = self.map.get_mean_projection_error()
+        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
+
         self.update_poses_and_landmarks()
-        self.map.get_mean_projection_error()
+        
+        e = self.map.get_mean_projection_error()
+        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
 
     def finalize(self):
         """Returns the final poses (optimized)."""
@@ -69,7 +73,7 @@ class globalBA(BA):
 
     def update_poses_and_landmarks(self):
         """Retrieves optimized pose and landmark estimates from the optimizer."""
-        log.info("[BA] Updating poses and landmark positions...")
+        log.info("\t Updating poses and landmark positions...")
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):

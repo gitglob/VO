@@ -82,6 +82,9 @@ class localBA(BA):
         self.map.get_mean_projection_error()
 
         # Optimize again with the outliers
+        num_edges = len(self.optimizer.edges())
+        log.info(f"\t Optimizing {num_edges} edges...")
+
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(5)
 
@@ -89,35 +92,57 @@ class localBA(BA):
         chi2_threshold = 9.21
 
         # Iterate over all the edges
+        removed_edges = set()
         for e in self.optimizer.edges():
             # Extract edge info
             kf_id, mp_id, depth = self.edge_info(e)
             # Check the chi2 value
-            if e.chi2() > chi2_threshold or not depth <= 0:
-                # Remove feature<->map point match and map point observation
-                self.map.keyframes[kf_id].remove_mp_match(mp_id)
-                self.map.points[mp_id].remove_observation(kf_id)
+            if e.chi2() > chi2_threshold or depth <= 0:
+                removed_edges.add((mp_id, kf_id))
                 # Remove edge from the graph
                 self.optimizer.remove_edge(e)
 
+
+        # Remove feature<->map point match and map point observation
+        for (mp_id, kf_id) in removed_edges:
+            self.map.keyframes[kf_id].remove_mp_match(mp_id)
+            self.map.points[mp_id].remove_observation(kf_id)
+            self.cgraph.remove_point(kf_id, mp_id)
+
+        log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
+        num_edges = len(self.optimizer.edges())
+
         self.update_poses_and_landmarks()
-        self.map.get_mean_projection_error()
+
+        e = self.map.get_mean_projection_error()
+        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
 
         # Optimize again without the outliers
+        log.info(f"\t Optimizing {num_edges} edges...")
         self.optimizer.initialize_optimization()
-        self.optimizer.optimize(10)
+        self.optimizer.optimize(10) # TODO: this crashes
 
         # Iterate over all the edges
+        removed_edges = set()
         for e in self.optimizer.edges():
             # Extract edge info
             kf_id, mp_id, depth = self.edge_info(e)
-            if e.chi2() > chi2_threshold or not depth <= 0:
-                # Remove feature<->map point match and map point observation
-                self.map.keyframes[kf_id].remove_mp_match(mp_id)
-                self.map.points[mp_id].remove_observation(kf_id)
+            if e.chi2() > chi2_threshold or depth <= 0:
+                removed_edges.add((mp_id, kf_id))
+
+        # Remove feature<->map point match and map point observation
+        for (mp_id, kf_id) in removed_edges:    
+            self.map.keyframes[kf_id].remove_mp_match(mp_id)
+            self.map.points[mp_id].remove_observation(kf_id)
+            self.cgraph.remove_point(kf_id, mp_id)
+
+        log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
+        self.cgraph._update_edges_on_point_culling()
 
         self.update_poses_and_landmarks()
-        self.map.get_mean_projection_error()
+
+        e = self.map.get_mean_projection_error()
+        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
 
     def edge_info(self, edge: g2o.EdgeProjectXYZ2UV) -> tuple[int, int, float]:
         """Using an g2o edge extracts the landmark's Z position (depth) in the camera's frame"""
@@ -143,7 +168,7 @@ class localBA(BA):
 
     def update_poses_and_landmarks(self):
         """Retrieves optimized pose and landmark estimates from the optimizer."""
-        log.info("[BA] Updating poses and landmark positions...")
+        log.info("\t Updating poses and landmark positions...")
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):
