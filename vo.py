@@ -243,7 +243,7 @@ def main():
                 mapPointAssociation(local_map, map, t_frame)
                 
                 # Set the found mask
-                map.found(t_frame)
+                map.tracked(t_frame)
                 
                 # Optimize the camera pose with all the map points found in the frame
                 ba = singlePoseBA(map, t_frame, verbose=debug)

@@ -40,7 +40,7 @@ class mapPoint():
         self.id: int = mapPoint._mp_id_counter # The unique id of this map point
 
         self.observations = []
-        self.found_counter: int = 1         # Number of times the point was tracked
+        self.tracked_counter: int = 1         # Number of times the point was tracked
         self.visible_counter: int = 1       # Number of times the point was predicted to be visible by a Frame
 
     def observe(self,
@@ -92,6 +92,16 @@ class mapPoint():
             if obs.kf_id == kf_id:
                 return obs
         return None
+    
+    def get_scale_observations(self, scale: int):
+        """Returns the keyframes that observe this map point at a scale or finer"""
+        kf_ids = set()
+        for obs in self.observations:
+            octave = obs.kpt.octave
+            # Compare the observing octave with the desired one
+            if octave <= scale:
+                kf_ids.add(obs.kf_id)
+        return kf_ids
 
     def remove_observation(self, kf_id: int):
         """Removes the observation from a specific keyframe"""
@@ -162,6 +172,7 @@ class mapPoint():
         
 
 class localMap():
+    """Represents a part of the full map"""
     def __init__(self, ref_frame_id: int, 
                  K1_frames: set[int], K1_points: set[int], 
                  K2_frames: set[int], K2_points: set[int]):
@@ -178,6 +189,7 @@ class localMap():
         self.point_ids = K1_points.union(K2_points)
         self.frame_ids = K1_frames.union(K2_frames).union({ref_frame_id})
         log.info(f"[Local Map] Created map with {len(self.frame_ids)} frames and {len(self.point_ids)} points")
+
 
 class Map():
     def __init__(self, ref_frame_id: int = None):
@@ -211,27 +223,7 @@ class Map():
         ids = np.array(self.points.keys(), dtype=int)
         return ids
 
-
-    def get_points_from_frame(self, kf_id: int):
-        """Returns the points that are seen by a specific frame"""
-        kf_pt_ids = set()
-        for pid, point in self.points.items():
-            for obs in point.observations:
-                if obs.kf_id == kf_id:
-                    kf_pt_ids.add(pid)
-
-        return kf_pt_ids
-    
-    def get_frustum_points(self, kf_id: int):
-        """Returns the points that are seen by a specific frame"""
-        kf_pt_ids = set()
-        for pid, point in self.points.items():
-            for obs in point.observations:
-                if obs.kf_id == kf_id:
-                    kf_pt_ids.add(pid)
-
-        return kf_pt_ids
-   
+      
     def get_points(self, point_ids: set[int]) -> list:
         """Returns the points that correspond to the given point ids"""
         points = [self.points[idx] for idx in point_ids]
@@ -240,22 +232,7 @@ class Map():
     def get_keyframe(self, frame_id: int) -> Frame:
         return self.keyframes[frame_id]
 
-    
-    def get_keyframes_that_see_at_scale(self, pid: int, scale: int) -> set[int]:
-        """Returns all the keyframes that see a point at a specific or finer scale"""
-        keyframe_observers_ids = set()
-        # Extract point
-        point = self.points[pid]
-        # Iterate over all the point observations
-        for obs in point.observations:
-            # Extract the octave of the observation
-            octave = obs.kpt.octave
-            # Compare the observing octave with the desired one
-            if octave <= scale:
-                keyframe_observers_ids.add(obs.kf_id)
-
-        return keyframe_observers_ids
-    
+        
     def get_mean_projection_error(self) -> float:
         errors = []
         # Iterate over all map points
@@ -289,10 +266,6 @@ class Map():
 
     def num_keyframes(self) -> int:
         return len(self.keyframes.keys())
-    
-    def num_keyframes_that_see(self, pid: int) -> set[int]:
-        """Returns the number of keyframes that see a single point"""
-        return len(self.points[pid].observations)
 
 
     def add_keyframe(self, kf: Frame):
@@ -411,8 +384,10 @@ class Map():
         # of connected keyframes, and correspondences are searched
 
 
-    def remove_keyframe(self, frame_id: int):
-        del self.keyframes[frame_id]
+    def remove_keyframe(self, kf_id: int):
+        del self.keyframes[kf_id]
+        for p in self.points.values():
+            p.remove_observation(kf_id)
 
     def remove_point(self, pid: int):
         del self.points[pid]
@@ -446,7 +421,7 @@ class Map():
             
             # The tracking must find the point in more than 25% of the frames in which 
             # it is predicted to be visible.
-            r = p.found_counter / p.visible_counter
+            r = p.tracked_counter / p.visible_counter
             if r < MATCH_VIEW_RATIO:
                 removed_point_ids.add(pid)
                 continue
@@ -501,7 +476,7 @@ class Map():
                 obs = point.get_observation(kf_id)
                 scale = obs.kpt.octave
                 # Get how many keyframes observe the same point in the same or finer scale
-                observing_frame_ids = self.get_keyframes_that_see_at_scale(pid, scale)
+                observing_frame_ids = cgraph.get_frames_that_observe_point_at_scale(pid, scale, self)
                 num_observing_frame_ids = len(observing_frame_ids)
                 # Check if at least 3 keyframes observe this point
                 if num_observing_frame_ids >= 3:
@@ -515,18 +490,23 @@ class Map():
         for kf_id in removed_kf_ids:
             if debug:
                 log.info(f"\t Removed Keyframe {kf_id}!")
+            self.remove_keyframe(kf_id)
             cgraph.remove_keyframe(kf_id)
+
 
     def view(self, frame: Frame):
         """Increases the counter that shows how many times a point was predicted to be visible"""
-        for feat in frame.features.values():
-            if feat.matched:
-                pid = feat.mp["id"]
-                self.points[pid].visible_counter += 1
+        for p in self.points.values():
+            if frame.is_in_frustum(p, self.keyframes):
+                p.visible_counter += 1
 
-    def found(self, frame: Frame):
+    def tracked(self, frame: Frame):
         """Increases the counter that shows how many times a point was tracked"""
+        frame_pid_matches = set()
         for feat in frame.features.values():
             if feat.matched:
                 pid = feat.mp["id"]
-                self.points[pid].found_counter += 1
+                frame_pid_matches.add(pid)
+        
+        for pid in frame_pid_matches:
+            self.points[pid].tracked_counter += 1

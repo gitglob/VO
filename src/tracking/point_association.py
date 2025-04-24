@@ -1,4 +1,3 @@
-import bisect
 import numpy as np
 import cv2
 from scipy.linalg import expm, logm
@@ -209,12 +208,11 @@ def localPointAssociation(map: Map,
 
     # Loop over the points
     for point in q_map_points:
-        # Project the map point's 3D location into the current frame.
-        pred_px = point.project2frame(t_frame)
-        if pred_px is None:
-            continue  # Skip points that project behind the camera.
-        else:
-            u, v = pred_px
+        # Check if the point is in the current camera's frustum
+        result = t_frame.is_in_frustum(point, map.keyframes)
+        if result is False:
+            continue
+        u, v, _ = result
         
         # Collect candidate current frame keypoints whose pixel coordinates fall within 
         # a window around the predicted pixel
@@ -267,7 +265,7 @@ def localPointAssociation(map: Map,
         log.info(f"\t Found {len(matched_features)} Point Associations!")
     return len(matched_features)
 
-def globalPointAssociation(map: Map, t_frame: Frame):
+def globalPointAssociation(cgraph: ConvisibilityGraph, map: Map, t_frame: Frame):
     """
     Matches the map points seen in previous frames with the current frame.
 
@@ -281,7 +279,7 @@ def globalPointAssociation(map: Map, t_frame: Frame):
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
     """
     # Extract the in view descriptors
-    map_points = map.get_frustum_points(t_frame, map)
+    map_points = cgraph.get_frustum_points(t_frame, map)
     map_descriptors = []
     map_point_ids = []
     map_pixels = []
@@ -380,46 +378,26 @@ def mapPointAssociation(local_map: localMap, map: Map, t_frame: Frame, theta: in
         if pid in matched_point_ids:
             continue
 
-        # 1) Compute the map point projection x in the current 
-        # frame. Discard if it lays out of the image bounds.
-        x = point.project2frame(t_frame)
-        if x is None:
+        # Check if the point is in the current camera's frustum
+        result = t_frame.is_in_frustum(point, map.keyframes)
+        if result is False:
             continue
-        else:
-            u, v = x
-        
-        # 2) Compute the angle between the current viewing ray v
-        # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
-        v1 = point.view_ray(t_frame.pose[:3, 3])
-        v2 = point.mean_view_ray(map.keyframes)
-        if v1.dot(v2) < np.cos(np.deg2rad(60)):
-            continue
+        u, v, scale = result
 
-        # 3) Compute the distance d from map point to cameracenter. 
-        # Discard if it is out of the scale invariance region
-        # of the map point [dmin , dmax ].
-        d = np.linalg.norm(point.pos - t_frame.pose[:3, 3])
-        d_min, d_max = point.getScaleInvarianceLimits(map.keyframes)
-        if d < d_min or d > d_max:
-            continue
-
-        # This point is predicted to be visible
-        point.visible_counter += 1
-
-        # 4) Compute the scale in the frame by the ration d/d_min
-        scale = d / d_min
-
-        # 5) Compare the representative descriptor D of the map point with the 
+        # Compare the representative descriptor D of the map point with the 
         # still unmatched ORB features in the frame, at the predicted scale, 
         # and near x, and associate the map point with the best match.
         D = point.best_descriptor
 
         # Collect candidate current frame un-matched keypoints whose pixel coordinates 
         # fall within a window around the predicted pixel
-        octave_idx = np.abs(t_frame.scale_factors - d).argmin()
+        octave_idx = np.abs(t_frame.scale_factors - scale).argmin()
         radius = theta * t_frame.scale_factors[octave_idx]
         candidates = []
         for feat_id, feat in t_frame.features.items():
+            # Skip already matched features
+            if feat.matched:
+                continue
             feat_px = feat.kpt.pt
             if (abs(feat_px[0] - u) <= radius and
                 abs(feat_px[1] - v) <= radius):

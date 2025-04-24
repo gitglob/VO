@@ -23,10 +23,10 @@ class orbFeature():
         self.mp = None
         self.matched = False
 
-    def match_map_point(self, mp_id: int, dist: np.float64):
+    def match_map_point(self, pid: int, dist: np.float64):
         self.mp = {
-            "id": mp_id,
-            "dist": dist  
+            "id": pid,
+            "dist": dist
         }
         self.matched = True
 
@@ -129,6 +129,32 @@ class Frame():
         
         return (u, v)
 
+    def is_in_frustum(self, point, keyframes):
+        """Checks if a map point is inside this frame's frustum (cone of view)"""
+        # 1) Projection check (positive depth and in image boundaries)
+        px = self.project(point.pos)
+        if px is None:
+            return False
+        u, v = px
+
+        # 2) Viewing‐angle check
+        # Compute the angle between the current viewing ray v
+        # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
+        v1 = point.view_ray(self.pose[:3, 3])
+        v2 = point.mean_view_ray(keyframes)
+        if v1.dot(v2) < np.cos(np.deg2rad(60)):
+            return False
+
+        # 3) Distance‐based scale invariance check
+        d = np.linalg.norm(point.pos - self.pose[:3, 3])
+        dmin, dmax = point.getScaleInvarianceLimits(keyframes)
+        if d < dmin or d > dmax:
+            return False
+
+        # 4) Compute the scale in the frame by the ration d/d_min
+        scale = d / dmin
+
+        return u, v, scale
 
     def get_map_point_ids(self):
         """Returns all the map points that are matched to a feature"""

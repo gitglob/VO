@@ -113,13 +113,7 @@ class ConvisibilityGraph(Graph):
         self._update_edges_on_new_frame(keyframe.id, kf_map_pt_ids)
 
     def add_track_keyframe(self, keyframe: Frame):
-        """
-        Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
-
-        Args:
-            keyframe: Unique identifier for the keyframe.
-            pairs: Dictionary matching a feature to a map point with a distance
-        """
+        """Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree."""
         kf_map_pt_ids = keyframe.get_map_point_ids()
 
         log.info(f"[Graph] Adding keyframe #{keyframe.id}")
@@ -223,39 +217,6 @@ class ConvisibilityGraph(Graph):
             points.add(map.points[pid])
         return points
     
-    def get_connected_frames(self, kf_id: int) -> set[int]:
-        """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
-        # Keep the connected nodes and points
-        connected_kf_ids = set()
-        # Iterate over all the edges
-        for (kf1_id, kf2_id) in self.edges.keys():
-            # Check if this node is part of this edge
-            # If it is, the other node and its points are of interest
-            if kf1_id == kf_id:
-                connected_kf_ids.add(kf2_id)
-            elif kf2_id == kf_id:
-                connected_kf_ids.add(kf1_id)
-
-        return connected_kf_ids
-   
-    def get_frames_that_observe_point(self, pid: int) -> set[int]:
-        """Returns the keyframes that observe a specific point"""
-        observing_kf_ids = set()
-        for kf_id, point_ids in self.nodes.items():
-            if pid in point_ids:
-                observing_kf_ids.add(kf_id)
-
-        return observing_kf_ids
-    
-    def get_frames_that_observe_points(self, pids: set[int]) -> set[int]:
-        """Returns the keyframes that observe a set of points"""
-        observing_kf_ids = set()
-        for pid in pids:
-            for kf_id, point_ids in self.nodes.items():
-                if pid in point_ids:
-                    observing_kf_ids.add(kf_id)
-
-        return observing_kf_ids
 
     def get_reference_frame(self, kf_id: int) -> int:
         """Returns the keyframe connected to a given keyframe that shares the most map points"""
@@ -275,6 +236,56 @@ class ConvisibilityGraph(Graph):
 
         return ref_frame_id
     
+    def get_connected_frames(self, kf_id: int) -> set[int]:
+        """Returns the keyframes connected to a specific keyframe."""
+        # Keep the connected nodes and points
+        connected_kf_ids = set()
+        # Iterate over all the edges
+        for (kf1_id, kf2_id) in self.edges.keys():
+            # Check if this node is part of this edge
+            # If it is, the other node and its points are of interest
+            if kf1_id == kf_id:
+                connected_kf_ids.add(kf2_id)
+            elif kf2_id == kf_id:
+                connected_kf_ids.add(kf1_id)
+
+        return connected_kf_ids
+
+
+    def get_frames_that_observe_point(self, pid: int) -> set[int]:
+        """Returns the keyframes that observe a specific point"""
+        observing_kf_ids = set()
+        for kf_id, point_ids in self.nodes.items():
+            if pid in point_ids:
+                observing_kf_ids.add(kf_id)
+
+        return observing_kf_ids
+    
+    def get_frames_that_observe_point_at_scale(self, pid: int, scale: int, map) -> set[int]:
+        """Returns all the keyframes that see a point at a specific or finer scale"""
+        # Get all the keyframes that see the point
+        cand_observing_kf_ids = set()
+        for kf_id, point_ids in self.nodes.items():
+            if pid in point_ids:
+                cand_observing_kf_ids.add(kf_id)
+
+        # Get the observations of that point in these keyframes
+        point = map.points[pid]
+        keyframe_observers_ids = point.get_scale_observations(scale)
+
+        return keyframe_observers_ids
+
+    def get_frames_that_observe_points(self, pids: set[int]) -> set[int]:
+        """Returns the keyframes that observe a set of points"""
+        observing_kf_ids = set()
+        for pid in pids:
+            for kf_id, point_ids in self.nodes.items():
+                if pid in point_ids:
+                    observing_kf_ids.add(kf_id)
+
+        return observing_kf_ids
+
+
     def get_connected_frames_and_their_points(self, kf_id: int) -> tuple[set[int], set[int]]:
         """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
         # Keep the connected nodes and points
@@ -417,6 +428,7 @@ class ConvisibilityGraph(Graph):
 
         # Add it to the essential graph
         self.essential_graph._add_edge(keyframe_id1, keyframe_id2, weight)
+
 
     def print_graphs(self):
         """

@@ -30,52 +30,51 @@ class localBA(BA):
         """
         # Get the connected keyframe and point ids from the convisibility graph
         connected_kf_ids, connected_point_ids = self.cgraph.get_connected_frames_and_their_points(self.keyframe.id)
-        connected_kfs = [self.map.keyframes[idx] for idx in connected_kf_ids]
 
         # Add the current frame to the connected ones
-        all_kfs = [kf for kf in connected_kfs]
-        all_kfs.append(self.keyframe)
-        first_kf_id = np.min([kf.id for kf in all_kfs])
-
-        # Get the connected points
-        connected_points: list[mapPoint] = self.map.get_points(connected_point_ids)
+        connected_kf_ids1 = connected_kf_ids.copy()
+        connected_kf_ids1.add(self.keyframe.id)
+        connected_kfs = [self.map.keyframes[idx] for idx in connected_kf_ids1]
+        first_kf_id = np.min([kf.id for kf in connected_kfs])
 
         # Get all the other keyframes that see the points but are not connected to the current keyframe
         kfs_that_see_points_ids = self.cgraph.get_frames_that_observe_points(connected_point_ids)
-        unconnected_kfs_that_see_points_ids = kfs_that_see_points_ids - connected_kf_ids
-        unconnected_kfs_that_see_points = [self.map.keyframes[idx] for idx in unconnected_kfs_that_see_points_ids]
+        unconnected_kfs_ids = kfs_that_see_points_ids - connected_kf_ids1
+        unconnected_kfs = [self.map.keyframes[idx] for idx in unconnected_kfs_ids]
+
+        # Get all the used keyframe ids
+        all_kf_ids = connected_kf_ids1.copy()
+        all_kf_ids.update(unconnected_kfs_ids)
 
         if self.verbose:
             msg = f"[BA] Adding frame {self.keyframe.id}, {len(connected_kf_ids)} "
-            msg += f"connected frames with {len(connected_points)} points, "
-            msg += f"and {len(unconnected_kfs_that_see_points)} unconnected poses..."
+            msg += f"connected frames with {len(connected_point_ids)} points, "
+            msg += f"and {len(unconnected_kfs)} unconnected frames..."
             log.info(msg)
 
-        # Add the frames
-        for kf in all_kfs:
+        # Add the main frame and the connected ones
+        for kf in connected_kfs:
             is_first_kf = kf.id == first_kf_id
             self._add_frame(kf, fixed=is_first_kf)
 
-        # Iterate over all the connected points
-        for point in connected_points:
-            pid = point.id
-            # Add the connected landmark vertices
+        # Add the and fix the un-connected frames
+        for kf in unconnected_kfs:
+            self._add_frame(kf, fixed=True)
+
+        # Iterate over all the points that the connected frames see
+        for pid in connected_point_ids:
+            point: mapPoint = self.map.points[pid]
+            # Add the landmark vertex
             self._add_landmark(point.id, point.pos)
             # Iterate over all the landmark observations
             for obs in point.observations:
                 kf_id = obs.kf_id
+                # Skip observations from 
+                assert kf_id in all_kf_ids
                 kf = self.map.keyframes[kf_id]
                 kpt = obs.kpt
-                pt = kpt.pt
-                octave = kpt.octave
-                # If the observation was done by a connected keyframe...
-                if kf.id in connected_kf_ids:
-                    # ... add the connected pose->landmark observations
-                    self._add_observation(pid, kf, pt, octave)
-
-        # Add the and fix the un-connected poses
-        for kf in unconnected_kfs_that_see_points:
-            self._add_frame(kf, fixed=True)
+                # Add the pose->landmark observations
+                self._add_observation(point.id, kf, kpt.pt, kpt.octave)
 
     def optimize(self):
         """Optimize the poses and landmark positions."""
@@ -95,18 +94,18 @@ class localBA(BA):
         removed_edges = set()
         for e in self.optimizer.edges():
             # Extract edge info
-            kf_id, mp_id, depth = self.edge_info(e)
+            kf_id, pid, depth = self.edge_info(e)
             # Check the chi2 value
             if e.chi2() > chi2_threshold or depth <= 0:
-                removed_edges.add((mp_id, kf_id))
+                removed_edges.add((pid, kf_id))
                 # Remove edge from the graph
                 self.optimizer.remove_edge(e)
 
         # Remove feature<->map point match and map point observation
-        for (mp_id, kf_id) in removed_edges:
-            self.map.keyframes[kf_id].remove_mp_match(mp_id)
-            self.map.points[mp_id].remove_observation(kf_id)
-            self.cgraph.remove_point(kf_id, mp_id)
+        for (pid, kf_id) in removed_edges:
+            self.map.keyframes[kf_id].remove_mp_match(pid)
+            self.map.points[pid].remove_observation(kf_id)
+            self.cgraph.remove_point(kf_id, pid)
 
         log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
         num_edges = len(self.optimizer.edges())
@@ -125,15 +124,15 @@ class localBA(BA):
         removed_edges = set()
         for e in self.optimizer.edges():
             # Extract edge info
-            kf_id, mp_id, depth = self.edge_info(e)
+            kf_id, pid, depth = self.edge_info(e)
             if e.chi2() > chi2_threshold or depth <= 0:
-                removed_edges.add((mp_id, kf_id))
+                removed_edges.add((pid, kf_id))
 
         # Remove feature<->map point match and map point observation
-        for (mp_id, kf_id) in removed_edges:    
-            self.map.keyframes[kf_id].remove_mp_match(mp_id)
-            self.map.points[mp_id].remove_observation(kf_id)
-            self.cgraph.remove_point(kf_id, mp_id)
+        for (pid, kf_id) in removed_edges:    
+            self.map.keyframes[kf_id].remove_mp_match(pid)
+            self.map.points[pid].remove_observation(kf_id)
+            self.cgraph.remove_point(kf_id, pid)
 
         log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
         self.cgraph._update_edges_on_point_culling()
