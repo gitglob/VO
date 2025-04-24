@@ -76,7 +76,9 @@ def main():
     while not data.finished():
         # Advance the iteration
         i+=1
-        log.info(f"\n\n\t Iteration: {i} / {data.length()}")
+        log.info("")
+        log.info("")
+        log.info(f"\t Iteration: {i} / {data.length()}")
 
         # Capture new image frame (current_frame)
         t, img, gt_pose = data.get()
@@ -88,7 +90,8 @@ def main():
 
         # Iteration #0
         if t_frame.id == 0:
-            log.info("\n ~~~~First Frame~~~~")
+            log.info("")
+            log.info("~~~~First Frame~~~~")
             assert np.all(np.eye(4) - gt_pose < 1e-6)
 
             # Bookkeping
@@ -100,7 +103,8 @@ def main():
         else:                    
             # ########### Initialization ###########
             if not is_initialized:
-                log.info("\n ~~~~Initialization~~~~")
+                log.info("")
+                log.info("~~~~Initialization~~~~")
                 # Feature matching
                 matches = matchFeatures(q_frame, t_frame) # (N) : N < M
                 if matches is None:
@@ -148,7 +152,7 @@ def main():
                 cgraph.add_init_keyframe(t_frame)
 
                 # Validate the scale
-                validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.pose])
+                validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
 
                 # Perform Bundle Adjustment
                 prev_pts = map.point_positions().copy()
@@ -164,7 +168,8 @@ def main():
                     
             # ########### Tracking ###########
             else:
-                log.info("\n ~~~~Tracking~~~~")
+                log.info("")
+                log.info("~~~~Tracking~~~~")
                 if tracking_success:
                     # ########### Track from Previous Frame ###########
                     log.info("Using constant velocity model...")
@@ -180,7 +185,7 @@ def main():
                         num_matches = localPointAssociation(map, q_frame, t_frame, cgraph, search_window=SEARCH_WINDOW_SIZE)
                         if num_matches < MIN_ASSOCIATIONS:
                             log.warning(f"Window-based Point association failed! Only {num_matches} matches found!")
-                            is_initialized = False
+                            map.remove_observation(t_frame.id)
                             tracking_success = False
                             continue
 
@@ -228,10 +233,12 @@ def main():
                     if T_w2t is None:
                         tracking_success = False
                         is_initialized = False
+                        map.remove_observation(t_frame.id)
                         continue
                 
                 # ########### Track Local Map ###########
-                log.info("\n ~~~~Local Mapping~~~~")
+                log.info("")
+                log.info("~~~~Local Mapping~~~~")
 
                 # Set the visible mask
                 map.view(t_frame)

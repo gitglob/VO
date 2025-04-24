@@ -384,10 +384,13 @@ class Map():
         # of connected keyframes, and correspondences are searched
 
 
-    def remove_keyframe(self, kf_id: int):
-        del self.keyframes[kf_id]
+    def remove_observation(self, kf_id: int):
         for p in self.points.values():
             p.remove_observation(kf_id)
+
+    def remove_keyframe(self, kf_id: int):
+        del self.keyframes[kf_id]
+        self.remove_observation(kf_id)
 
     def remove_point(self, pid: int):
         del self.points[pid]

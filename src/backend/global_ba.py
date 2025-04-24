@@ -59,13 +59,11 @@ class globalBA(BA):
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
 
-        e = self.map.get_mean_projection_error()
-        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
-
+        e1 = self.map.get_mean_projection_error()
         self.update_poses_and_landmarks()
+        e2 = self.map.get_mean_projection_error()
         
-        e = self.map.get_mean_projection_error()
-        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
 
     def finalize(self):
         """Returns the final poses (optimized)."""

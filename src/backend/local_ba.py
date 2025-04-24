@@ -78,7 +78,7 @@ class localBA(BA):
 
     def optimize(self):
         """Optimize the poses and landmark positions."""
-        self.map.get_mean_projection_error()
+        e1 = self.map.get_mean_projection_error()
 
         # Optimize again with the outliers
         num_edges = len(self.optimizer.edges())
@@ -111,9 +111,7 @@ class localBA(BA):
         num_edges = len(self.optimizer.edges())
 
         self.update_poses_and_landmarks()
-
-        e = self.map.get_mean_projection_error()
-        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
+        e2 = e = self.map.get_mean_projection_error()
 
         # Optimize again without the outliers
         log.info(f"\t Optimizing {num_edges} edges...")
@@ -138,9 +136,9 @@ class localBA(BA):
         self.cgraph._update_edges_on_point_culling()
 
         self.update_poses_and_landmarks()
+        e3 = self.map.get_mean_projection_error()
 
-        e = self.map.get_mean_projection_error()
-        log.info(f"\t RMS Re-Projection Error: {e:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f}")
 
     def edge_info(self, edge: g2o.EdgeProjectXYZ2UV) -> tuple[int, int, float]:
         """Using an g2o edge extracts the landmark's Z position (depth) in the camera's frame"""
