@@ -318,7 +318,7 @@ class Map():
         """
         log.info(f"[Map] Creating new map points using frame {t_frame.id}")
         # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
-        pairs = [] # (t_frame_id, t_feature_id, neighbor_frame_id, neighbor_feature_id)
+        pairs = {} # (t_feature_id: neighbor_frame_id, neighbor_feature_id, dist)
 
         # Get the neighbor frames in the convisibility graph
         neighbor_kf_ids = cgraph.get_connected_frames(t_frame.id)
@@ -331,6 +331,7 @@ class Map():
                 continue
 
             # Iterate over neighbor keyframes
+            best_dist = np.inf
             for n_kf_id in neighbor_kf_ids:
                 # Check if this keyframe sees the same word
                 if n_kf_id not in bow_db[t_word_id]:
@@ -360,13 +361,15 @@ class Map():
                     d_epi_sqr = dist_epipolar_line(t_feature.kpt.pt, n_feature.kpt.pt, F)
                     d_threshold = 5.991 * n_frame.scale_uncertainties[n_feature.kpt.octave]
                     if d_epi_sqr < d_threshold:
-                        pairs.append((t_frame.id, t_kpt_id, n_frame.id, n_kpt_id))
+                        # Only keep the best match per visual word
+                        if d < best_dist:
+                            pairs[t_kpt_id] = (n_frame.id, n_kpt_id, d)
+                            best_dist = d
 
         # For every formed pair, triangulate new points and add them to the map
         ratio_factor = 1.5 * t_frame.scale_factors[1]
         num_created_points = 0
-        for pair in pairs:
-            _, t_kpt_id, n_frame_id, n_kpt_id = pair
+        for t_kpt_id, (n_frame_id, n_kpt_id, _) in pairs.items():
             t_feat: orbFeature = t_frame.features[t_kpt_id]
             n_frame: Frame = keyframes[n_frame_id]
             n_feat: orbFeature = n_frame.features[n_kpt_id]
