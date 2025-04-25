@@ -151,6 +151,10 @@ def main():
                 # Add the keyframe to the convisibility graph
                 cgraph.add_init_keyframe(t_frame)
 
+                # Compute the BOW representation for both keyframes
+                q_frame.compute_bow(vocab, bow_db)
+                t_frame.compute_bow(vocab, bow_db)
+
                 # Validate the scale
                 validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
 
@@ -193,6 +197,9 @@ def main():
                     map.add_keyframe(t_frame)
                     tracking_success = True
 
+                    # Compute the BOW representation of the keyframe
+                    t_frame.compute_bow(vocab, bow_db)
+
                     # Perform pose optimization
                     ba = singlePoseBA(map, t_frame, verbose=debug)
                     ba.optimize()
@@ -226,6 +233,7 @@ def main():
                             # Temporarily set the candidate frame as keyframe
                             map.add_keyframe(cand_frame)
                             t_frame.set_pose(T_t2w)
+                            t_frame.relocalization = True
                             tracking_success = True
                             break
                     
@@ -278,6 +286,9 @@ def main():
 
                 # Add frame to graph
                 cgraph.add_track_keyframe(t_frame)
+
+                # # Compute the BOW representation of the keyframe
+                # t_frame.compute_bow(vocab, bow_db) # This here is only useful if there was no relocalization
 
                 # Clean up map points that are not seen anymore
                 map.cull_points(cgraph)

@@ -273,8 +273,6 @@ class Frame():
                 # Append the current frame's ID to the list for this visual word.
                 bow_db[visual_word].append(self.id)
 
-        self.relocalization = True
-
     ############################################# LOGGING #############################################
 
     def log_keypoints(self):

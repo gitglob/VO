@@ -269,6 +269,7 @@ class Map():
 
 
     def add_keyframe(self, kf: Frame):
+        log.info(f"[Map] Adding frame #{kf.id} to the map.")
         self.keyframes[kf.id] = kf
         self._kf_counter += 1
 
@@ -389,6 +390,7 @@ class Map():
             p.remove_observation(kf_id)
 
     def remove_keyframe(self, kf_id: int):
+        log.info(f"[Map] Removing frame #{kf_id} from the map.")
         del self.keyframes[kf_id]
         self.remove_observation(kf_id)
 
