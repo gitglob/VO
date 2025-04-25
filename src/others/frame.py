@@ -156,6 +156,20 @@ class Frame():
 
         return u, v, scale
 
+    def median_depth(self, map):
+        """Returns the median depth of all the map points, projected in the camera frame"""
+        depths = []
+        for mp in map.points.values():
+            point = mp.pos
+            # transform into camera frame
+            T_world2cam = invert_transform(self.pose)
+            R = T_world2cam[:3, :3]
+            t = T_world2cam[:3, 3]
+            point_cam = R @ point + t
+            depths.append(point_cam[2])
+
+        return np.median(depths)
+
     def get_map_point_ids(self):
         """Returns all the map points that are matched to a feature"""
         map_point_ids = set()
@@ -256,14 +270,18 @@ class Frame():
         # Build the feature vector (maps visual words -> keypoint indices)
         # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         matches = matcher.match(self.descriptors, vocab)
-        self.feature_vector = {}
+        distance_vector = {}
         for match in matches:
-            word_idx = match.trainIdx        # Index of the visual word in the vocabulary.
-            q_idx = match.queryIdx           # Index of the keypoint in the image.
+            word_idx = match.trainIdx               # Index of the visual word in the vocabulary.
+            q_idx = match.queryIdx                  # Index of the keypoint in the image.
             kp_id = self.keypoints[q_idx].class_id  # ID of the keypoint in the image.
-            if word_idx not in self.feature_vector:
-                self.feature_vector[word_idx] = []
-            self.feature_vector[word_idx].append(kp_id)
+            if word_idx in self.feature_vector:
+                if match.distance < distance_vector[word_idx]:
+                    self.feature_vector[word_idx] = kp_id
+                    distance_vector[word_idx] = match.distance
+            else:
+                self.feature_vector[word_idx] = kp_id
+                distance_vector[word_idx] = match.distance
 
         # Loop over each visual word (i.e., each bin in the histogram)
         # and add this frame's ID to the database for every visual word that occurs in the image.

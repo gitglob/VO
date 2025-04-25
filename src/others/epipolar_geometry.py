@@ -48,6 +48,26 @@ def reprojection_error(pxs1, pxs2, T):
 
     return errors
 
+def triang_points_reprojection_error(pts1_3d, pxs2, T):
+    """
+    Reproject triangulated points into the current frame and return reprojection error.
+
+    Args:
+        pts1_3d (N, 3): 3d points in frame 1.
+        pxs2 (N, 2): Pixel coordinates in frame 2.
+        T    (4, 4): relative pose from from O1 to O2.
+    """
+    # Reproject points into the second (current) camera
+    rvec, _ = cv2.Rodrigues(T[:3, :3])
+    tvec = T[:3, 3] 
+    pts1_proj2, _ = cv2.projectPoints(pts1_3d, rvec, tvec, K, None)
+    pts1_proj2_px = pts1_proj2.reshape(-1, 2)
+
+    # Compute reprojection errors
+    errors = np.linalg.norm(pts1_proj2_px - pxs2, axis=1)
+
+    return errors
+
 def triangulation_angles(points1, points2, T):
     """Calculates the triangulation angles between 2 or more points given the transformation matrix of their origins."""
     # Extract rotation and translation
@@ -90,7 +110,10 @@ def triangulate(pxs1, pxs2, T):
     M2 = K @ T[:3, :]  # Second camera at R, t
 
     # Triangulate points
-    points1_4d_hom = cv2.triangulatePoints(M1, M2, pxs1.T, pxs2.T)
+    if len(pxs1) != 2:
+        points1_4d_hom = cv2.triangulatePoints(M1, M2, pxs1.T, pxs2.T)
+    else:
+        points1_4d_hom = cv2.triangulatePoints(M1, M2, pxs1, pxs2)
 
     # Convert homogeneous coordinates to 3D
     points1_3d = points1_4d_hom[:3] / points1_4d_hom[3]
