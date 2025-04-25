@@ -366,6 +366,8 @@ class Map():
                             pairs[t_kpt_id] = (n_frame.id, n_kpt_id, d)
                             best_dist = d
 
+        log.info(f"\t Found {len(pairs.keys())} potential points from Visual Words!") 
+
         # For every formed pair, triangulate new points and add them to the map
         ratio_factor = 1.5 * t_frame.scale_factors[1]
         num_created_points = 0
@@ -494,7 +496,7 @@ class Map():
         cgraph.remove_points(removed_point_ids)
 
         if debug:
-            log.info(f"\t Removed {len(removed_point_ids)}/{prev_num_points} points from the map!")
+            log.info(f"\t Removed {len(removed_point_ids)} points. {self.num_points()} left!")
 
     def cull_keyframes(self, frame, cgraph):
         """
@@ -536,7 +538,7 @@ class Map():
 
         for kf_id in removed_kf_ids:
             if debug:
-                log.info(f"\t Removed Keyframe {kf_id}!")
+                log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes()} left!")
             self.remove_keyframe(kf_id)
             cgraph.remove_keyframe(kf_id)
 
