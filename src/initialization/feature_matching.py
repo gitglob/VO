@@ -44,38 +44,9 @@ def matchFeatures(q_frame: Frame, t_frame: Frame):
     if debug:
         log.info(f"\t {len(matches)} matches left!")
 
-    # 3) **Propagate keypoint IDs**
-    propagate_keypoints(q_frame, t_frame, matches)
-
     # Save the matches
     if debug:
         match_save_path = results_dir / f"matches/initialization/0-raw" / f"{q_frame.id}_{t_frame.id}.png"
         plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
     return np.array(matches, dtype=object)
-
-def propagate_keypoints(q_frame: Frame, t_frame: Frame, matches: List[cv2.DMatch]):
-    """Merges the keypoint identifiers for the matches features between query and train frames."""
-    for m in matches:
-        q_idx = m.queryIdx
-        t_idx = m.trainIdx
-
-        q_kp = q_frame.keypoints[q_idx]
-        t_kp = t_frame.keypoints[t_idx]
-
-        # If the train keypoint has no ID, copy from the query keypoint
-        if t_kp.class_id < 0:  # or `t_kp.class_id is None`
-            t_frame.features[q_kp.class_id] = t_frame.features.pop(t_kp.class_id)
-            t_kp.class_id = q_kp.class_id
-
-        # If the query keypoint has no ID, copy from the train keypoint
-        elif q_kp.class_id < 0:
-            q_frame.features[t_kp.class_id] = q_frame.features.pop(q_kp.class_id)
-            q_kp.class_id = t_kp.class_id
-
-        # If both have IDs but they differ, pick a strategy (e.g., overwrite one)
-        elif q_kp.class_id != t_kp.class_id:
-            # Naive approach: unify by assigning query ID to train ID
-            # or vice versa. Real SLAM systems often handle merges in a global map.
-            t_frame.features[q_kp.class_id] = t_frame.features.pop(t_kp.class_id)
-            t_kp.class_id = q_kp.class_id

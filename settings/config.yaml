@@ -39,7 +39,7 @@ tracking:
 point_association:
     num_matches: 10
     search_window: 200
-    hamming_threshold: 100
+    hamming_threshold: 50
 
 keyframe:
     num_tracked_points: 5

@@ -2,9 +2,9 @@ from typing import List
 import numpy as np
 import cv2
 from src.others.frame import Frame, orbFeature
-from src.others.linalg import invert_transform, transform_points
-from src.others.epipolar_geometry import dist_epipolar_line, compute_F12, compute_T12, triangulate, triangulation_angles, triang_points_reprojection_error
-from src.others.scale import get_scale_invariance_limits
+from src.others.linalg import invert_transform
+from src.others.epipolar_geometry import compute_T12, triangulate, triangulation_angles, triang_points_reprojection_error
+from src.tracking.point_association import wordPointAssociation
 from config import SETTINGS, K, log, fx, fy, cx, cy
 
 
@@ -13,6 +13,8 @@ n_levels = SETTINGS["orb"]["level_pyramid"]
 
 MIN_OBSERVATIONS = SETTINGS["map"]["min_observations"]
 MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
+
+DIST_THRESH = SETTINGS["point_association"]["hamming_threshold"]
 
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
@@ -318,108 +320,78 @@ class Map():
         """
         log.info(f"[Map] Creating new map points using frame {t_frame.id}")
         # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
-        pairs = {} # (t_feature_id: neighbor_frame_id, neighbor_feature_id, dist)
 
         # Get the neighbor frames in the convisibility graph
         neighbor_kf_ids = cgraph.get_connected_frames(t_frame.id)
 
-        # Iterate over the bow feature vector of the current frame
-        for t_word_id, t_kpt_id in t_frame.feature_vector.items():
-            t_feature = t_frame.features[t_kpt_id]
-            # Check if the feature is unmatched
-            if t_feature.matched:
-                continue
-
-            # Iterate over neighbor keyframes
-            best_dist = np.inf
-            for n_kf_id in neighbor_kf_ids:
-                # Check if this keyframe sees the same word
-                if n_kf_id not in bow_db[t_word_id]:
-                    continue
-                n_frame = keyframes[n_kf_id]
-
-                # Check that the baseline is not too short
-                # Small translation errors for short baseline keyframes make scale to diverge
-                baseline = np.linalg.norm(t_frame.pose[:3, 3] - n_frame.pose[:3, 3])
-                median_depth = n_frame.median_depth(self)
-                if baseline / median_depth < 0.01:
-                    continue
-
-                # Extract the neighbor feature for the same word
-                n_kpt_id = n_frame.feature_vector[t_word_id]
-                n_feature = n_frame.features[n_kpt_id]
-
-                # Check if the feature is unmatched
-                if n_feature.matched:
-                    continue
-
-                # Compute the descriptor distance for this word and check if it is low enough
-                d = cv2.norm(t_feature.desc, n_feature.desc, cv2.NORM_HAMMING)
-                if d < SETTINGS["point_association"]["hamming_threshold"]:
-                    # Check if the candidate pair satisfies the epipolar constraint
-                    F = compute_F12(t_frame, n_frame)
-                    d_epi_sqr = dist_epipolar_line(t_feature.kpt.pt, n_feature.kpt.pt, F)
-                    d_threshold = 5.991 * n_frame.scale_uncertainties[n_feature.kpt.octave]
-                    if d_epi_sqr < d_threshold:
-                        # Only keep the best match per visual word
-                        if d < best_dist:
-                            pairs[t_kpt_id] = (n_frame.id, n_kpt_id, d)
-                            best_dist = d
-
-        log.info(f"\t Found {len(pairs.keys())} potential points from Visual Words!") 
-
-        # For every formed pair, triangulate new points and add them to the map
-        ratio_factor = 1.5 * t_frame.scale_factors[1]
         num_created_points = 0
-        for t_kpt_id, (n_frame_id, n_kpt_id, _) in pairs.items():
-            t_feat: orbFeature = t_frame.features[t_kpt_id]
+        ratio_factor = 1.5 * t_frame.scale_factors[1]
+
+        # Iterate over all neighbor frames
+        for n_frame_id in neighbor_kf_ids:
             n_frame: Frame = keyframes[n_frame_id]
-            n_feat: orbFeature = n_frame.features[n_kpt_id]
 
-            # Compute the transformation between the 2 frames and the new point
-            T_tn = compute_T12(t_frame, n_frame)
-            new_t_point = triangulate(t_feat.kpt.pt, n_feat.kpt.pt, T_tn).flatten()
-            new_n_point = T_tn[:3, :3] @ new_t_point + T_tn[:3, 3]
-
-            # To accept the new points, ensure
-            # 1) positive depth in both cameras, 
-            if new_t_point[2] < 0 or new_n_point[2] < 0:
+            # Check that the baseline is not too short
+            # Small translation errors for short baseline keyframes make scale to diverge
+            baseline = np.linalg.norm(t_frame.pose[:3, 3] - n_frame.pose[:3, 3])
+            median_depth = n_frame.median_depth(self)
+            if baseline / median_depth < 0.01:
                 continue
 
-            # 2) sufficient parallax, 
-            angle = triangulation_angles(new_t_point, new_n_point, T_tn)
-            if angle < SETTINGS["map"]["min_triang_angle"]:
-                continue
-             
-            # 3) reprojection error
-            error = triang_points_reprojection_error(new_t_point, n_feat.kpt.pt, T_tn)
-            if error > SETTINGS["map"]["max_reproj_threshold"]:
-                continue
-            
-            # 4) and scale consistency are checked.
-            ## Compute the distance between the point and the camera frame
-            t_dist = np.linalg.norm(new_t_point - t_frame.pose[:3, 3])
-            n_dist = np.linalg.norm(new_n_point - n_frame.pose[:3, 3])
-            if t_dist == 0 or n_dist == 0:
-                continue
-            ratio_dist = t_dist / n_dist
-            ## Compute the ORB scale factor of every feature 
-            ## The scale factor is basically how big each feature is expected to be,
-            ## based on the pyramid level that it is detected on
-            t_scale_factor = t_frame.scale_factors[t_feat.kpt.octave]
-            n_scale_factor = n_frame.scale_factors[n_feat.kpt.octave] 
-            ratio_octave = t_scale_factor / n_scale_factor
-            ## Make sure that the change in point size *somewhat* agrees
-            ## with the predicted size change based on pyramid levels
-            if (ratio_octave / ratio_factor < ratio_dist and 
-                ratio_dist < ratio_octave * ratio_factor):
-                continue
+            # Find t<->n pairs for every word
+            # (t_feature_id: neighbor_feature_id, dist)
+            pairs = wordPointAssociation(t_frame, n_frame, bow_db)
+            log.info(f"\t Connected frame #{n_frame_id}: Found {len(pairs.keys())} potential points from Visual Words!") 
 
-            # Point was accepted
-            new_w_point = t_frame.pose[:3, :3] @ new_t_point + t_frame.pose[:3, 3]
-            self._add_new_point(new_w_point, t_frame, n_frame, t_feat, n_feat)
+            # For every formed pair, triangulate new points and add them to the map
+            for t_feat_id, (n_feat_id, _) in pairs.items():
+                t_feat: orbFeature = t_frame.features[t_feat_id]
+                n_feat: orbFeature = n_frame.features[n_feat_id]
 
-            num_created_points += 1
+                # Compute the transformation between the 2 frames and the new point
+                T_tn = compute_T12(t_frame, n_frame)
+                new_t_point = triangulate(t_feat.kpt.pt, n_feat.kpt.pt, T_tn).flatten()
+                new_n_point = T_tn[:3, :3] @ new_t_point + T_tn[:3, 3]
+
+                # To accept the new points, ensure
+                # 1) positive depth in both cameras, 
+                if new_t_point[2] < 0 or new_n_point[2] < 0:
+                    continue
+
+                # 2) sufficient parallax, 
+                angle = triangulation_angles(new_t_point, new_n_point, T_tn)
+                if angle < SETTINGS["map"]["min_triang_angle"]:
+                    continue
+                
+                # 3) reprojection error
+                error = triang_points_reprojection_error(new_t_point, n_feat.kpt.pt, T_tn)
+                if error > SETTINGS["map"]["max_reproj_threshold"]:
+                    continue
+                
+                # 4) and scale consistency are checked.
+                ## Compute the distance between the point and the camera frame
+                t_dist = np.linalg.norm(new_t_point - t_frame.pose[:3, 3])
+                n_dist = np.linalg.norm(new_n_point - n_frame.pose[:3, 3])
+                if t_dist == 0 or n_dist == 0:
+                    continue
+                ratio_dist = t_dist / n_dist
+                ## Compute the ORB scale factor of every feature 
+                ## The scale factor is basically how big each feature is expected to be,
+                ## based on the pyramid level that it is detected on
+                t_scale_factor = t_frame.scale_factors[t_feat.kpt.octave]
+                n_scale_factor = n_frame.scale_factors[n_feat.kpt.octave] 
+                ratio_octave = t_scale_factor / n_scale_factor
+                ## Make sure that the change in point size *somewhat* agrees
+                ## with the predicted size change based on pyramid levels
+                if (ratio_octave / ratio_factor < ratio_dist and 
+                    ratio_dist < ratio_octave * ratio_factor):
+                    continue
+
+                # Point was accepted
+                new_w_point = t_frame.pose[:3, :3] @ new_t_point + t_frame.pose[:3, 3]
+                self._add_new_point(new_w_point, t_frame, n_frame, t_feat, n_feat)
+
+                num_created_points += 1
 
         log.info(f"\t Created {num_created_points} points!") 
 

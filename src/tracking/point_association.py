@@ -1,19 +1,22 @@
 import numpy as np
 import cv2
 from scipy.linalg import expm, logm
-from src.local_mapping.map import Map, localMap, mapPoint
-from src.backend.convisibility_graph import ConvisibilityGraph
 from src.others.frame import Frame
 from src.others.linalg import invert_transform
 from src.others.visualize import plot_pixels
+from src.others.epipolar_geometry import dist_epipolar_line, compute_F12
 from config import SETTINGS, results_dir, K, log
 
+
+scale_factor = SETTINGS["orb"]["scale_factor"]
+n_levels = SETTINGS["orb"]["level_pyramid"]
 
 debug = SETTINGS["generic"]["debug"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
 MIN_NUM_MATCHES = SETTINGS["point_association"]["num_matches"]
 HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
+DIST_THRESH = SETTINGS["point_association"]["hamming_threshold"]
 
 
 def constant_velocity_model(t: float, frames: list):
@@ -46,7 +49,7 @@ def constant_velocity_model(t: float, frames: list):
 
     return T_wc
 
-def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: ConvisibilityGraph):
+def bowPointAssociation(map, cand_frame: Frame, t_frame: Frame, cgraph):
     """
     Matches the map points seen in a candidate frame with the current frame.
 
@@ -141,10 +144,10 @@ def bowPointAssociation(map: Map, cand_frame: Frame, t_frame: Frame, cgraph: Con
 
     return len(unique_matches)
 
-def localPointAssociation(map: Map, 
+def localPointAssociation(map, 
                           q_frame: Frame,
                           t_frame: Frame, 
-                          cgraph: ConvisibilityGraph,
+                          cgraph,
                           theta: int=None, 
                           search_window: int=None):
     """
@@ -204,7 +207,7 @@ def localPointAssociation(map: Map,
     matched_features = {}
 
     # Get the map points observed in the last frame
-    q_map_points: set[mapPoint] = cgraph.get_frustum_points(q_frame, map)
+    q_map_points = cgraph.get_frustum_points(q_frame, map)
 
     # Loop over the points
     for point in q_map_points:
@@ -265,7 +268,7 @@ def localPointAssociation(map: Map,
         log.info(f"\t Found {len(matched_features)} Point Associations!")
     return len(matched_features)
 
-def globalPointAssociation(cgraph: ConvisibilityGraph, map: Map, t_frame: Frame):
+def globalPointAssociation(cgraph, map, t_frame: Frame):
     """
     Matches the map points seen in previous frames with the current frame.
 
@@ -358,7 +361,7 @@ def globalPointAssociation(cgraph: ConvisibilityGraph, map: Map, t_frame: Frame)
         log.info(f"\t Found {len(unique_matches)} Point Associations!")
     return len(unique_matches)
 
-def mapPointAssociation(local_map: localMap, map: Map, t_frame: Frame, theta: int = 15):
+def mapPointAssociation(local_map, map, t_frame: Frame, theta: int = 15):
     """
     Projects all un-matched map points to a frame and searches more correspondances.
 
@@ -372,7 +375,7 @@ def mapPointAssociation(local_map: localMap, map: Map, t_frame: Frame, theta: in
 
     # Iterate over all the map points
     for pid in local_map.point_ids:
-        point: mapPoint = map.points[pid]
+        point = map.points[pid]
 
         # Skip matched map points
         if pid in matched_point_ids:
@@ -439,3 +442,95 @@ def mapPointAssociation(local_map: localMap, map: Map, t_frame: Frame, theta: in
         plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
 
     return len(new_matched_features)
+
+def wordPointAssociation(t_frame: Frame, n_frame: Frame, bow_db):
+    # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
+    pairs = {} # t_feature_id: (neighbor_frame_id, neighbor_feature_id, dist)
+
+    # Compute the fundamental matrix
+    F_tn = compute_F12(t_frame, n_frame)
+
+    # Iterate over all visual words
+    for word_id in bow_db.keys():
+        # Extract the features from the frames, if the word exists
+        t_features = t_frame.get_features_for_word(word_id)
+        if t_features is None:
+            continue
+        n_features = n_frame.get_features_for_word(word_id)
+        if n_features is None:
+            continue
+        # log.info(f"\t Word #{word_id}: {len(t_features)} x {len(n_features)} candidates!") 
+
+        # Iterate over features that match this word in the current frame
+        for t_feature in t_features:
+            # Skip already matched features
+            if t_feature.matched: 
+                break
+
+            # Store feature matches
+            desc_distances = {}
+
+            # Iterate over features for the same word in the neighbor frame
+            for n_feature in n_features:
+                # Extract their distance
+                dist = cv2.norm(t_feature.desc, n_feature.desc, cv2.NORM_HAMMING)
+                # Check if the descriptors are similar enough
+                if dist > DIST_THRESH:
+                    continue
+                # Keep the match distance and the feature id
+                desc_distances[n_feature.id] = dist
+
+            # Check if any matches were found
+            if len(desc_distances.keys()) == 0:
+                continue
+
+            # Sort the match distances based on distance
+            desc_distances_sorted = sorted(desc_distances.items(), key=lambda item: item[1])
+            best_dist = desc_distances_sorted[0][1]
+            dist_th = round(2*best_dist)
+
+            # Iterate over all feature candidates for this word
+            for n_feature_id, dist in desc_distances_sorted:
+                n_feature = n_frame.features[n_feature_id]
+                assert(n_feature.id == n_feature_id)
+                # If the distance if much larger than the best candidate, stop searching
+                if dist > dist_th:
+                    break
+
+                # Check if the candidate pair satisfies the epipolar constraint
+                d_epi_sqr = dist_epipolar_line(t_feature.kpt.pt, n_feature.kpt.pt, F_tn)
+                d_threshold = 3.84 * n_frame.scale_uncertainties[n_feature.kpt.octave]
+                if d_epi_sqr < d_threshold:
+                    pairs[t_feature.id] = (n_feature.id, dist)
+                    # log.info(f"\t\t Match at word #{word_id}: t_{t_feature.id} <-> n_{n_feature.id}!") 
+                    # Stop if you find a good matching candidate
+                    break
+
+    # Drop duplicated features from the pairs
+    unique_pairs = dedupe_pairs(pairs)
+    return unique_pairs
+
+def dedupe_pairs(pairs):
+    """
+    Given:
+      pairs: dict[t_feat_id] = (n_feat_id, dist)
+    Returns:
+      new_pairs: dict[t_feat_id] = (n_feat_id, dist)
+                 with no repeated t_feat_id or n_feat_id, keeping minimal dist.
+    """
+    # 1. Sort all data by ascending dist
+    sorted_pairs = sorted(pairs.items(), key=lambda item: item[1][1])
+    
+    new_pairs = {}
+    used_t = set()
+    used_n = set()
+    
+    # 2. Greedily take each pair if both feature IDs are still unused
+    for t_feat_id, (n_feat_id, dist) in sorted_pairs:
+        if t_feat_id in used_t or n_feat_id in used_n:
+            continue
+        new_pairs[t_feat_id] = (n_feat_id, dist)
+        used_t.add(t_feat_id)
+        used_n.add(n_feat_id)
+    
+    return new_pairs

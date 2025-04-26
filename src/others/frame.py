@@ -21,18 +21,19 @@ class orbFeature():
         self.id = kpt.class_id
 
         self.mp = None
-        self.matched = False
+
+    @property
+    def matched(self):
+        return False if self.mp is None else True
 
     def match_map_point(self, pid: int, dist: np.float64):
         self.mp = {
             "id": pid,
             "dist": dist
         }
-        self.matched = True
 
     def reset_mp_match(self):
-        self.mp = {}
-        self.matched = False
+        self.mp = None
 
 
 class Frame():
@@ -267,21 +268,22 @@ class Frame():
         ## This next step would normally not be needed if we used a SOTA vBoW
         ## extractor like DBoW2, but since we don't it's a way around
 
+        # Initialize the feature vector with nothing
+        distance_vector = {}
+        for wid in range(len(vocab)): 
+            self.feature_vector[wid] = []
+            distance_vector[wid] = []
+
         # Build the feature vector (maps visual words -> keypoint indices)
         # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         matches = matcher.match(self.descriptors, vocab)
-        distance_vector = {}
         for match in matches:
             word_idx = match.trainIdx               # Index of the visual word in the vocabulary.
             q_idx = match.queryIdx                  # Index of the keypoint in the image.
             kp_id = self.keypoints[q_idx].class_id  # ID of the keypoint in the image.
-            if word_idx in self.feature_vector:
-                if match.distance < distance_vector[word_idx]:
-                    self.feature_vector[word_idx] = kp_id
-                    distance_vector[word_idx] = match.distance
-            else:
-                self.feature_vector[word_idx] = kp_id
-                distance_vector[word_idx] = match.distance
+
+            self.feature_vector[word_idx].append(kp_id)
+            distance_vector[word_idx].append(match.distance)
 
         # Loop over each visual word (i.e., each bin in the histogram)
         # and add this frame's ID to the database for every visual word that occurs in the image.
@@ -290,6 +292,17 @@ class Frame():
             if self.bow_hist[0, visual_word] > 0:
                 # Append the current frame's ID to the list for this visual word.
                 bow_db[visual_word].append(self.id)
+
+    def get_features_for_word(self, word_id: int) -> list[orbFeature]:
+        # Check if the frame sees this word
+        if len(self.feature_vector[word_id]) == 0:
+            return None
+
+        # Extract the feature from the frames
+        kpt_ids = self.feature_vector[word_id]
+        features = [self.features[k] for k in kpt_ids]
+        
+        return features
 
     ############################################# LOGGING #############################################
 
