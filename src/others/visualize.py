@@ -360,7 +360,7 @@ def plot_matches(matches, q_frame, t_frame, save_path: str = None):
     
     # Save the image with matched features
     if not save_path:
-        save_path = results_dir / f"matches/" / f"{q_frame.id}_{t_frame.id}.png"
+        save_path = results_dir / "matches" / f"{q_frame.id}_{t_frame.id}.png"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     cv2.imwrite(str(save_path), matched_image)
 

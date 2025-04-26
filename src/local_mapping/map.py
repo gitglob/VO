@@ -5,7 +5,8 @@ from src.others.frame import Frame, orbFeature
 from src.others.linalg import invert_transform
 from src.others.epipolar_geometry import compute_T12, triangulate, triangulation_angles, triang_points_reprojection_error
 from src.tracking.point_association import wordPointAssociation
-from config import SETTINGS, K, log, fx, fy, cx, cy
+from src.others.visualize import plot_matches
+from config import SETTINGS, K, log, fx, fy, cx, cy, results_dir
 
 
 scale_factor = SETTINGS["orb"]["scale_factor"]
@@ -324,6 +325,7 @@ class Map():
         # Get the neighbor frames in the convisibility graph
         neighbor_kf_ids = cgraph.get_connected_frames(t_frame.id)
 
+        matches = []
         num_created_points = 0
         ratio_factor = 1.5 * t_frame.scale_factors[1]
 
@@ -344,7 +346,7 @@ class Map():
             log.info(f"\t Connected frame #{n_frame_id}: Found {len(pairs.keys())} potential points from Visual Words!") 
 
             # For every formed pair, triangulate new points and add them to the map
-            for t_feat_id, (n_feat_id, _) in pairs.items():
+            for t_feat_id, (n_feat_id, dist) in pairs.items():
                 t_feat: orbFeature = t_frame.features[t_feat_id]
                 n_feat: orbFeature = n_frame.features[n_feat_id]
 
@@ -390,8 +392,14 @@ class Map():
                 # Point was accepted
                 new_w_point = t_frame.pose[:3, :3] @ new_t_point + t_frame.pose[:3, 3]
                 self._add_new_point(new_w_point, t_frame, n_frame, t_feat, n_feat)
+                matches.append((t_feat.idx, n_feat.idx, dist))
 
                 num_created_points += 1
+
+            if debug:
+                cv2_matches = [cv2.DMatch(t, n, d) for (t,n,d) in matches]
+                save_path = results_dir / "map" / "new_points" / f"{t_frame.id}_{n_frame.id}.png"
+                plot_matches(cv2_matches, t_frame, n_frame, save_path)
 
         log.info(f"\t Created {num_created_points} points!") 
 

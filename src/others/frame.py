@@ -15,10 +15,11 @@ H = SETTINGS["camera"]["height"]
 
 
 class orbFeature():
-    def __init__(self, kpt: cv2.KeyPoint, desc: np.ndarray):
+    def __init__(self, kpt: cv2.KeyPoint, desc: np.ndarray, idx: int):
         self.kpt = kpt
         self.desc = desc
         self.id = kpt.class_id
+        self.idx = idx
 
         self.mp = None
 
@@ -245,7 +246,7 @@ class Frame():
             Frame._keypoint_id_counter += 1
             # Assign the keypoint's class_id
             k.class_id = Frame._keypoint_id_counter
-            self.features[k.class_id] = orbFeature(k, desc[i])
+            self.features[k.class_id] = orbFeature(k, desc[i], i)
         
         self.keypoints = kpts
         self.descriptors = desc
