@@ -49,13 +49,10 @@ def estimate_relative_pose(matches, q_frame, t_frame, K, dist_coeffs=None):
     # Use solvePnP to estimate the pose
     success, rvec, tvec, inliers = cv2.solvePnPRansac(q_pts_3d, t_kpt_pixels, 
                                                       cameraMatrix=K, distCoeffs=dist_coeffs, 
-                                                      reprojectionError=1.0, confidence=0.999, 
+                                                      reprojectionError=4.0, confidence=0.999, 
                                                       iterationsCount=300)
     if not success or inliers is None:
         print("\t solvePnP failed!")
-        return None
-    if len(inliers) < 10:
-        print("\t solvePnP did not find enough inliers!")
         return None
 
     inliers = inliers.flatten()
@@ -84,14 +81,14 @@ def estimate_relative_pose(matches, q_frame, t_frame, K, dist_coeffs=None):
         print(f"\tReprojection error ({error:.2f}) filtered {inliers_mask.sum() - reprojection_mask.sum()}/{inliers_mask.sum()} points.")
 
     # Construct the refined pose matrix
-    T = np.eye(4)
-    T[:3, :3] = Rot
-    T[:3, 3] = tvec
+    T_t2q = np.eye(4)
+    T_t2q[:3, :3] = Rot
+    T_t2q[:3, 3] = tvec
 
     # Convert the camera coordinates to the world coordinates
-    T_inv = invert_transform(T)
+    T_q2t = invert_transform(T_t2q)
 
-    return T_inv
+    return T_q2t
     
 def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs=None, threshold=2.0):
     """Compute the reprojection error for the given 3D-2D point correspondences and pose."""
@@ -105,29 +102,6 @@ def compute_reprojection_error(pts_3d, pts_2d, rvec, tvec, K, dist_coeffs=None, 
     # Create a mask for points with error less than the threshold
     mask = errors < threshold
     return mask, errors
-
-def check_velocity(T: np.ndarray, dt: float):
-    """Velocity sanity check"""
-    T = invert_transform(T)
-    
-    Rot = T[:3, :3]
-    t = T[:, 3]
-
-    # Check if the estimated velocity makes sense
-    dist = np.linalg.norm(t)
-    velocity = dist / dt
-    if abs(velocity) > 7.5:
-        print(f"\tWarning: The velocity ({velocity:.2f}) is an outlier due to bad correspondences!")
-        return False
-
-    # Check if the estimated yaw rate makes sense
-    yaw = get_yaw(Rot)
-    yaw_rate = yaw/dt
-    if abs(yaw_rate) > 30:
-        print(f"\tWarning: The yaw rate ({yaw_rate:.2f}) is an outlier due to bad correspondences!")
-        return False
-    
-    return True
 
 def is_keyframe(T: np.ndarray, t_threshold=0.5, angle_threshold=10, debug=False):
     """ Determine if motion expressed by t, R is significant by comparing to tresholds. """

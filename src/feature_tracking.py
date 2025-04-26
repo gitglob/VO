@@ -54,7 +54,7 @@ def filter_matches(matches, debug):
     """Filter out matches using Lowe's Ratio Test"""
     good_matches = []
     for m, n in matches:
-        if m.distance < 0.8 * n.distance:
+        if m.distance < 0.9 * n.distance:
             good_matches.append(m)
 
     if debug:
@@ -79,45 +79,42 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels, K):
     # Compute Essential & Homography matrices
 
     ## Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, 
+                                     cameraMatrix=K, method=cv2.RANSAC, 
+                                     prob=0.999, threshold=2.0)
     mask_E = mask_E.ravel().astype(bool)
 
     ## Compute the Homography Matrix
-    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels, method=cv2.RANSAC, ransacReprojThreshold=1.0)
+    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels, 
+                                   method=cv2.RANSAC, 
+                                   ransacReprojThreshold=2.0)
     mask_H = mask_H.ravel().astype(bool)
 
     # Compute symmetric transfer errors & decide which model to use
-
+        
     ## Compute symmetric transfer error for Essential Matrix
-    error_E, num_inliers_E = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E', K=K)
+    score_F = compute_symmetric_transfer_error(E, K, q_kpt_pixels, t_kpt_pixels, 'E')
 
     ## Compute symmetric transfer error for Homography Matrix
-    error_H, num_inliers_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H', K=K)
-        
-    if num_inliers_E == 0 and num_inliers_H == 0:
-        print("0 Inliers. All keypoint pairs yield errors > threshold..")
-        return None, None, None
+    score_H = compute_symmetric_transfer_error(H, K, q_kpt_pixels, t_kpt_pixels, 'H')
     
     ## Decide which matrix to use based on the ratio of inliers
-    ratio = num_inliers_H / (num_inliers_E + num_inliers_H)
-    if debug:
-        print(f"\t Inliers E/H: {num_inliers_E} / {num_inliers_H}. Ratio: {ratio}")
-
-    use_homography = (ratio > 0.45)
-    if debug:
-        print(f"\t\t Using {'Homography' if use_homography else 'Essential'} Matrix...")
-
+    ratio_H = score_H / (score_H + score_F)
+    use_homography = (ratio_H > 0.45)
     epipolar_constraint_mask = mask_H if use_homography else mask_E
-    if debug:
-        print(f"\t\t Epipolar Constraint filtered {len(q_kpt_pixels) - epipolar_constraint_mask.sum()}/{len(q_kpt_pixels)} matches!")
-
     M = H if use_homography else E
+    if debug:
+        print(f"\t\t Ratio: {ratio_H:.2f}. Using {'Homography' if use_homography else 'Essential'} Matrix...")
+        print(f"\t\t Epipolar Constraint filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches!")
 
     return epipolar_constraint_mask, M, use_homography
 
-def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', K=None, threshold=4.0):
+def compute_symmetric_transfer_error(E_or_H, K, 
+                                     q_kpt_pixels, t_kpt_pixels, 
+                                     matrix_type='E', 
+                                     T_H = 23.96, T_F = 15.36):
     """
-    Computes the symmetric transfer error for a set of corresponding keypoints using
+    Computes the symmetric transfer error (in pixels) for a set of corresponding keypoints using
     either an Essential matrix or a Homography matrix. This function is used to evaluate 
     how well the estimated transformation aligns the corresponding keypoints between two images.
 
@@ -137,41 +134,86 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
     The function then returns the mean error across all valid keypoint pairs and counts how many
     of these pairs have an error below the specified threshold (i.e., inliers).
     """
-    errors = []
-    num_inliers = 0
+    score = 0
 
     if matrix_type == 'E':
-        F = np.linalg.inv(K.T) @ E_or_H @ np.linalg.inv(K)
+        if K is None:
+            raise ValueError("Camera intrinsic matrix K must be provided when using an essential matrix.")
+        try:
+            K_inv = np.linalg.inv(K)
+        except np.linalg.LinAlgError:
+            raise ValueError("Provided homography is non-invertible.")
+        
+        # Compute fundamental matrix F from the essential matrix
+        # The fundamental matrix maps pixels in one image to an epiline in the other image
+        F = K_inv.T @ E_or_H @ K_inv
+        
+        for q_px, t_px in zip(q_kpt_pixels, t_kpt_pixels):
+            # Convert pixel coordinates to homogeneous coordinates
+            qp = np.array([q_px[0], q_px[1], 1.0])
+            tp = np.array([t_px[0], t_px[1], 1.0])
+            # Compute the epipolar lines in the other image
+            # That means that the q_pixels will be found in the t)image on the t_line and the t_pixels on the q_image on the q_line
+            # A line is in the form of ax + by + c, where [x,y] are the pixel coordinates
+            q_line = F @ tp   # Line in query image corresponding to tp
+            t_line = F.T @ qp # Line in train image corresponding to qp
+            
+            # Normalize the lines using the norm of the first two components
+            q_line_norm = np.hypot(q_line[0], q_line[1])
+            t_line_norm = np.hypot(t_line[0], t_line[1])
+            if q_line_norm == 0 or t_line_norm == 0:
+                continue
+            q_line_normalized = q_line / q_line_norm
+            t_line_normalized = t_line / t_line_norm
+
+            # Compute the perpendicular distances from the points to the lines
+            dq = abs(np.dot(qp, q_line_normalized))
+            q_error = dq**2
+            dt = abs(np.dot(tp, t_line_normalized))
+            t_error = dt**2
+
+            # Compute the score
+            sq = T_F - q_error
+            st = T_F - t_error
+            score += sq + st
+    elif matrix_type == 'H':
+        # For homography, compute the symmetric reprojection error.
+        # The Homography matrix in general maps points from the train image to the query image: p1 = H @ p2
+        H = E_or_H  # H: mapping from target to query image
+        try:
+            H_inv = np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            raise ValueError("Provided homography is non-invertible.")
+        
+        for q_px, t_px in zip(q_kpt_pixels, t_kpt_pixels):
+            # Convert pixel coordinates to homogeneous coordinates
+            qp = np.array([q_px[0], q_px[1], 1.0])
+            tp = np.array([t_px[0], t_px[1], 1.0])
+            
+            # Map train points to the query image
+            qp_est = H @ tp
+            if np.isclose(qp_est[2], 0):
+                continue
+            qp_est = qp_est / qp_est[2]
+            
+            # Map query points to the train image
+            tp_est = H_inv @ qp
+            if np.isclose(tp_est[2], 0):
+                continue
+            tp_est = tp_est / tp_est[2]
+            
+            # Compute reprojection errors in both directions (Euclidean distances)
+            dq = np.linalg.norm(tp - tp_est)
+            q_error = dq**2
+            dt = np.linalg.norm(qp - qp_est)
+            t_error = dt**2
+
+            # Compute the score
+            sq = T_H - q_error
+            st = T_H - t_error
+            score += sq + st
     else:
-        F = np.linalg.inv(K) @ E_or_H @ K
+        raise ValueError("matrix_type must be either 'E' (essential matrix) or 'H' (homography)")
 
-    # Loop over paired keypoints
-    for pt_target, pt_query in zip(t_kpt_pixels, q_kpt_pixels):
-        # Convert to homogeneous coordinates
-        p1 = np.array([pt_target[0], pt_target[1], 1.0])
-        p2 = np.array([pt_query[0], pt_query[1], 1.0])
-
-        # Compute the corresponding epipolar lines
-        l2 = F @ p1    # Epipolar line in the query image corresponding to p1
-        l1 = F.T @ p2  # Epipolar line in the target image corresponding to p2
-
-        # Normalize the lines using the Euclidean norm of the first two coefficients
-        norm_l1 = np.hypot(l1[0], l1[1])
-        norm_l2 = np.hypot(l2[0], l2[1])
-        if norm_l1 == 0 or norm_l2 == 0:
-            continue
-        l1_normalized = l1 / norm_l1
-        l2_normalized = l2 / norm_l2
-
-        # Compute perpendicular distances (absolute value of point-line dot product)
-        d1 = abs(np.dot(p1, l1_normalized))
-        d2 = abs(np.dot(p2, l2_normalized))
-        error = d1 + d2
-
-        errors.append(error)
-        if error < threshold:
-            num_inliers += 1
-
-    mean_error = np.mean(errors) if errors else float('inf')
-    return mean_error, num_inliers
+    return score
     
