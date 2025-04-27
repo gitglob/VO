@@ -1,6 +1,7 @@
 from itertools import combinations
-from src.others.frame import Frame
-from src.local_mapping.map import Map, localMap, mapPoint
+import src.utils as utils
+import src.local_mapping as mapping
+import src.globals as ctx
 from config import SETTINGS, log
 
 
@@ -71,7 +72,7 @@ class ConvisibilityGraph(Graph):
 
         self._first_keyframe_id = None
 
-    def add_first_keyframe(self, keyframe: Frame):
+    def add_first_keyframe(self, keyframe: utils.Frame):
         """Adds the first keyframe to the graph."""
         log.info(f"[Graph] Buffering keyframe #{keyframe.id}")
         if keyframe.id in self.nodes.keys():
@@ -80,7 +81,7 @@ class ConvisibilityGraph(Graph):
         
         self._first_keyframe_id = keyframe.id
 
-    def add_init_keyframe(self, keyframe: Frame):
+    def add_init_keyframe(self, keyframe: utils.Frame):
         """
         Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
 
@@ -109,7 +110,7 @@ class ConvisibilityGraph(Graph):
 
         self._update_edges_on_new_frame(keyframe.id, kf_map_pt_ids)
 
-    def add_track_keyframe(self, keyframe: Frame):
+    def add_track_keyframe(self, keyframe: utils.Frame):
         """Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree."""
         kf_map_pt_ids = keyframe.get_map_point_ids()
 
@@ -207,11 +208,11 @@ class ConvisibilityGraph(Graph):
         """Returns the map points seen by a keyframe"""
         return self.nodes[kf_id]
     
-    def get_frustum_points(self, frame: Frame, map: Map):
+    def get_frustum_points(self, frame: utils.Frame):
         """Returns the points that are in the view of a given frame"""
         points = set()
         for pid in self.nodes[frame.id]:
-            points.add(map.points[pid])
+            points.add(ctx.map.points[pid])
         return points
     
 
@@ -258,7 +259,7 @@ class ConvisibilityGraph(Graph):
 
         return observing_kf_ids
     
-    def get_frames_that_observe_point_at_scale(self, pid: int, scale: int, map) -> set[int]:
+    def get_frames_that_observe_point_at_scale(self, pid: int, scale: int) -> set[int]:
         """Returns all the keyframes that see a point at a specific or finer scale"""
         # Get all the keyframes that see the point
         cand_observing_kf_ids = set()
@@ -267,7 +268,7 @@ class ConvisibilityGraph(Graph):
                 cand_observing_kf_ids.add(kf_id)
 
         # Get the observations of that point in these keyframes
-        point = map.points[pid]
+        point = ctx.map.points[pid]
         keyframe_observers_ids = point.get_scale_observations(scale)
 
         return keyframe_observers_ids
@@ -359,7 +360,7 @@ class ConvisibilityGraph(Graph):
         self._update_edges_on_point_culling()
 
 
-    def create_local_map(self, frame: Frame, map: Map):
+    def create_local_map(self, frame: utils.Frame):
         """
         Projects the map into a given frame and returns a local map.
         This local map contains: 
@@ -375,7 +376,7 @@ class ConvisibilityGraph(Graph):
         K1_frame_counts = {}
         # Iterate over all the matched map points
         for pid in frame_map_point_ids:
-            point = map.points[pid]
+            point = ctx.map.points[pid]
             # Iterate over all the point observations
             for obs in point.observations:
                 # Keep the frame ids that are different than the current frame and exist in the graph
@@ -402,12 +403,12 @@ class ConvisibilityGraph(Graph):
         ref_frame_id = ref_frame_ids[0]
 
         # Create the local map
-        local_map = localMap(ref_frame_id, K1_frame_ids, K1_point_ids, K2_frame_ids, K2_point_ids)
+        local_map = mapping.localMap(ref_frame_id, K1_frame_ids, K1_point_ids, K2_frame_ids, K2_point_ids)
 
         return local_map
 
 
-    def add_loop_edge(self, keyframe_id1, keyframe_id2, weight):
+    def add_loop_edge(self, keyframe_id1: int, keyframe_id2: int, weight: int):
         """
         Adds an edge corresponding to a loop closure.
 

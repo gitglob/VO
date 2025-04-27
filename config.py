@@ -1,7 +1,7 @@
 import yaml
 from pathlib import Path
 import numpy as np
-from src.others.utils import setup_logger
+from src.utils.utils import setup_logger
 
 
 main_dir = Path(__file__).parent

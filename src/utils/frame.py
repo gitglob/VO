@@ -1,9 +1,9 @@
-from typing import List, Tuple, Dict
+from typing import Tuple
 import numpy as np
 import cv2
-from cv2 import DMatch
-from src.others.linalg import invert_transform
-from src.others.visualize import plot_keypoints
+import src.utils as utils
+import src.visualization as vis
+import src.globals as ctx
 
 from config import results_dir, SETTINGS, log, fx, fy, cx, cy
 
@@ -79,6 +79,14 @@ class Frame():
                 tracked_point_ids.add(feat_id)
         return tracked_point_ids
 
+    @property
+    def R(self):
+        return self.pose[:3, :3]
+    
+    @property
+    def t(self):
+        return self.pose[:3, 3]
+
     def set_time(self, t: float):
         self.time = t
 
@@ -113,7 +121,7 @@ class Frame():
 
     def project(self, point: np.ndarray) -> tuple[float, float]:
         # transform into camera frame
-        T_world2cam = invert_transform(self.pose)
+        T_world2cam = utils.invert_transform(self.pose)
         R = T_world2cam[:3, :3]
         t = T_world2cam[:3, 3]
         point_cam = R @ point + t
@@ -131,8 +139,10 @@ class Frame():
         
         return (u, v)
 
-    def is_in_frustum(self, point, keyframes):
+    def is_in_frustum(self, point):
         """Checks if a map point is inside this frame's frustum (cone of view)"""
+        keyframes = ctx.map.keyframes
+
         # 1) Projection check (positive depth and in image boundaries)
         px = self.project(point.pos)
         if px is None:
@@ -142,14 +152,14 @@ class Frame():
         # 2) Viewing‐angle check
         # Compute the angle between the current viewing ray v
         # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
-        v1 = point.view_ray(self.pose[:3, 3])
-        v2 = point.mean_view_ray(keyframes)
+        v1 = point.view_ray(self.t)
+        v2 = point.mean_view_ray()
         if v1.dot(v2) < np.cos(np.deg2rad(60)):
             return False
 
         # 3) Distance‐based scale invariance check
-        d = np.linalg.norm(point.pos - self.pose[:3, 3])
-        dmin, dmax = point.getScaleInvarianceLimits(keyframes)
+        d = np.linalg.norm(point.pos - self.R)
+        dmin, dmax = point.getScaleInvarianceLimits()
         if d < dmin or d > dmax:
             return False
 
@@ -164,7 +174,7 @@ class Frame():
         for mp in map.points.values():
             point = mp.pos
             # transform into camera frame
-            T_world2cam = invert_transform(self.pose)
+            T_world2cam = utils.invert_transform(self.pose)
             R = T_world2cam[:3, :3]
             t = T_world2cam[:3, 3]
             point_cam = R @ point + t
@@ -251,13 +261,13 @@ class Frame():
         self.keypoints = kpts
         self.descriptors = desc
         
-    def compute_bow(self, vocab, bow_db: list[dict]):
+    def compute_bow(self):
         # Create the descriptor matcher
         matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
         # Create the BoW extractor
         bow_extractor = cv2.BOWImgDescriptorExtractor(self._detector, matcher)
-        bow_extractor.setVocabulary(vocab)
+        bow_extractor.setVocabulary(ctx.vocab)
 
         # Compute the BoW histogram using the extractor
         # The histogram is typically a NumPy array of shape (1, vocab_size)
@@ -271,13 +281,13 @@ class Frame():
 
         # Initialize the feature vector with nothing
         distance_vector = {}
-        for wid in range(len(vocab)): 
+        for wid in range(len(ctx.vocab)): 
             self.feature_vector[wid] = []
             distance_vector[wid] = []
 
         # Build the feature vector (maps visual words -> keypoint indices)
         # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matches = matcher.match(self.descriptors, vocab)
+        matches = matcher.match(self.descriptors, ctx.vocab)
         for match in matches:
             word_idx = match.trainIdx               # Index of the visual word in the vocabulary.
             q_idx = match.queryIdx                  # Index of the keypoint in the image.
@@ -292,7 +302,7 @@ class Frame():
             # Check if the histogram count for this visual word is greater than zero
             if self.bow_hist[0, visual_word] > 0:
                 # Append the current frame's ID to the list for this visual word.
-                bow_db[visual_word].append(self.id)
+                ctx.bow_db[visual_word].append(self.id)
 
     def get_features_for_word(self, word_id: int) -> list[orbFeature]:
         # Check if the frame sees this word
@@ -309,5 +319,5 @@ class Frame():
 
     def log_keypoints(self):
         kpts_save_path = results_dir / "keypoints" / f"{self.id}_kpts.png"
-        plot_keypoints(self.img, self.keypoints, kpts_save_path)
+        vis.plot_keypoints(self.img, self.keypoints, kpts_save_path)
 

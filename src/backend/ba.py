@@ -1,11 +1,8 @@
-import cv2
-from copy import deepcopy
 import numpy as np
 import g2o
 from config import SETTINGS, log, fx, fy, cx, cy
-from src.others.linalg import invert_transform
-from src.local_mapping.map import Map, mapPoint
-from src.others.frame import Frame
+import src.utils as utils
+import src.local_mapping as mapping
 
 
 def X(idx: int):
@@ -39,13 +36,13 @@ class BA:
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.
         self._delta = np.sqrt(5.991)
 
-    def _add_frame(self, frame: Frame, fixed: bool=False):
+    def _add_frame(self, frame: utils.Frame, fixed: bool=False):
         """
         Adds a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         Note: g2o expects world2frame transformations.
         """
         kf_id = frame.id
-        T_w2f = invert_transform(frame.pose) 
+        T_w2f = utils.invert_transform(frame.pose) 
 
         # Convert the 4x4 pose matrix into an SE3Quat.
         R = T_w2f[:3, :3]
@@ -80,7 +77,7 @@ class BA:
         # Add landmark vertex
         self.optimizer.add_vertex(v_landmark)
 
-    def _add_observation(self, pid: int, kf: Frame, pt: tuple, octave: int, 
+    def _add_observation(self, pid: int, kf: utils.Frame, pt: tuple, octave: int, 
                          kernel: bool=True, level: int = None):
         """
         Adds reprojection observation as edge.

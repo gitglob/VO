@@ -3,7 +3,7 @@ import glob
 import pandas as pd
 import cv2
 import numpy as np
-from src.others.utils import save_image
+import src.utils as utils
 from config import results_dir, SETTINGS
 
 
@@ -80,4 +80,4 @@ class Dataset:
 
     def log_img(self, img):
         img_save_path = results_dir / "img" / f"{self._current_index}_bw.png"
-        save_image(img, img_save_path)
+        utils.save_image(img, img_save_path)

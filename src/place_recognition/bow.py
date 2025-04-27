@@ -4,8 +4,10 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from config import SETTINGS, log
-from src.others.frame import Frame
-from src.local_mapping.map import Map
+
+import src.utils as utils
+import src.local_mapping as mapping
+import src.globals as ctx
 
 
 SIM_THRESHOLD = SETTINGS["place_recognition"]["similarity_threshold"]
@@ -20,7 +22,7 @@ def load_vocabulary(type: Literal["dbow", "cv2"]):
     else:
         raise(ValueError(f"Vocabulary {vocab_path} does not exist!"))
 
-def query_recognition_candidate(map: Map, frame: Frame, database: list):
+def query_recognition_candidate(frame: utils.Frame):
     """
     Compare the BoW descriptor in an image with all descriptors in a database.
     Returns the best matching frame id and the similarity score if the highest similarity exceeds the threshold.
@@ -36,14 +38,14 @@ def query_recognition_candidate(map: Map, frame: Frame, database: list):
     best_similarity = 0.0
 
     # Iterate over all database visual words
-    for v_word_id in database.keys():
-        other_kf_id_list = database[v_word_id]
+    for v_word_id in ctx.bow_db.keys():
+        other_kf_id_list = ctx.bow_db[v_word_id]
         # Iterate over the keyframes that saw it
         for other_kf_id in other_kf_id_list:
             # Skip itself
             if other_kf_id == frame.id:
                 continue
-            other_kf = map.keyframes[other_kf_id]
+            other_kf = ctx.map.keyframes[other_kf_id]
 
             # Compare the histograms of the 2 frames
             # Use cosine similarity: higher score indicates greater similarity.

@@ -1,9 +1,8 @@
 from typing import List
 import cv2
 import numpy as np
-from src.others.frame import Frame
-from src.others.filtering import filterMatches
-from src.others.visualize import plot_matches
+import src.utils as utils
+import src.visualization as vis
 
 from config import results_dir, SETTINGS, log
 
@@ -16,7 +15,7 @@ LOWE_RATIO = SETTINGS["initialization"]["matches"]["lowe_ratio"]
 ############################### Feature Matching ##########################################
 
 
-def matchFeatures(q_frame: Frame, t_frame: Frame):
+def matchFeatures(q_frame: utils.Frame, t_frame: utils.Frame):
     """
     Matches features between two frames.
     
@@ -38,7 +37,7 @@ def matchFeatures(q_frame: Frame, t_frame: Frame):
         return None
 
     # # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
-    matches = filterMatches(matches, LOWE_RATIO)
+    matches = utils.filterMatches(matches, LOWE_RATIO)
     if len(matches) < MIN_MATCHES:
         return None
     if debug:
@@ -47,6 +46,6 @@ def matchFeatures(q_frame: Frame, t_frame: Frame):
     # Save the matches
     if debug:
         match_save_path = results_dir / f"matches/initialization/0-raw" / f"{q_frame.id}_{t_frame.id}.png"
-        plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
+        vis.plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
     return np.array(matches, dtype=object)

@@ -9,17 +9,6 @@ import numpy as np
 from PIL import Image
 
 
-def make_cv2_matches(pairs, distances=None):
-    """
-    pairs: list of (q_idx, t_idx, dist)
-    distances:  optional list of floats, same length, or None → all zeros
-    """
-    cv_matches = []
-    for i, (q_idx, t_idx, dist) in enumerate(pairs):
-        m = cv2.DMatch(q_idx, t_idx, 0, dist)
-        cv_matches.append(m)
-    return cv_matches
-
 def setup_logger(log_dir: str = "logs") -> logging.Logger:
     # 1. Ensure log directory exists
     os.makedirs(log_dir, exist_ok=True)

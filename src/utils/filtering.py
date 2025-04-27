@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
-from src.others.scale import get_scale_invariance_limits
-from src.others.visualize import plot_reprojection
+import src.utils as utils
+import src.visualization as vis
 
 from config import results_dir, SETTINGS, K, log
 
@@ -290,8 +290,8 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold, save_path
 
     # Debugging visualization
     if debug:
-        plot_reprojection(t_frame.img, t_pxs[~reproj_mask], points_proj_px[~reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}a.png")
-        plot_reprojection(t_frame.img, t_pxs[reproj_mask], points_proj_px[reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}b.png")
+        vis.plot_reprojection(t_frame.img, t_pxs[~reproj_mask], points_proj_px[~reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}a.png")
+        vis.plot_reprojection(t_frame.img, t_pxs[reproj_mask], points_proj_px[reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}b.png")
 
     return reproj_mask
 
@@ -310,7 +310,7 @@ def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
     
         # Get map point distance
         dist = np.linalg.norm(pos - cam_center)
-        dmin, dmax = get_scale_invariance_limits(dist, kpt.octave)
+        dmin, dmax = utils.get_scale_invariance_limits(dist, kpt.octave)
 
         # Check if the map_point distance is in the scale invariance region
         if dist < dmin or dist > dmax:

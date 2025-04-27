@@ -1,10 +1,8 @@
-from typing import Literal
 import numpy as np
 import g2o
-from config import SETTINGS
-from src.local_mapping.map import Map
-from src.others.frame import Frame
-from config import K, log
+import src.utils as utils
+import src.globals as ctx
+from config import K, log, SETTINGS
 
 # Set parameters from the config
 MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
@@ -23,13 +21,8 @@ def L_inv(idx: int):
 
 
 class poseBA:
-    def __init__(self, map: Map, verbose=False):
-        """
-        Initializes BA_g2o with a g2o optimizer and camera intrinsics.
-        
-        Args:
-            verbose: If True, print debug information.
-        """
+    def __init__(self, verbose=False):
+        """Initializes BA_g2o with a g2o optimizer and camera intrinsics."""
         log.info("[BA] Performing Pose Optimization...")
         self.verbose = verbose
 
@@ -53,7 +46,6 @@ class poseBA:
         self.measurement_information = np.eye(2) * (1.0 / (self.measurement_sigma ** 2))
 
         # The keyframes to optimize
-        self.map: Map = map
         self._add_frames()
         self._add_observations()
 
@@ -63,13 +55,13 @@ class poseBA:
         The first pose is fixed to anchor the graph.
         """
         if self.verbose:
-            log.info(f"\t Adding {self.map.num_keyframes()} poses...")
+            log.info(f"\t Adding {ctx.map.num_keyframes()} poses...")
         
-        frames = list(self.map.keyframes.values())
+        frames = list(ctx.map.keyframes.values())
         for frame in frames:
             self._add_frame(frame)
 
-    def _add_frame(self, frame: Frame, fixed=False):
+    def _add_frame(self, frame: utils.Frame, fixed=False):
         """
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
@@ -92,14 +84,14 @@ class poseBA:
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"\t Adding {self.map.num_points()} landmarks...")
+            log.info(f"\t Adding {ctx.map.num_points()} landmarks...")
 
         # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.
         delta = np.sqrt(5.991)
 
         # Iterate over all map points
-        for pt in self.map.points_arr:
+        for pt in ctx.map.points_arr:
             pos = pt.pos      # 3D position of landmark
             l_idx = pt.id     # landmark id
 
@@ -200,5 +192,6 @@ class poseBA:
             # Find pose verticies
             if isinstance(vertex, g2o.VertexSE3Expmap):
                 # Update poses
+                pose = vertex.estimate().matrix()
                 frame_id = X_inv(vertex.id())
-                self.map.keyframes[frame_id].pose = vertex.estimate().matrix()
+                ctx.map.keyframes[frame_id].set_pose(pose)

@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
-from src.others.linalg import invert_transform
-from src.others.linalg import skew_symmetric
+from src.utils.linalg import invert_transform
+from src.utils.linalg import skew_symmetric
 from config import K, log
 
 
@@ -130,12 +130,12 @@ def compute_T12(frame1, frame2):
         The 4x4 transformation matrix (T12) relating the two keyframes.
     """
     # Retrieve rotation and translation for the first keyframe (from world to keyframe)
-    R1w = frame1.pose[:3, :3]
-    t1w = frame1.pose[:3, 3]
+    R1w = frame1.R
+    t1w = frame1.t
     
     # Retrieve rotation and translation for the second keyframe
-    R2w = frame2.pose[:3, :3]
-    t2w = frame2.pose[:3, 3]
+    R2w = frame2.R
+    t2w = frame2.t
     
     # Compute the relative rotation: R12 = R1w * (R2w).T
     R12 = R1w @ R2w.T
@@ -182,12 +182,12 @@ def compute_F12(frame1, frame2):
         The 3x3 fundamental matrix (F12) relating the two keyframes.
     """
     # Retrieve rotation and translation for the first keyframe (from world to keyframe)
-    R1w = frame1.pose[:3, :3]
-    t1w = frame1.pose[:3, 3]
+    R1w = frame1.R
+    t1w = frame1.t
     
     # Retrieve rotation and translation for the second keyframe
-    R2w = frame2.pose[:3, :3]
-    t2w = frame2.pose[:3, 3]
+    R2w = frame2.R
+    t2w = frame2.t
     
     # Compute the relative rotation: R12 = R1w * (R2w).T
     R12 = R1w @ R2w.T

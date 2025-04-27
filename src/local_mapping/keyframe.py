@@ -1,13 +1,13 @@
-import numpy as np
-from src.others.frame import Frame
-from src.local_mapping.map import Map
+import src.utils as utils
+import src.local_mapping as mapping
+import src.globals as ctx
 from config import SETTINGS, log
 
 
 debug = SETTINGS["generic"]["debug"]
 
 
-def is_keyframe(t_frame: Frame, keyframes: dict[Frame], local_map: Map):
+def is_keyframe(t_frame: utils.Frame):
     """
     New Keyframe conditions:
         1) More than X frames must have passed from the last global relocalization.
@@ -15,6 +15,9 @@ def is_keyframe(t_frame: Frame, keyframes: dict[Frame], local_map: Map):
         3) Current frame tracks at least 50 points.
         4) Current frame tracks less than 90% points than Kref .
     """
+    keyframes = ctx.map.keyframes
+    local_map = ctx.local_map
+
     other_frames = list(keyframes.values())[:-1]
 
     last_reloc_kf_id = last_relocalization(other_frames)
@@ -42,7 +45,7 @@ def is_keyframe(t_frame: Frame, keyframes: dict[Frame], local_map: Map):
 
     return is_keyframe
 
-def last_relocalization(frames: list[Frame]):
+def last_relocalization(frames: list[utils.Frame]):
     """Returns the last frame that performed relocalization or 0 if no relocalization has taken place"""
     for f in reversed(frames):
         if f.relocalization == True:

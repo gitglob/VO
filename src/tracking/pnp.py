@@ -1,8 +1,9 @@
 import numpy as np
 import cv2
 from src.local_mapping.map import Map
-from src.others.frame import Frame
-from src.others.visualize import plot_reprojection
+from src.utils.frame import Frame
+import src.visualization as vis
+import src.globals as ctx
 from config import SETTINGS, results_dir, log, K
 
 
@@ -10,23 +11,13 @@ debug = SETTINGS["generic"]["debug"]
 
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(map: Map, t_frame: Frame, dist_coeffs=None):
+def estimate_relative_pose(t_frame: Frame):
     """
     Estimate the relative camera displacement using a 3D-2D PnP approach.
 
     Args:
-        map_points_w (np.ndarray): 
-            (N, 3) array of 3D map points in world coordinates
-            that correspond to the 'map_idx' indices in map_t_pairs.
         t_frame (Frame): 
             The current t_frame containing keypoints and descriptors.
-        map_t_pairs (list of (int, int)): 
-            - map_idx is the index into map_points_w
-            - frame_idx is the index of t_frame.keypoints
-        K (np.ndarray): 
-            (3, 3) camera intrinsic matrix.
-        dist_coeffs:
-            Distortion coefficients for the camera. Default = None.
 
     Returns:
         displacement (np.ndarray): 4×4 transformation matrix T_{cam_new <- cam_old}.
@@ -45,7 +36,7 @@ def estimate_relative_pose(map: Map, t_frame: Frame, dist_coeffs=None):
     image_pxs = []
     t_map_pairs = t_frame.get_map_matches()
     for (feature_idx, pid) in t_map_pairs:
-        map_points.append(map.points[pid])  # 3D in world coords
+        map_points.append(ctx.map.points[pid])  # 3D in world coords
         kp = t_frame.keypoints[feature_idx]
         image_pxs.append(kp.pt)                   # 2D pixel (u, v)
 
@@ -58,7 +49,7 @@ def estimate_relative_pose(map: Map, t_frame: Frame, dist_coeffs=None):
         map_point_positions,
         image_pxs,
         cameraMatrix=K,
-        distCoeffs=dist_coeffs,
+        distCoeffs=None,
         reprojectionError=SETTINGS["tracking"]["PnP"]["reprojection_threshold"],
         confidence=SETTINGS["tracking"]["PnP"]["confidence"],
         iterationsCount=SETTINGS["tracking"]["PnP"]["iterations"]
@@ -82,10 +73,10 @@ def estimate_relative_pose(map: Map, t_frame: Frame, dist_coeffs=None):
     rvec, tvec = cv2.solvePnPRefineLM(
         map_point_positions[inliers],
         image_pxs[inliers],
-        K,
-        dist_coeffs,
-        rvec,
-        tvec
+        cameraMatrix=K,
+        distCoeffs=None,
+        rvec=rvec,
+        tvec=tvec
     )
 
     # 4) Convert refined pose to a 4x4 transformation matrix.
@@ -94,7 +85,7 @@ def estimate_relative_pose(map: Map, t_frame: Frame, dist_coeffs=None):
     
     # 5) Compute reprojection error
     ## Project the 3D points to 2D using the estimated pose
-    projected_world_pxs, _ = cv2.projectPoints(map_point_positions, rvec, t_wc, dist_coeffs)
+    projected_world_pxs, _ = cv2.projectPoints(objectPoints=map_point_positions, rvec=rvec, tvec=t_wc, cameraMatrix=K, distCoeffs=None)
     projected_world_pxs = projected_world_pxs.squeeze()
     
     ## Calculate the per-point reprojection error (Euclidean distance)
@@ -110,9 +101,9 @@ def estimate_relative_pose(map: Map, t_frame: Frame, dist_coeffs=None):
     ## Visualization
     if debug:
         img_path = results_dir / f"matches/tracking/1-PnP_reprojection/map_{t_frame.id}a.png"
-        plot_reprojection(t_frame.img, image_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
+        vis.plot_reprojection(t_frame.img, image_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
         img_path = results_dir / f"matches/tracking/1-PnP_reprojection/map_{t_frame.id}b.png"
-        plot_reprojection(t_frame.img, image_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
+        vis.plot_reprojection(t_frame.img, image_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
     # 6) Construct T_{world->cam_new}
     T_wc = np.eye(4, dtype=np.float64)

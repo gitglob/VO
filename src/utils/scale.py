@@ -1,6 +1,5 @@
 import numpy as np
-from src.others.frame import Frame
-from src.others.utils import isnan
+import src.utils as utils
 from config import SETTINGS, log
 
 
@@ -52,7 +51,7 @@ def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.nd
 
 ####################################################################################################
 
-def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Frame):
+def compute_relative_scale(frame: utils.Frame, prev_frame: utils.Frame, pre_prev_frame: utils.Frame):
     """Computes the relative scale between 2 frames"""
     # Get the common features between frames t-2, t-1, t
     log.info(f"Estimating scale using frames: {pre_prev_frame.id}, {prev_frame.id} & {frame.id}...")
@@ -71,12 +70,12 @@ def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Fram
     for i, l1 in enumerate(pre_prev_pair_indices):
         # Extract the index and 3D point of the pre-prev frame on the common point
         p1 = pre_prev_frame_points[l1]
-        if isnan(p1): continue
+        if utils.isnan(p1): continue
 
         # Extract the distance between that point and every other common point
         for l2 in pre_prev_pair_indices[i+1:]:
             p2 = pre_prev_frame_points[l2]
-            if isnan(p2): continue
+            if utils.isnan(p2): continue
             pre_prev_distances.append(np.linalg.norm(p1-p2))
 
     # Extract the 3D points of the previous frame
@@ -86,12 +85,12 @@ def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Fram
     for i, k1 in enumerate(prev_pair_indices):
         # Extract the index and 3D point of the prev frame on the common point
         p1 = prev_frame_points[k1]
-        if isnan(p1): continue
+        if utils.isnan(p1): continue
 
         # Extract the distance between that point and every other common point
         for k2 in prev_pair_indices[i+1:]:
             p2 = prev_frame_points[k2]
-            if isnan(p2): continue
+            if utils.isnan(p2): continue
             dist = np.max((np.linalg.norm(p1-p2), 1e-6)) # Avoid division with 0!
             prev_distances.append(dist)
 
@@ -101,7 +100,7 @@ def compute_relative_scale(frame: Frame, prev_frame: Frame, pre_prev_frame: Fram
 
     return scale, True
 
-def get_common_match_indices(frame: Frame, frame1: Frame, frame2: Frame):
+def get_common_match_indices(frame: utils.Frame, frame1: utils.Frame, frame2: utils.Frame):
     """Given 3 consecutive frames, it returns the indices of the common features between all of them."""
     # Extract the matches between the frames -2 and -1
     f_f1_matches = frame.match[frame1.id]["matches"]

@@ -1,9 +1,11 @@
 from copy import deepcopy
 from config import SETTINGS
-from src.local_mapping.map import Map
-from src.others.frame import Frame
-from src.backend.ba import BA, X
-from src.others.linalg import invert_transform
+
+import src.local_mapping as mapping
+import src.utils as utils
+import src.backend as backend
+import src.globals as ctx
+
 from config import K, log
 
 # Set parameters from the config
@@ -11,15 +13,14 @@ MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
 NUM_OBSERVATIONS = int(SETTINGS["ba"]["num_observations"])
 
 
-class singlePoseBA(BA):
-    def __init__(self, map: Map, frame: Frame, verbose=False):
+class singlePoseBA(backend.BA):
+    def __init__(self, frame: utils.Frame, verbose=False):
         """Initializes Single Pose Optimization with a g2o optimizer and camera intrinsics."""
         super().__init__()
         log.info(f"[BA] Performing Pose #{frame.id} Optimization...")
         self.verbose = verbose
 
         # The keyframes to optimize
-        self.map: Map = map
         self.frame = frame
         self._add_frame(self.frame, fixed=False)
         self._add_observations()
@@ -27,7 +28,7 @@ class singlePoseBA(BA):
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"\t Adding {self.map.num_points()} landmarks...")
+            log.info(f"\t Adding {ctx.map.num_points()} landmarks...")
 
         # Extract the frame <-> map feature matches
         feat_mp_matches = self.frame.get_map_matches()
@@ -35,7 +36,7 @@ class singlePoseBA(BA):
         # Iterate over all matches
         for feat_id, pid in feat_mp_matches:
             # Extract the map point position
-            mp = self.map.points[pid]
+            mp = ctx.map.points[pid]
             # Add the landmark observation
             self._add_landmark(mp.id, deepcopy(mp.pos), fixed=True)
 
@@ -84,9 +85,9 @@ class singlePoseBA(BA):
         n_inlier_edges = n_edges - n_outlier_edges
 
         # Optimize poses
-        e1 = self.map.get_mean_projection_error()
+        e1 = ctx.map.get_mean_projection_error()
         self.update_poses()
-        e2 = self.map.get_mean_projection_error()
+        e2 = ctx.map.get_mean_projection_error()
         log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
 
         return n_inlier_edges
@@ -100,6 +101,6 @@ class singlePoseBA(BA):
         log.info(f"\t Updating Pose #{self.frame.id}...")
 
         frame_id = self.frame.id
-        vertex = self.optimizer.vertex(X(frame_id))
-        new_pose = invert_transform(vertex.estimate().matrix()).copy()
-        self.map.keyframes[frame_id].optimize_pose(new_pose)
+        vertex = self.optimizer.vertex(backend.X(frame_id))
+        new_pose = utils.invert_transform(vertex.estimate().matrix()).copy()
+        ctx.map.optimize_pose(frame_id, new_pose)
