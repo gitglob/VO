@@ -170,5 +170,5 @@ class localBA(backend.BA):
             elif isinstance(vertex, g2o.VertexPointXYZ):
                 pid = backend.L_inv(vertex.id())
                 new_pos = vertex.estimate().copy()
-                ctx.map.points[pid].set_pos(new_pos)
+                ctx.map.optimize_point(pid, new_pos)
     

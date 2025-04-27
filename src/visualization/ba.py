@@ -3,11 +3,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
 
+import src.globals as ctx
+
 from config import results_dir
 matplotlib.use('tkAgg')
 
 
-def plot_BA(prev_point_positions, point_positions):
+def plot_BA():
     """
     Visualize the map points in 3D.
     """
@@ -16,15 +18,13 @@ def plot_BA(prev_point_positions, point_positions):
     ax = fig.add_subplot(111, projection='3d')
     
     # Plot the previous point positions in red
-    ax.scatter(prev_point_positions[:, 0],
-            prev_point_positions[:, 1],
-            prev_point_positions[:, 2],
+    prev_pts = ctx.map.point_positions(ba=False)
+    ax.scatter(prev_pts[:, 0], prev_pts[:, 1], prev_pts[:, 2],
             facecolors='none', edgecolors='r', marker='o', label='Landmarks')
     
     # Plot the current point positions in blue
-    ax.scatter(point_positions[:, 0],
-            point_positions[:, 1],
-            point_positions[:, 2],
+    pts = ctx.map.point_positions(ba=True)
+    ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
             c='b', marker='o', alpha=0.2, label='Optimized Landmarks')
     
     # Label the axes
@@ -34,7 +34,7 @@ def plot_BA(prev_point_positions, point_positions):
     
     # Add a legend to differentiate the point clouds
     ax.legend()
-    errors = point_positions - prev_point_positions
+    errors = pts - prev_pts
     errors_norm = np.linalg.norm(errors, axis=1)
     ax.set_title("Map Points <-> Error" + 
                     f"\nTotal: {np.sum(errors):.2f}" +
@@ -46,7 +46,7 @@ def plot_BA(prev_point_positions, point_positions):
     # Display the plot
     plt.show()
 
-def plot_BA2d(prev_point_positions, point_positions, i, save_path=results_dir / "ba"):
+def plot_BA2d(i, save_path=results_dir / "ba"):
     """
     Visualize the map points in 3D.
     """
@@ -56,14 +56,14 @@ def plot_BA2d(prev_point_positions, point_positions, i, save_path=results_dir / 
     fig = plt.figure(figsize=(14, 8))
     ax = fig.add_subplot(111)
     
-    # Plot the previous point positions in red
-    ax.scatter(prev_point_positions[:, 0],
-            prev_point_positions[:, 1],
+    # Plot the pre-BA point positions in red
+    prev_pts = ctx.map.point_positions(ba=False)
+    ax.scatter(prev_pts[:, 0], prev_pts[:, 1],
             facecolors='none', edgecolors='r', marker='o', label='Landmarks')
     
-    # Plot the current point positions in blue
-    ax.scatter(point_positions[:, 0],
-            point_positions[:, 1],
+    # Plot the post-BA point positions in blue
+    pts = ctx.map.point_positions(ba=True)
+    ax.scatter(pts[:, 0], pts[:, 1],
             c='b', marker='o', alpha=0.2, label='Optimized Landmarks')
     
     # Label the axes
@@ -72,7 +72,7 @@ def plot_BA2d(prev_point_positions, point_positions, i, save_path=results_dir / 
     
     # Add a legend to differentiate the point clouds
     ax.legend()
-    errors = point_positions - prev_point_positions
+    errors = pts - prev_pts
     errors_norm = np.linalg.norm(errors, axis=1)
     ax.set_title("Map Points <-> Error" + 
                     f"\nTotal: {np.sum(errors):.2f}" +

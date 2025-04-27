@@ -39,6 +39,8 @@ class mapPoint():
         mapPoint._mp_id_counter += 1
 
         self.pos: np.ndarray = pos             # 3D position
+        self.pos_before_ba: np.ndarray = None  # 3D position before BA
+        self.ba = False                        # Whether the point was uptimized with BA
         self.id: int = mapPoint._mp_id_counter # The unique id of this map point
 
         self.observations = []
@@ -88,8 +90,10 @@ class mapPoint():
         
         return best_desc
 
-    def set_pos(self, pos: np.ndarray):
+    def optimize_pos(self, pos: np.ndarray):
         self.pos = pos
+        self.pos_before_ba = pos.copy()
+        self.ba = True
 
     def get_observation(self, kf_id: int):
         """Returns the observation from a specific keyframe"""
@@ -239,11 +243,17 @@ class Map():
         gt = np.array(list(self.gt_trajectory.values()))
         return gt
 
-    def point_positions(self):
+    def point_positions(self, ba: bool):
         """Returns the points xyz positions"""
         positions = np.empty((len(self.points.keys()), 3), dtype=np.float64)
-        for i, v in enumerate(self.points.values()):
-            positions[i] = v.pos
+        # Positions after Bundle Adjustment
+        if ba:
+            for i, v in enumerate(self.points.values()):
+                positions[i] = v.pos
+        # Positions before Bundle Adjustment
+        else:
+            for i, v in enumerate(self.points.values()):
+                positions[i] = v.pos_before_ba if v.ba else v.pos
         return positions
 
     def point_ids(self):
@@ -442,6 +452,8 @@ class Map():
         # it could be matched in others, so it is projected in the rest
         # of connected keyframes, and correspondences are searched
 
+    def optimize_point(self, pid: int, new_pos: np.ndarray):
+        self.points[pid].optimize_pos(new_pos)
 
     def remove_observation(self, kf_id: int):
         for p in self.points.values():

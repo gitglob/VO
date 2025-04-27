@@ -38,14 +38,15 @@ def main():
     # Read the data
     data = utils.Dataset(data_dir, scene, use_dist)
 
+    # Plot the ground truth trajectory
+    gt = data.ground_truth()
+    vis.plot_ground_truth(gt)
+
+    ## Setup Globals
     # Read the vocabulary and initialize the BoW database
     ctx.vocab = pr.load_vocabulary("cv2").astype(np.uint8) # Basically contains 1000 descriptors
     ctx.bow_db = {} # contains visual_word_id -> keyframe_that_sees_it dicts
     for i in range(len(ctx.vocab)): ctx.bow_db[i] = []
-
-    # Plot the ground truth trajectory
-    gt = data.ground_truth()
-    vis.plot_ground_truth(gt)
 
     # Initialize map and convisibility graph
     ctx.map = mapping.Map()
@@ -140,12 +141,11 @@ def main():
                 utils.validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
 
                 # Perform Bundle Adjustment
-                prev_pts = ctx.map.point_positions().copy()
                 ba = backend.globalBA(verbose=debug)
                 ba.optimize()
 
-                # plot_BA(prev_pts, ctx.map.point_positions())
-                vis.plot_BA2d(prev_pts, ctx.map.point_positions(), i)
+                # plot_BA()
+                vis.plot_BA2d(i)
                 vis.plot_trajectory(i)
 
                 tracking_success = True
