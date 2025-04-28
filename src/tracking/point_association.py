@@ -1,9 +1,14 @@
 import numpy as np
 import cv2
 
+import src.backend as backend
+import src.place_recognition as pr
 import src.utils as utils
 import src.visualization as vis
 import src.globals as ctx
+from .feature_matching import search_by_projection, search_by_bow, window_search
+from .pnp import estimate_relative_pose
+from .utils import constant_velocity_model
 
 from config import SETTINGS, results_dir, K, log
 
@@ -14,320 +19,155 @@ n_levels = SETTINGS["orb"]["level_pyramid"]
 debug = SETTINGS["generic"]["debug"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
-MIN_NUM_MATCHES = SETTINGS["point_association"]["num_matches"]
 HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
 
 
+########################## Constant Velocity ##########################
 
+def constant_velocity(q_frame: utils.Frame, t_frame: utils.Frame):
+    """Performs tracking using a constant velocity model"""
+    if ctx.map.num_keyframes() < 4 or t_frame.id < ctx.map.last_reloc + 2:
+        ok = track_from_previous_frame(q_frame, t_frame)
+    else:
+        ok = track_with_motion_model(q_frame, t_frame)
+        if not ok:
+            ok = track_from_previous_frame(q_frame, t_frame)
+            if not ok:
+                return False
 
-def bowPointAssociation(cand_frame: utils.Frame, t_frame: utils.Frame):
-    """
-    Matches the map points seen in a candidate frame with the current frame.
-
-    Args:
-        map: The local map
-        cand_frame: A candidate frame, that already contributed points to the map
-        t_frame: The current frame, which has .keypoints and .descriptors
-        T_wc: The predicted camera pose
-        search_window: half-size of the bounding box (in pixels) around (u,v).
-
-    Returns:
-        pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
-    """
-    # Extract candidate map points
-    map_points = ctx.cgraph.get_frustum_points(cand_frame, map)
-    map_descriptors = []
-    map_point_ids = []
-    map_pixels = []
-    for pid, p in map_points.items():
-        # Get the descriptors from every observation of a point
-        for obs in p.observations:
-            map_descriptors.append(obs.desc)
-            map_point_ids.append(pid)
-            map_pixels.append(obs.kpt.pt)
-    map_descriptors = np.array(map_descriptors)
-    map_point_ids = np.array(map_point_ids)
-    map_pixels = np.array(map_pixels)
-
-    # Create BFMatcher object
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING)
+    # Compute the BOW representation of the keyframe
+    t_frame.compute_bow()
     
-    # Match descriptors
-    matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
-    if len(matches) < MIN_NUM_MATCHES:
-        return []
+    return True
 
-    # Filter matches
-    # Apply Lowe's ratio test to filter out false matches
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.95 * n.distance:
-            good_matches.append(m)
-    if debug:
-        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+def track_with_motion_model(q_frame: utils.Frame, t_frame: utils.Frame):
+    """Search matches in a radius around the predicted keypoints positions assuming constant velocity"""
+    # Predict the new pose based on a constant velocity model
+    constant_velocity_model(t_frame)
 
-    if len(good_matches) < MIN_NUM_MATCHES:
-        return []
-    
-    # Next, ensure uniqueness by keeping only the best match per train descriptor.
-    unique_matches = {}
-    for m in good_matches:
-        # If this train descriptor is not seen yet, or if the current match is better, update.
-        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
-            unique_matches[m.trainIdx] = m
+    # Match these map points with the current frame
+    num_matches = search_by_projection(q_frame, t_frame, theta=15, 
+                                       save_path=results_dir / "tracking/motion_model" / f"{q_frame.id}_{t_frame.id}.png")
+    if num_matches < 20:
+        log.warning(f"Tracking with motion model failed! {num_matches} (<10) matches found!")
+        return False
 
-    # Convert the dictionary values to a list of unique matches
-    unique_matches = list(unique_matches.values())
-    if debug:
-        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+    # Perform pose optimization
+    ctx.map.add_keyframe(t_frame)
+    ba = backend.singlePoseBA(t_frame, verbose=debug)
+    ba.optimize()
 
-    if len(unique_matches) < MIN_NUM_MATCHES:
-        return []
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/tracking/point_assocation/relocalization" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-        vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
-    
-    # Finally, filter using the epipolar constraint
-    # q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
-    # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels)
-    # if epipolar_constraint_mask is None:
-    #     log.warning("Failed to apply epipolar constraint..")
-    #     return []
-    # unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
-            
-    # # Save the matches
-    # if debug:
-    #     match_save_path = results_dir / "matches/tracking/point_assocation/1-epipolar_constraint" / f"map_{t_frame.id}.png"
-    #     vis.plot_pixels(t_frame.img, t_pixels, save_path=match_save_path)
-    
-    # Prepare results
-    for m in unique_matches:
-        feat = t_frame.features[m.trainIdx]
-        feat.match_map_point(map_point_ids[m.queryIdx], 0)
-        map.points[pid].observe(map._kf_counter, t_frame.id, feat.kpt, feat.desc)
+    return True
 
-    if debug:
-        log.info(f"\t Found {len(unique_matches)} Point Associations!")
+def track_from_previous_frame(q_frame: utils.Frame, t_frame: utils.Frame):
+    """Search matches in windows around the previous frame keypoints"""
+    ## Search for matches in windows around the previous keypoints
+    # Use scale constraints
+    minOctave = maxOctave/2+1 if ctx.map.num_keyframes() > 5 else 0
+    maxOctave = 7
+    num_matches = window_search(q_frame, t_frame, 200, minOctave, 
+                                save_path = results_dir / "tracking/previous_frame" / f"{q_frame.id}_{t_frame.id}_0.png")
+    if num_matches < 10:
+        # Don't use scale constraints
+        num_matches = window_search(q_frame, t_frame, 100, 0, 
+                                    save_path = results_dir / "tracking/previous_frame" / f"{q_frame.id}_{t_frame.id}_1.png")
+        
+    # Copy the previous pose to the current (will be fixed by BA)
+    t_frame.set_pose(q_frame.pose.copy())
 
-    return len(unique_matches)
+    # If not enough matches were found ...
+    if num_matches < 10:
+        # Try searching again: No scale constraints and no Lowe's test
+        num_matches = search_by_projection(q_frame, t_frame, radius=50, 
+                                           save_path=results_dir / "tracking/previous_frame" / f"{q_frame.id}_{t_frame.id}_2.png")
+    # If enough matches were found ...
+    else:
+        # Perform pose optimization
+        ctx.map.add_keyframe(t_frame)
+        ba = backend.singlePoseBA(t_frame, verbose=debug)
+        ba.optimize()
 
-def localPointAssociation(q_frame: utils.Frame, t_frame: utils.Frame, theta: int=None, search_window: int=None):
-    """
-    Associates map points with current frame keypoints by searching only within a local window
-    around the predicted pixel location.
+        # Search for more points using the (now optimized) pose
+        num_matches += search_by_projection(q_frame, t_frame, radius=15, 
+                                            save_path=results_dir / "tracking/previous_frame" / f"{q_frame.id}_{t_frame.id}_3.png")
 
-    When theta is used, we perform Adaptive Search Window Based on Scale:
-    Multi-Scale Detection:
-    Feature detectors like ORB operate over a scale space by processing 
-    the image at multiple resolutions (or octaves). An octave corresponds 
-    to a level in the pyramid of images at progressively lower resolutions. 
-    Keypoints detected in higher octaves correspond to larger structures in the original image.
+    # Matching failed
+    if num_matches < 10:
+        log.warning(f"Tracking from previous frame failed! {num_matches} (<10) matches found!")
+        return False
 
-    Scale-Invariant Matching:
-    Because features are detected across different scales, the intrinsic 
-    size of the feature (or the area of support used to compute the descriptor) 
-    varies with the octave. A feature detected in a higher octave has a larger 
-    receptive field, meaning its description captures information from a broader 
-    image region. Matching these features accurately requires accounting for the variability in scale.
+    # Perform pose optimization
+    ctx.map.add_keyframe(t_frame)
+    ba = backend.singlePoseBA(t_frame, verbose=debug)
+    ba.optimize()
 
-    Relative Feature Size:
-    When projecting a 3D point from one frame into another, 
-    the associated keypoint may come from an octave where the 
-    feature represents a large structure. A fixed search window 
-    might be too small, potentially missing the correct match due 
-    to scale differences and minor inaccuracies in projection. 
-    Conversely, for small features detected at lower octaves, 
-    a large search window may introduce unnecessary candidates 
-    and increase the likelihood of false matches.
+    return True
 
-    Dynamic Adjustment:
-    By multiplying a base threshold with the scale factor 
-    corresponding to the keypoint’s octave, the search window 
-    adapts to the expected feature size. For example, a keypoint 
-    from a higher octave (with a larger scale factor) will have a 
-    larger search radius than one from a lower octave. This dynamic 
-    scaling improves the reliability of the matching process.
+########################## Relocalization ##########################
 
-    Args:
-        map: The local map object. It must have:
-             - map.points_in_view: a list of map points.
-             - Each map point should have:
-                     .pt - its 3D world coordinate (e.g. a numpy array [x,y,z])
-                     .observations - a list of observation dictionaries, where each observation has a
-                                    "descriptor" key.
-        t_frame: The current frame, which has:
-                 - t_frame.keypoints: a list of keypoints (each with a .pt attribute, e.g. (u,v)).
-                 - t_frame.descriptors: an array of descriptors for those keypoints.
-        K: The camera intrinsic matrix.
-        T_w2f: The predicted current camera pose (4x4 homogeneous transformation), mapping world
-              coordinates to camera coordinates.
+def relocalization(t_frame: utils.Frame):
+    """Performs tracking using vBoW relocalization"""
+    # Compute the BOW representation of the keyframe
+    t_frame.compute_bow()
 
-    Returns:
-        pairs: A list of tuples (map_idx, frame_idx) indicating the association of map points
-               to current frame keypoints.
-    """
-    matched_features = {}
+    # Find keyframe candidates from the BoW database for global relocalization
+    kf_candidate_ids = pr.query_recognition_candidate(t_frame)
 
-    # Get the map points observed in the last frame
-    q_map_points = ctx.cgraph.get_frustum_points(q_frame)
+    # Iterate over all candidates
+    log.info(f"Iterating over {len(kf_candidate_ids)} keyframe candidates!")
+    for j, kf_id in enumerate(kf_candidate_ids):
+        # Extract the candidate keyframe
+        cand_frame = ctx.map.get_keyframe(kf_id)
 
-    # Loop over the points
-    for point in q_map_points:
-        # Check if the point is in the current camera's frustum
-        result = t_frame.is_in_frustum(point)
-        if result is False:
+        # Perform point association of its map points with the current frame
+        num_matches = search_by_bow(cand_frame, t_frame, 
+                                    save_path = results_dir / "tracking/relocalization" / f"{cand_frame.id}_{t_frame.id}_0.png")
+        if num_matches < 15:
             continue
-        u, v, _ = result
-        
-        # Collect candidate current frame keypoints whose pixel coordinates fall within 
-        # a window around the predicted pixel
-        candidates = set()
-        for kpt_id, feat in t_frame.features.items():
-            kpt = feat.kpt
-            radius = search_window // 2 if search_window else theta * t_frame.scale_factors[kpt.octave]
-            kp_pt = kpt.pt
-            if (abs(kp_pt[0] - u) <= radius and
-                abs(kp_pt[1] - v) <= radius):
-                candidates.add(kpt_id)
-        
-        # If no keypoints are found in the window, skip to the next map point.
-        if len(candidates) == 0:
-            continue
-        
-        # We choose the last descriptor to represent the map point
-        map_desc = point.observations[-1].desc
-        
-        # For each candidate, compute the descriptor distance using the Hamming norm.
-        best_dist = np.inf
-        best_feature_id = None
-        for kpt_id in candidates:
-            candidate_desc = t_frame.features[kpt_id].desc
-            # Compute Hamming distance.
-            d = cv2.norm(np.array(map_desc), np.array(candidate_desc), cv2.NORM_HAMMING)
-            if d < best_dist:
-                best_dist = d
-                best_feature_id = kpt_id
-        
-        # Accept the match only if the best distance is below the threshold.
-        if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
-            # Make sure that we only keep 1 match per frame pixel
-            if best_feature_id not in matched_features.keys() or best_dist < matched_features[best_feature_id][1]:
-                matched_features[best_feature_id] = (point.id, best_dist)
-                
-    # Update the frame<->map matches
-    for feat_id, (pid, dist) in matched_features.items():
-        feat = t_frame.features[feat_id]
-        feat.match_map_point(pid, dist)
-        ctx.map.points[pid].observe(ctx.map._kf_counter, t_frame.id, feat.kpt, feat.desc)
 
-    # Save the matched points
-    if debug and len(matched_features.keys()) > 0:
-        match_save_path = results_dir / "matches/tracking/point_assocation/local" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in matched_features.keys()], dtype=np.float64)
-        vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
-    
-    if debug:
-        log.info(f"\t Found {len(matched_features)} Point Associations!")
-    return len(matched_features)
-
-def globalPointAssociation(t_frame: utils.Frame):
-    """
-    Matches the map points seen in previous frames with the current frame.
-
-    Args:
-        map: The local map
-        t_frame: The current t_frame, which has .keypoints and .descriptors
-        T_wc: The predicted camera pose
-        search_window: half-size of the bounding box (in pixels) around (u,v).
-
-    Returns:
-        pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
-    """
-    # Extract the in view descriptors
-    map_points = ctx.cgraph.get_frustum_points(t_frame)
-    map_descriptors = []
-    map_point_ids = []
-    map_pixels = []
-    for pid, p in map_points:
-        # Get the descriptors from every observation of a point
-        for obs in p.observations:
-            map_descriptors.append(obs.desc)
-            map_point_ids.append(pid)
-            map_pixels.append(obs.kpt.pt)
-    map_descriptors = np.array(map_descriptors)
-    map_point_ids = np.array(map_point_ids)
-    map_pixels = np.array(map_pixels)
-
-    # Create BFMatcher object
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING)
-    
-    # Match descriptors
-    matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
-    if len(matches) < MIN_NUM_MATCHES:
-        return []
-
-    # Filter matches
-    # Apply Lowe's ratio test to filter out false matches
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.95 * n.distance:
-            good_matches.append(m)
-    if debug:
-        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
-
-    if len(good_matches) < MIN_NUM_MATCHES:
-        return []
-    
-    # Next, ensure uniqueness by keeping only the best match per train descriptor.
-    unique_matches = {}
-    for m in good_matches:
-        # If this train descriptor is not seen yet, or if the current match is better, update.
-        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
-            unique_matches[m.trainIdx] = m
-
-    # Convert the dictionary values to a list of unique matches
-    unique_matches = list(unique_matches.values())
-    if debug:
-        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
-
-    if len(unique_matches) < MIN_NUM_MATCHES:
-        return []
+        # Estimate the new world pose using PnP (3d-2d)
+        ok = estimate_relative_pose(t_frame)
+        if ok:
+            # Perform pose optimization
+            ctx.map.add_keyframe(t_frame)
+            ba = backend.singlePoseBA(t_frame, verbose=debug)
+            ba.optimize()
             
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/tracking/point_assocation/global" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-        vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
-    
-    # Finally, filter using the epipolar constraint
-    # q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
-    # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels)
-    # if epipolar_constraint_mask is None:
-    #     log.warning("Failed to apply epipolar constraint..")
-    #     return []
-    # unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
-            
-    # # Save the matches
-    # if debug:
-    #     match_save_path = results_dir / "matches/tracking/point_assocation/1-epipolar_constraint" / f"map_{t_frame.id}.png"
-    #     vis.plot_pixels(t_frame.img, t_pixels, save_path=match_save_path)
-    
-    # Prepare results
-    for m in unique_matches:
-        feat = t_frame.features[m.trainIdx]
-        feat.match_map_point(map_point_ids[m.queryIdx], 0)
-        ctx.map.points[pid].observe(ctx.map._kf_counter, t_frame.id, feat.kpt, feat.desc)
+            # Temporarily set the candidate frame as keyframe
+            ctx.map.relocalize(t_frame.id)
+            log.info(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
+            return True
 
-    if debug:
-        log.info(f"\t Found {len(unique_matches)} Point Associations!")
-    return len(unique_matches)
+    # If global relocalization failed, we need to restart initialization
+    ctx.map.remove_observation(t_frame.id)
+    return False
 
-def mapPointAssociation(t_frame: utils.Frame, theta: int = 15):
+########################## Local Map ##########################
+
+def local_map(t_frame: utils.Frame):
+    """Performs tracking using a local map (points of neighboring keyframes)"""
+    # Set the visible mask
+    ctx.map.view(t_frame)
+
+    # Extract a local map from the map
+    ctx.local_map = ctx.cgraph.create_local_map(t_frame)
+    
+    # Project the local map to the frame and search more correspondances
+    track_map_points(t_frame)
+    
+    # Set the found mask
+    ctx.map.tracked(t_frame)
+    
+    # Optimize the camera pose with all the map points found in the frame
+    ba = backend.singlePoseBA(t_frame, verbose=debug)
+    num_matched_inliers = ba.optimize()
+    if num_matched_inliers < 30:
+        ctx.map.remove_observation(t_frame.id)
+        return False
+    
+    return True
+
+def track_map_points(t_frame: utils.Frame, theta: int = 15):
     """
     Projects all un-matched map points to a frame and searches more correspondances.
 
@@ -400,10 +240,11 @@ def mapPointAssociation(t_frame: utils.Frame, theta: int = 15):
     for feat_id, (pid, dist) in new_matched_features.items():
         feat = t_frame.features[feat_id]
         feat.match_map_point(pid, dist)
-        ctx.map.points[pid].observe(ctx.map._kf_counter, t_frame.id, feat.kpt, feat.desc)
+        point = ctx.map.points[pid]
+        ctx.map.add_observation(t_frame, feat, point)
     
     if debug and len(new_matched_features.keys()) > 0:
-        match_save_path = results_dir / "matches/tracking/point_assocation/map" / f"map_{t_frame.id}.png"
+        match_save_path = results_dir / "matches/tracking/map" / f"map_{t_frame.id}.png"
         t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in new_matched_features.keys()], dtype=np.float64)        
         vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
 

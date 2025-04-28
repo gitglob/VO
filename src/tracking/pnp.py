@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
-from src.local_mapping.map import Map
-from src.utils.frame import Frame
+import src.utils as utils
 import src.visualization as vis
 import src.globals as ctx
 from config import SETTINGS, results_dir, log, K
@@ -11,7 +10,7 @@ debug = SETTINGS["generic"]["debug"]
 
 
 # Function to estimate the relative pose using solvePnP
-def estimate_relative_pose(t_frame: Frame):
+def estimate_relative_pose(t_frame: utils.Frame):
     """
     Estimate the relative camera displacement using a 3D-2D PnP approach.
 
@@ -56,10 +55,10 @@ def estimate_relative_pose(t_frame: Frame):
     )
     if not success or inliers is None:
         log.warning("\t solvePnP failed!")
-        return None, None
+        return False
     if len(inliers) < SETTINGS["tracking"]["PnP"]["min_inliers"]:
         log.warning("\t solvePnP did not find enough inliers!")
-        return None, None
+        return False
     inliers = inliers.flatten()
 
     # Build an inliers mask
@@ -109,5 +108,9 @@ def estimate_relative_pose(t_frame: Frame):
     T_wc = np.eye(4, dtype=np.float64)
     T_wc[:3, :3] = R_wc
     T_wc[:3, 3] = t_wc
+    T_c2w = utils.invert_transform(T_wc)
 
-    return T_wc, num_tracked_points
+    # Set the pose to the current frame
+    t_frame.set_pose(T_c2w)
+
+    return True

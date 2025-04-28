@@ -228,6 +228,9 @@ class Map():
         # Frame counter
         self._kf_counter = 0
 
+        # ID of last relocalization keyframe
+        self.last_reloc = 0
+
         # Reference frame
         if ref_frame_id is not None:
             self.ref_frame_id = ref_frame_id
@@ -307,6 +310,9 @@ class Map():
 
 
     def add_keyframe(self, kf: utils.Frame):
+        if kf.id in self.keyframes.keys():
+            return
+        
         log.info(f"[Map] Adding frame #{kf.id} to the map.")
         self.keyframes[kf.id] = kf
 
@@ -315,10 +321,6 @@ class Map():
         self.gt_trajectory[kf.id] = kf.gt.copy()
 
         self._kf_counter += 1
-
-    def optimize_pose(self, kf_id: int, pose: np.ndarray):
-        self.ba_trajectory[kf_id] = pose.copy()
-        self.keyframes[kf_id].optimize_pose(pose)
 
     def add_init_points(self, points_pos: np.ndarray, 
                         q_kf: utils.Frame, q_kpts: List[cv2.KeyPoint], q_descriptors: np.ndarray, 
@@ -337,8 +339,8 @@ class Map():
             point.observe(self._kf_counter,   t_kf.id, t_kpts[i], t_descriptors[i])    
             
             # Set the feature <-> mapPoint matches
-            q_kf.features[q_kpts[i].class_id].match_map_point(point.id, 0)
-            t_kf.features[t_kpts[i].class_id].match_map_point(point.id, 0)
+            q_kf.features[q_kpts[i].class_id].match_map_point(point, 0)
+            t_kf.features[t_kpts[i].class_id].match_map_point(point, 0)
 
         if debug:
             log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
@@ -355,8 +357,11 @@ class Map():
         point.observe(self._kf_counter,   n_frame.id, n_feat.kpt, n_feat.desc)    
         
         # Set the feature <-> mapPoint matches
-        t_feat.match_map_point(point.id, 0)
-        n_feat.match_map_point(point.id, 0)
+        t_feat.match_map_point(point, 0)
+        n_feat.match_map_point(point, 0)
+
+    def add_observation(self, frame: utils.Frame, feat: utils.orbFeature, point: mapPoint):
+        point.observe(self._kf_counter, frame.id, feat.kpt, feat.desc)
 
     def create_track_points(self, t_frame: utils.Frame):
         """
@@ -386,7 +391,7 @@ class Map():
 
             # Find t<->n pairs for every word
             # (t_feature_id: neighbor_feature_id, dist)
-            pairs = track.search_by_bow(t_frame, n_frame)
+            pairs = track.search_for_triangulation(n_frame, t_frame)
             log.info(f"\t Connected frame #{n_frame_id}: Found {len(pairs.keys())} potential points from Visual Words!") 
 
             # For every formed pair, utils.triangulate new points and add them to the map
@@ -452,17 +457,25 @@ class Map():
         # it could be matched in others, so it is projected in the rest
         # of connected keyframes, and correspondences are searched
 
+
+    def optimize_pose(self, kf_id: int, pose: np.ndarray):
+        self.ba_trajectory[kf_id] = pose.copy()
+        self.keyframes[kf_id].optimize_pose(pose)
+
     def optimize_point(self, pid: int, new_pos: np.ndarray):
         self.points[pid].optimize_pos(new_pos)
 
+
     def remove_observation(self, kf_id: int):
+        """Removes all the point ovservations from the given keyframe"""
         for p in self.points.values():
             p.remove_observation(kf_id)
 
     def remove_keyframe(self, kf_id: int):
-        log.info(f"[Map] Removing frame #{kf_id} from the map.")
         del self.keyframes[kf_id]
         self.remove_observation(kf_id)
+        if debug:
+            log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes()} left!")
 
     def remove_point(self, pid: int):
         del self.points[pid]
@@ -563,8 +576,6 @@ class Map():
                 removed_kf_ids.add(kf_id)
 
         for kf_id in removed_kf_ids:
-            if debug:
-                log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes()} left!")
             self.remove_keyframe(kf_id)
             ctx.cgraph.remove_keyframe(kf_id)
 
@@ -580,8 +591,11 @@ class Map():
         frame_pid_matches = set()
         for feat in frame.features.values():
             if feat.matched:
-                pid = feat.mp["id"]
+                pid = feat.mp.id
                 frame_pid_matches.add(pid)
         
         for pid in frame_pid_matches:
             self.points[pid].tracked_counter += 1
+
+    def relocalize(self, frame_id: int):
+        self.last_reloc = frame_id

@@ -24,14 +24,16 @@ class orbFeature():
         self.mp = None
 
     @property
+    def in_map(self):
+        return False if self.mp is None else True
+
+    @property
     def matched(self):
         return False if self.mp is None else True
 
-    def match_map_point(self, pid: int, dist: np.float64):
-        self.mp = {
-            "id": pid,
-            "dist": dist
-        }
+    def match_map_point(self, point, dist: np.float64):
+        self.mp = point
+        self.mp_dist = dist
 
     def reset_mp_match(self):
         self.mp = None
@@ -53,7 +55,6 @@ class Frame():
         self.scale_uncertainties: np.ndarray # The per-octave measurement uncertainties
         self.gt: np.ndarray = None           # The camera -> world Ground Truth pose
         self.pose: np.ndarray = None         # The camera -> world pose transformation matrix
-        self.relocalization: bool = False    # Whether global relocalization using vBoW was performed
 
         self.bow_hist: np.ndarray = None     # Histogram of visual words (1, vocab_size)
         self.features: dict = {}             # Mapping: keypoint_id -> ORB feature (keypoint, descriptor)
@@ -104,7 +105,7 @@ class Frame():
         """Removes matches with the given map point"""
         for feat in self.features.values():
             if feat.matched:
-                if feat.mp["id"] == pid:
+                if feat.mp.id == pid:
                     feat.reset_mp_match()
 
 
@@ -118,6 +119,46 @@ class Frame():
                 level_kpt_ids.append(kpt.class_id)
 
         return level_kpt_idxs, level_kpt_ids
+
+    def get_features_in_area(self, u: float, v: float, r: float, min_level: int = -1, max_level: int = -1) -> list[orbFeature]:
+        """
+        Return the indices of keypoints whose undistorted positions lie within
+        a square of half‐size r centered at (u, v).
+        Optionally restrict to a pyramid level range [min_level, max_level].
+
+        :param u:     x‐coordinate of the search center (pixels)
+        :param v:     y‐coordinate of the search center (pixels)
+        :param r:     half‐width of the search square (pixels)
+        :param min_level: minimum pyramid octave (inclusive), or –1 to ignore
+        :param max_level: maximum pyramid octave (inclusive), or –1 to ignore
+        :return:       list of indices into self.mv_keys_un of all matching keypoints
+        """
+        # Decide whether to filter by pyramid level
+        check_levels = not (min_level == -1 and max_level == -1)
+        same_level = (min_level == max_level) and (min_level != -1)
+
+        # Collect candidate current frame keypoints whose pixel coordinates fall within 
+        # a window around the predicted pixel
+        candidates = set()
+        for kpt_id, feat in self.features.items():
+            kpt = feat.kpt
+            cand_u, cand_v = kpt.pt
+            # Check octave levels if asked
+            if check_levels:
+                level = kpt.octave
+                if same_level:
+                    if level != min_level:
+                        continue
+                else:
+                    if level < min_level or level > max_level:
+                        continue
+            # Check pixel region
+            if (abs(cand_u - u) > r or abs(cand_v - v) > r):
+                continue
+            
+            candidates.add(feat)
+
+        return candidates
 
     def project(self, point: np.ndarray) -> tuple[float, float]:
         # transform into camera frame
@@ -182,12 +223,24 @@ class Frame():
 
         return np.median(depths)
 
+
+    def get_map_points_and_features(self):
+        """Returns all the map points that are matched to a feature"""
+        map_points = []
+        mp_features = []
+        for feat in self.features.values():
+            if feat.matched:
+                pid = feat.mp.id
+                mp_features.append(feat)
+                map_points.append(ctx.map.points[pid])
+        return map_points, mp_features
+
     def get_map_point_ids(self):
         """Returns all the map points that are matched to a feature"""
         map_point_ids = set()
         for feat in self.features.values():
             if feat.matched:
-                map_point_ids.add(feat.mp["id"])
+                map_point_ids.add(feat.mp.id)
         return map_point_ids
 
     def get_map_matches(self) -> set[tuple[int, int]]:
@@ -195,7 +248,7 @@ class Frame():
         map_matches = set()
         for feat in self.features.values():
             if feat.matched:
-                map_matches.add((feat.id, feat.mp["id"]))
+                map_matches.add((feat.id, feat.mp.id))
         return map_matches
 
 

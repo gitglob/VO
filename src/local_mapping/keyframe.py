@@ -20,7 +20,7 @@ def is_keyframe(t_frame: utils.Frame):
 
     other_frames = list(keyframes.values())[:-1]
 
-    last_reloc_kf_id = last_relocalization(other_frames)
+    last_reloc_kf_id = ctx.map.last_reloc
     num_frames_since_last_reloc = t_frame.id - last_reloc_kf_id
     c1 = num_frames_since_last_reloc > 2
 
@@ -41,13 +41,15 @@ def is_keyframe(t_frame: utils.Frame):
     if is_keyframe:
         log.info("\t\t Keyframe!")
     else:
-        log.info("\t\t Not a keyframe!")
+        log.warning("\t\t Not a keyframe!")
+        if not c1:
+            log.warning(f"\t\t # of frames since last relocalization: {num_frames_since_last_reloc} <= 2!")
+        if not c2:
+            log.warning(f"\t\t # of frames since last keyframe: {num_frames_passed} <= 2!")
+        if not c3:
+            log.warning(f"\t\t # of tracked points: {t_frame.num_tracked_points} <= 50!")
+        if not c4:
+            log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9!")
+        pass
 
     return is_keyframe
-
-def last_relocalization(frames: list[utils.Frame]):
-    """Returns the last frame that performed relocalization or 0 if no relocalization has taken place"""
-    for f in reversed(frames):
-        if f.relocalization == True:
-            return f.id
-    return 0

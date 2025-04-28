@@ -110,12 +110,10 @@ def main():
                 # Remove scale ambiguity
                 T_t2q[:3, 3] *= scale
 
-                # Apply the scale to the pose and validate it
-                T_t2w = T_q2w @ T_t2q
-                log.info(f"\t RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
-
                 # Set the pose in the current frame
+                T_t2w = T_q2w @ T_t2q
                 t_frame.set_pose(T_t2w)
+                log.info(f"\t RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
 
                 # Triangulate the 3D points using the initial pose
                 w_points, q_kpts, t_kpts, q_descriptors, t_descriptors, is_initialized = init.triangulate_points(matches, T_q2t, q_frame, t_frame, scale)
@@ -158,112 +156,43 @@ def main():
                 if tracking_success:
                     # ########### Track from Previous utils.Frame ###########
                     log.info("Using constant velocity model...")
-                    # Predict the new pose based on a constant velocity model
-                    T_w2t = track.constant_velocity_model(t, ctx.map.keyframes)
-                    T_t2w = utils.invert_transform(T_w2t)
-                    t_frame.set_pose(T_t2w)
-
-                    # Match these map points with the current frame
-                    num_matches = track.localPointAssociation(q_frame, t_frame, theta=15)
-                    if num_matches < MIN_ASSOCIATIONS:
-                        log.warning(f"Scale-based Point association failed! Only {num_matches} matches found!")
-                        num_matches = track.localPointAssociation(q_frame, t_frame, search_window=SEARCH_WINDOW_SIZE)
-                        if num_matches < MIN_ASSOCIATIONS:
-                            log.warning(f"Window-based Point association failed! Only {num_matches} matches found!")
-                            ctx.map.remove_observation(t_frame.id)
-                            tracking_success = False
-                            continue
-
-                    # Bookkeeping
-                    ctx.map.add_keyframe(t_frame)
-                    tracking_success = True
-
-                    # Compute the BOW representation of the keyframe
-                    t_frame.compute_bow()
-
-                    # Perform pose optimization
-                    ba = backend.singlePoseBA(t_frame, verbose=debug)
-                    ba.optimize()
+                    tracking_success = track.constant_velocity(q_frame, t_frame)
+                    if not tracking_success:
+                        continue
                 else:
                     # ########### Relocalization ###########
+                    log.info("")
                     log.info("Performing Relocalization!")
-
-                    # Compute the BOW representation of the keyframe
-                    t_frame.compute_bow()
-
-                    # Find keyframe candidates from the BoW database for global relocalization
-                    kf_candidate_ids = pr.query_recognition_candidate(t_frame)
-
-                    # Iterate over all candidates
-                    log.info(f"Iterating over {len(kf_candidate_ids)} keyframe candidates!")
-                    for j, kf_id in enumerate(kf_candidate_ids):
-                        # Extract the candidate keyframe
-                        cand_frame = ctx.map.get_keyframe(kf_id)
-                        # Perform point association of its map points with the current frame
-                        num_matches = track.bowPointAssociation(cand_frame, t_frame)
-                        # Estimate the new world pose using PnP (3d-2d)
-                        T_w2t, num_tracked_points = track.estimate_relative_pose(t_frame)
-                        T_t2w = utils.invert_transform(T_w2t)
-                        if T_w2t is not None:
-                            log.info(f"Candidate {j}, keyframe {kf_id}: solvePnP success!")
-
-                            # Perform pose optimization
-                            ba = backend.poseBA(verbose=debug)
-                            ba.optimize()
-
-                            # Temporarily set the candidate frame as keyframe
-                            ctx.map.add_keyframe(cand_frame)
-                            t_frame.set_pose(T_t2w)
-                            t_frame.relocalization = True
-                            tracking_success = True
-                            break
-                    
-                    # If global relocalization failed, we need to restart initialization
-                    if T_w2t is None:
-                        tracking_success = False
+                    tracking_success = track.relocalization(q_frame, t_frame)
+                    if not tracking_success:
                         is_initialized = False
-                        ctx.map.remove_observation(t_frame.id)
-                        continue
+                        breakpoint() # We should ideally never get to this point!! It becomes a mess!
                 
                 # ########### Track Local mapping.Map ###########
                 log.info("")
                 log.info("~~~~Local Mapping~~~~")
-
-                # Set the visible mask
-                ctx.map.view(t_frame)
-
-                # Extract a local map from the map
-                ctx.local_map = ctx.cgraph.create_local_map(t_frame)
-                
-                # Project the local map to the frame and search more correspondances
-                track.mapPointAssociation(t_frame)
-                
-                # Set the found mask
-                ctx.map.tracked(t_frame)
-                
-                # Optimize the camera pose with all the map points found in the frame
-                ba = backend.singlePoseBA(t_frame, verbose=debug)
-                ba.optimize()
+                tracking_success = track.local_map(t_frame)
+                if not tracking_success:
+                    continue
     
                 # ########### New Keyframe Decision ###########
-                log.info("Checking for Keyframe...")
+                log.info("")
+                log.info("~~~~Keyframe Check~~~~")
                 # Check if this t_frame is a keyframe
-                T_w2q = utils.invert_transform(q_frame.pose)
-                T_t2q = T_w2q @ T_t2w
                 if not mapping.is_keyframe(t_frame):
                     ctx.map.remove_keyframe(t_frame.id)
-                    t_frame.reset_pose()
                     continue
 
                 # Set the pose in the current frame
-                log.info(f"\t RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
+                log.info(f"\t RMSE: {np.linalg.norm(t_frame.gt[:3, 3] - t_frame.t):.2f}")
 
                 # Save the keyframe
                 if debug:
                     utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
-    
-                # ########### New mapping.Map Point Creation ###########
-                log.info("Creating New mapping.Map Points...")
+
+                # ########### Map Point/Keyframe Creating/Culling ###########
+                log.info("")
+                log.info("~~~~Updating Map~~~~")
 
                 # Add frame to graph
                 ctx.cgraph.add_track_keyframe(t_frame)
@@ -277,7 +206,7 @@ def main():
                 # Create new map points
                 ctx.map.create_track_points(t_frame)
 
-                # Perform Bundle Adjustment
+                # Perform Local Bundle Adjustment
                 ba = backend.localBA(t_frame, verbose=debug)
                 ba.optimize()
                 vis.plot_trajectory(i)
