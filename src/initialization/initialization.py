@@ -90,45 +90,38 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
         )
     else:
         # Decompose Homography Matrix
-        num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(M)
+        num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(M, K)
 
-        # Select the best solution based on criteria
-        best_solution = None
-        max_front_points = 0
-        best_alignment = -1
-        desired_normal = np.array([[0, 0, 1]])
+        # desired “up” in camera coordinates (z‐axis)
+        desired_normal = np.array([0, 0, 1.0])
+        max_inliers = -1
 
         for i in range(num_solutions):
-            R_candidate = Rs[i]
-            t_candidate = Ts[i]
-            n_candidate = Ns[i]
+            R_i = Rs[i]
+            t_i = Ts[i]
+            n_i = Ns[i].ravel()
 
-            # Check if the normal aligns with the 'upward' direction (optional criterion)
-            alignment = np.dot(n_candidate, desired_normal)
+            # 1) normal must face forward
+            if float(n_i @ desired_normal) < 0:
+                continue
 
-            # Check if points are in front of camera
-            front_points = 0
-            invK = np.linalg.inv(K)
-            for j in range(len(t_kpt_pixels)):
-                # Current frame pixel in camera coords
-                p_t_cam = invK @ np.array([*t_kpt_pixels[j], 1.0])  
+            # 2) count front‐points
+            front = 0
+            invK  = np.linalg.inv(K)
+            for (u, v) in t_kpt_pixels:
+                X = invK @ np.array([[u], [v], [1.0]])
+                Xp = R_i @ X + t_i
+                if Xp[2] > 0:
+                    front += 1
 
-                # Depth for current pixel after transformation
-                denom = np.dot(n_candidate, R_candidate @ p_t_cam + t_candidate)
-                t_depth = np.dot(n_candidate, p_t_cam) / (denom + 1e-12)  # small eps for safety
-
-                if t_depth <= 0:
-                    front_points += 1
-
-            # Update best solution if it meets criteria
-            if front_points > max_front_points and alignment > best_alignment:
-                max_front_points = front_points
-                best_alignment = alignment
-                best_solution = i
+            # 3) keep the best
+            if front > max_inliers:
+                max_inliers = front
+                best_candidate_idx = i
 
         # Use the best solution
-        R = Rs[best_solution]
-        t = Ts[best_solution]
+        R = Rs[best_candidate_idx]
+        t = Ts[best_candidate_idx]
 
         # Reprojection filter
         reproj_mask = utils.filter_by_reprojection(
@@ -185,7 +178,7 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     q_points = utils.triangulate(q_kpt_pixels, t_kpt_pixels, T_q2t) # (N, 3)
     if q_points is None or len(q_points) == 0:
         log.warning("\t Triangulation returned no 3D points.")
-        return None, None, None, False
+        return None
 
     # Transfer the points to the current coordinate frame [t->q]
     t_points = utils.transform_points(q_points, T_q2t) # (N, 3)
@@ -203,7 +196,7 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     # If too few points or too small median angle, return None
     if cheirality_mask is None or cheirality_mask.sum() < MIN_NUM_TRIANG_POINTS:
         log.warning("\t Discarding frame after cheirality check.")
-        return None, None, None, False
+        return None
             
     # Save the matches
     if debug:
@@ -221,7 +214,7 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     # If too few points or too small median angle, return None
     if parallax_mask is None or parallax_mask.sum() < MIN_NUM_TRIANG_POINTS:
         log.warning("\t Discarding frame due to insufficient parallax.")
-        return None, None, None, False
+        return None
             
     # Save the matches
     if debug:
@@ -234,8 +227,6 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     q_points = q_points[parallax_mask]
     t_points = t_points[parallax_mask]
     w_points = utils.transform_points(t_points, t_frame.pose)
-    if np.any(np.isnan(w_points)):
-        breakpoint()
 
     # ------------------------------------------------------------------------
     # 8. Save the triangulated points and masks to the t_frame
@@ -249,5 +240,5 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     t_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in matches])
 
     # Return the initial pose and filtered points
-    return w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors, True
+    return w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors
       
