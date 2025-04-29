@@ -1,14 +1,10 @@
 import numpy as np
 import cv2
 
-import src.backend as backend
-import src.place_recognition as pr
 import src.utils as utils
 import src.visualization as vis
 import src.globals as ctx
-from .others import frame_search
-from .pnp import estimate_relative_pose
-from .utils import constant_velocity_model
+
 
 from config import SETTINGS, results_dir, K, log
 
@@ -16,7 +12,7 @@ from config import SETTINGS, results_dir, K, log
 scale_factor = SETTINGS["orb"]["scale_factor"]
 n_levels = SETTINGS["orb"]["level_pyramid"]
 
-debug = SETTINGS["generic"]["debug"]
+DEBUG = SETTINGS["generic"]["debug"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
 HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
@@ -35,17 +31,18 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
     Returns:
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
     """
-    log.info("Searching for map<->frame correspondences!")
+    if DEBUG:
+        log.info(f"Searching for map<->frame #{t_frame.id} correspondences!")
     
     # Extract the in view descriptors
     map_descriptors = []
     map_point_ids = []
     map_pixels = []
-    for pid, p in ctx.map.points.items():
+    for p in ctx.map.points.values():
         # Get the descriptors from every observation of a point
         for obs in p.observations:
             map_descriptors.append(obs.desc)
-            map_point_ids.append(pid)
+            map_point_ids.append(p.id)
             map_pixels.append(obs.kpt.pt)
     map_descriptors = np.array(map_descriptors)
     map_point_ids = np.array(map_point_ids)
@@ -63,9 +60,9 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
     # Apply Lowe's ratio test to filter out false matches
     good_matches = []
     for m, n in matches:
-        if m.distance < 0.95 * n.distance:
+        if m.distance < 0.7 * n.distance:
             good_matches.append(m)
-    if debug:
+    if DEBUG:
         log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
     if len(good_matches) < 10:
@@ -80,7 +77,7 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
 
     # Convert the dictionary values to a list of unique matches
     unique_matches = list(unique_matches.values())
-    if debug:
+    if DEBUG:
         log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
 
     if len(unique_matches) < 10:
@@ -103,16 +100,16 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
 
         t_kpt = t_frame.keypoints[m.trainIdx]
         feat = t_frame.features[t_kpt.class_id]
-        
+
         feat.match_map_point(point, m.distance)
         ctx.map.add_observation(t_frame, feat, point)
 
     # Save the matches
-    if debug:
+    if DEBUG:
         t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
         vis.plot_pixels(t_frame.img, t_pxs, save_path=save_path)
 
-    if debug:
+    if DEBUG:
         log.info(f"\t Found {len(unique_matches)} Point Associations!")
     return len(unique_matches)
 

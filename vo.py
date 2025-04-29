@@ -81,7 +81,9 @@ def main():
             t_frame.set_pose(gt_pose)
             ctx.cgraph.add_first_keyframe(t_frame)
 
-            utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+            if debug:
+                utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+
             q_frame = t_frame
         else:                    
             # ########### Initialization ###########
@@ -114,10 +116,9 @@ def main():
                 # Set the pose in the current frame
                 T_t2w = T_q2w @ T_t2q
                 t_frame.set_pose(T_t2w)
-                log.info(f"\t RMSE: {np.linalg.norm(gt_pose[:3, 3] - T_t2w[:3, 3]):.2f}")
 
                 # Triangulate the 3D points using the initial pose
-                w_points, q_kpts, t_kpts, q_descriptors, t_descriptors, is_initialized = init.triangulate_points(matches, T_q2t, q_frame, t_frame, scale)
+                w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors, is_initialized = init.triangulate_points(matches, T_q2t, q_frame, t_frame, scale)
                 if not is_initialized:
                     log.info("Triangulation failed!")
                     continue
@@ -125,7 +126,7 @@ def main():
                 # Push the keyframes and triangulated points to the map
                 ctx.map.add_keyframe(q_frame)
                 ctx.map.add_keyframe(t_frame)
-                ctx.map.add_init_points(w_points, 
+                ctx.map.add_init_points(w_points, distances,
                                     q_frame, q_kpts, q_descriptors, 
                                     t_frame, t_kpts, t_descriptors)
 
@@ -140,14 +141,15 @@ def main():
                 utils.validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
 
                 # Perform Bundle Adjustment
-                ba = backend.globalBA(verbose=debug)
+                ba = backend.globalBA()
                 ba.optimize()
 
                 # Plots
                 # plot_BA()
-                vis.plot_BA2d(results_dir / "ba" / f"{i}_global.png")
-                vis.plot_trajectory(results_dir / "trajectory" / f"{i}.png")
-                utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+                if debug:
+                    vis.plot_BA2d(results_dir / "ba" / f"{i}_global.png")
+                    vis.plot_trajectory(results_dir / "trajectory" / f"{i}.png")
+                    utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 q_frame = t_frame
                     
@@ -159,7 +161,7 @@ def main():
                 num_matches = track.map_search(t_frame, save_path=results_dir / "tracking/matches" / f"map_{t_frame.id}.png")
                 if num_matches < 20:
                     log.error(f"Tracking failed! {num_matches} (<20) matches found!")
-                    ctx.map.remove_observation(t_frame.id)
+                    ctx.map.remove_keyframe(t_frame.id)
                     is_initialized = False
                     breakpoint()
                     continue
@@ -167,18 +169,19 @@ def main():
                 # Estimate the new pose using PnP
                 pnp_success = track.estimate_relative_pose(t_frame)
                 if not pnp_success:
-                    ctx.map.remove_observation(t_frame.id)
+                    ctx.map.remove_keyframe(t_frame.id)
                     is_initialized = False
                     breakpoint()
 
                 # Perform pose optimization
                 ctx.map.add_keyframe(t_frame)
-                ba = backend.singlePoseBA(t_frame, verbose=debug)
+                ba = backend.singlePoseBA(t_frame)
                 ba.optimize()
 
                 # Plot the BA
                 # plot_BA()
-                vis.plot_BA2d(results_dir / "ba" / f"{i}_pose.png")
+                if debug:
+                    vis.plot_BA2d(results_dir / "ba" / f"{i}_pose.png")
                 vis.plot_trajectory(results_dir / "trajectory" / f"{i}_a.png")
                 
                 # ########### Track Local Map ###########
@@ -202,11 +205,9 @@ def main():
                     ctx.map.remove_keyframe(t_frame.id)
                     continue
 
-                # Set the pose in the current frame
-                log.info(f"\t RMSE: {np.linalg.norm(t_frame.gt[:3, 3] - t_frame.t):.2f}")
-
                 # Save the keyframe
-                utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+                if debug:
+                    utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 # ########### Map Point/Keyframe Creating/Culling ###########
                 log.info("")
@@ -219,16 +220,17 @@ def main():
                 ctx.map.cull_points()
 
                 # Create new map points
-                ctx.map.create_track_points(t_frame)
+                ctx.map.create_points(t_frame)
 
                 # Perform Local Bundle Adjustment
-                # ba = backend.globalBA(verbose=debug)
-                ba = backend.localBA(t_frame, verbose=debug)
+                # ba = backend.globalBA()
+                ba = backend.localBA(t_frame)
                 ba.optimize()
 
                 # Plot the BA
                 # plot_BA()
-                vis.plot_BA2d(results_dir / "ba" / f"{i}_local.png")
+                if debug:
+                    vis.plot_BA2d(results_dir / "ba" / f"{i}_local.png")
                 vis.plot_trajectory(results_dir / "trajectory" / f"{i}_b.png")
 
                 # Clean up redundant frames

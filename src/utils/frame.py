@@ -12,6 +12,7 @@ from config import results_dir, SETTINGS, log, fx, fy, cx, cy
 ORB_SETTINGS = SETTINGS["orb"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
+DEBUG = SETTINGS["generic"]["debug"]
 
 
 class orbFeature():
@@ -243,15 +244,15 @@ class Frame():
         c4 = common_features_ratio < 0.9
         
         is_keyframe = c3 and c4
-        if is_keyframe:
-            log.info("\t\t Keyframe!")
-        else:
-            log.warning("\t\t Not a keyframe!")
-            if not c3:
-                log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50!")
-            if not c4:
-                log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9!")
-            pass
+        if DEBUG:
+            if is_keyframe:
+                log.info("\t\t Keyframe!")
+            else:
+                log.warning("\t\t Not a keyframe!")
+                if not c3:
+                    log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50!")
+                if not c4:
+                    log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9!")
 
         return is_keyframe
 

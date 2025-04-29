@@ -54,11 +54,6 @@ convisibility:
     min_common_edges: 15
     essential_common_edges: 100
 
-ba:
-    num_observations: 3
-    frequency: 5
-    measurement_noise: 2.0
-
 place_recognition:
     vocab_size: 1000
     similarity_threshold: 0.8

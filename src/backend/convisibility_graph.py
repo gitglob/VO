@@ -5,6 +5,7 @@ import src.globals as ctx
 from config import SETTINGS, log
 
 
+DEBUG = SETTINGS["generic"]["debug"]
 THETA_MIN = SETTINGS["convisibility"]["min_common_edges"]
 ESSENTIAL_THETA_MIN = SETTINGS["convisibility"]["essential_common_edges"]
 
@@ -74,7 +75,9 @@ class ConvisibilityGraph(Graph):
 
     def add_first_keyframe(self, keyframe: utils.Frame):
         """Adds the first keyframe to the graph."""
-        log.info(f"[Graph] Buffering keyframe #{keyframe.id}")
+        if DEBUG:
+            log.info(f"[Graph] Buffering keyframe #{keyframe.id}")
+
         if keyframe.id in self.nodes.keys():
             log.warning(f"\t Keyframe {keyframe.id} already exists!")
             return
@@ -89,14 +92,17 @@ class ConvisibilityGraph(Graph):
             keyframe: Unique identifier for the keyframe.
             pairs: Dictionary matching a feature to a map point with a distance
         """
-        log.info(f"[Graph] Adding keyframe #{keyframe.id}")
+        if DEBUG:
+            log.info(f"[Graph] Adding keyframe #{keyframe.id}")
+
         if keyframe.id in self.nodes.keys():
             log.warning(f"\t Keyframe {keyframe.id} already exists!")
             return
         
         # Extract map point matches
         kf_map_pt_ids = keyframe.get_map_point_ids()
-        log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
+        if DEBUG:
+            log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
 
         # Add the first keyframe if hanging
         if self._first_keyframe_id is not None:
@@ -114,13 +120,15 @@ class ConvisibilityGraph(Graph):
         """Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree."""
         kf_map_pt_ids = keyframe.get_map_point_ids()
 
-        log.info(f"[Graph] Adding keyframe #{keyframe.id}")
+        if DEBUG:
+            log.info(f"[Graph] Adding keyframe #{keyframe.id}")
         if keyframe.id in self.nodes.keys():
             log.warning(f"\t Keyframe {keyframe.id} already exists!")
             return
         
         # Store the new keyframe observations
-        log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
+        if DEBUG:
+            log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
         self._add_node(keyframe.id, kf_map_pt_ids)
         self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
 
@@ -168,10 +176,11 @@ class ConvisibilityGraph(Graph):
             # All the spanning tree edges go to the Essential Graph too
             self.essential_graph._add_edge(best_parent_id, kf_id, max_shared)
 
-        log.info(f"\t Added {num_new_edges} edges to keyframe {kf_id}!")
+        if DEBUG:
+            log.info(f"\t Added {num_new_edges} edges to keyframe {kf_id}!")
 
-    def _update_edges_on_point_culling(self):
-        """Updates the covisibility edges after points have been removed."""
+    def update_edges(self):
+        """Updates the covisibility edges after points have been modified."""
         # Spanning tree connections
         best_parent_id = None
         max_shared = -1
@@ -212,10 +221,10 @@ class ConvisibilityGraph(Graph):
         """Returns the map points seen by a keyframe"""
         return self.nodes[kf_id]
     
-    def get_frustum_points(self, frame: utils.Frame):
+    def get_frustum_points(self, frame_id: int):
         """Returns the points that are in the view of a given frame"""
         points = set()
-        for pid in self.nodes[frame.id]:
+        for pid in self.nodes[frame_id]:
             points.add(ctx.map.points[pid])
         return points
     
@@ -238,20 +247,28 @@ class ConvisibilityGraph(Graph):
 
         return ref_frame_id
     
-    def get_connected_frames(self, kf_id: int) -> set[int]:
-        """Returns the keyframes connected to a specific keyframe."""
-        # Keep the connected nodes and points
-        connected_kf_ids = set()
-        # Iterate over all the edges
-        for (kf1_id, kf2_id) in self.edges.keys():
-            # Check if this node is part of this edge
-            # If it is, the other node and its points are of interest
+    def get_connected_frames(self, kf_id: int, num_edges: int = None) -> set[int]:
+        """Returns the keyframes connected to a specific keyframe.
+        If num_edges is specified, only the num_edges strongest connections (highest weight) are returned.
+        """
+        # Gather all (other_frame_id, weight) pairs
+        connections: list[tuple[int, float]] = []
+        for (kf1_id, kf2_id), w in self.edges.items():
             if kf1_id == kf_id:
-                connected_kf_ids.add(kf2_id)
+                connections.append((kf2_id, w))
             elif kf2_id == kf_id:
-                connected_kf_ids.add(kf1_id)
+                connections.append((kf1_id, w))
 
-        return connected_kf_ids
+        # If a limit was specified, sort by weight and trim
+        if num_edges is not None:
+            # sort descending by weight
+            connections.sort(key=lambda pair: pair[1], reverse=True)
+            connections = connections[:num_edges]
+
+        # Return just the frame IDs (as a set)
+        connection_frame_ids = {frame_id for frame_id, _ in connections}
+    
+        return connection_frame_ids
 
 
     def get_frames_that_observe_point(self, pid: int) -> set[int]:
@@ -348,21 +365,23 @@ class ConvisibilityGraph(Graph):
         edges_to_remove = [edge for edge in self.loop_closure_edges if kf_id in edge]
         for edge in edges_to_remove:
             del self.loop_closure_edges[edge]
-        
+
         # Note: In a fully featured system you might want to re-compute or update the spanning tree
         # to ensure full connectivity, but for simplicity we are only removing associated edges here.
 
-    def remove_point(self, kf_id: int, pid: int):
+    def remove_matches(self, matches: set[int, int]):
         """Remove a point from a node"""
-        self.nodes[kf_id].remove(pid)
+        for (pid, kf_id) in matches:
+            self.nodes[kf_id].remove(pid)
+        self.update_edges()
 
     def remove_points(self, pids: set[int]):
-        """Remove a set of points along and adjust the edges"""
-        # Iterate over all nodes
-        for kf_id, kf_point_ids in self.nodes.items():
-            # Possibly remove the points from its observations
-            self.nodes[kf_id] = kf_point_ids - pids
-        self._update_edges_on_point_culling()
+        """Removes points from graph"""
+        for kf_id in self.nodes.keys():
+            self.nodes[kf_id] = self.nodes[kf_id] - pids
+
+        # Update edges
+        self.update_edges()
 
 
     def create_local_map(self, frame: utils.Frame):
@@ -373,7 +392,9 @@ class ConvisibilityGraph(Graph):
         - The neighboring frames of K1 in the convisibility graph -> K2
         - A reference frame Kref in K1 which shares the most points with the current frame
         """
-        log.info("[Graph] Creating local map...")
+        if DEBUG:
+            log.info("[Graph] Creating local map...")
+            
         frame_map_point_ids = frame.get_map_point_ids()
 
         # Find the frames that share map points and their points

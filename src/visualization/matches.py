@@ -3,20 +3,23 @@ import cv2
 import numpy as np
 import matplotlib
 
-from config import results_dir
 matplotlib.use('tkAgg')
 
 
 # Function to visualize the found feature matches
 def plot_matches(matches, q_frame, t_frame, save_path: str):
+    if len(matches) == 0:
+        return
     if isinstance(matches, np.ndarray):
         matches = matches.tolist()
         
     q_img = q_frame.img
     q_kpts = q_frame.keypoints
+    assert max([m.queryIdx for m in matches]) < len(q_kpts)
 
     t_img = t_frame.img
     t_kpts = t_frame.keypoints
+    assert max([m.trainIdx for m in matches]) < len(t_kpts)
 
     if len(matches) > 50:
         matches = matches[:50]

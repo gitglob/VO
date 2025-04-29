@@ -3,15 +3,18 @@ from src.utils.linalg import invert_transform
 import src.backend as backend
 import src.utils as utils
 import src.globals as ctx
-from config import log
+from config import log, SETTINGS
+
+
+DEBUG = SETTINGS["generic"]["debug"]
 
 
 class globalBA(backend.BA):
-    def __init__(self, verbose=False):
+    def __init__(self):
         """Performs global Bungle Adjustment fixing only the very first pose"""
         super().__init__()
-        log.info("[BA] Performing full BA...")
-        self.verbose = verbose
+        if DEBUG:
+            log.info("[BA] Performing full BA...")
 
         # The keyframes to optimize
         self._add_frames()
@@ -22,7 +25,7 @@ class globalBA(backend.BA):
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
         """
-        if self.verbose:
+        if DEBUG:
             log.info(f"\t Adding {ctx.map.num_keyframes} poses...")
         
         frames = list(ctx.map.keyframes.values())
@@ -32,7 +35,7 @@ class globalBA(backend.BA):
 
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
-        if self.verbose:
+        if DEBUG:
             log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # Iterate over all map points
@@ -52,8 +55,8 @@ class globalBA(backend.BA):
         Returns:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
-        if self.verbose:
-            log.info("\t Optimizing with g2o...")
+        if DEBUG:
+            log.info("\t Optimizing...")
 
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
@@ -70,7 +73,8 @@ class globalBA(backend.BA):
 
     def update_poses_and_landmarks(self):
         """Retrieves optimized pose and landmark estimates from the optimizer."""
-        log.info("\t Updating poses and landmark positions...")
+        if DEBUG:
+            log.info("\t Updating poses and landmark positions...")
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):

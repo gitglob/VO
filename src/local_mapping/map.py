@@ -19,7 +19,7 @@ DIST_THRESH = SETTINGS["point_association"]["hamming_threshold"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
 
-debug = SETTINGS["generic"]["debug"]
+DEBUG = SETTINGS["generic"]["debug"]
 
 
 class mpObservation():
@@ -120,7 +120,7 @@ class mapPoint():
         return kf_ids
 
     def remove_observation(self, kf_id: int):
-        """Removes the observation from a specific keyframe"""
+        """Removes an observation from a specific keyframe"""
         self.observations = [
            obs for obs in self.observations
             if obs.kf_id != kf_id
@@ -219,7 +219,9 @@ class localMap():
 
         self.point_ids = K1_points.union(K2_points)
         self.frame_ids = K1_frames.union(K2_frames).union({ref_frame_id})
-        log.info(f"[Local Map] Created map with {len(self.frame_ids)} frames and {len(self.point_ids)} points")
+
+        if DEBUG:
+            log.info(f"[Local Map] Created map with {len(self.frame_ids)} frames and {len(self.point_ids)} points")
 
 
 class Map():
@@ -337,7 +339,9 @@ class Map():
         if kf.id in self.keyframes.keys():
             return
         
-        log.info(f"[Map] Adding frame #{kf.id} to the map.")
+        if DEBUG:
+            log.info(f"[Map] Adding frame #{kf.id} to the map.")
+        
         self.keyframes[kf.id] = kf
 
         self.trajectory[kf.id] = kf.pose.copy()
@@ -346,7 +350,7 @@ class Map():
 
         self._kf_counter += 1
 
-    def add_init_points(self, points_pos: np.ndarray, 
+    def add_init_points(self, points_pos: np.ndarray, distances: np.ndarray,
                         q_kf: utils.Frame, q_kpts: List[cv2.KeyPoint], q_descriptors: np.ndarray, 
                         t_kf: utils.Frame, t_kpts: List[cv2.KeyPoint], t_descriptors: np.ndarray):
         # Iterate over the new points
@@ -354,6 +358,7 @@ class Map():
         for i in range(num_new_points):
             # Create a point
             pos = points_pos[i]
+            dist = distances[i]
             assert not np.any(np.isnan(pos))
             point = mapPoint(pos)
             self.points[point.id] = point
@@ -363,10 +368,10 @@ class Map():
             point.observe(self._kf_counter,   t_kf.id, t_kpts[i], t_descriptors[i])    
             
             # Set the feature <-> mapPoint matches
-            q_kf.features[q_kpts[i].class_id].match_map_point(point, 0)
-            t_kf.features[t_kpts[i].class_id].match_map_point(point, 0)
+            q_kf.features[q_kpts[i].class_id].match_map_point(point, dist)
+            t_kf.features[t_kpts[i].class_id].match_map_point(point, dist)
 
-        if debug:
+        if DEBUG:
             log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
 
     def _add_new_point(self, pos: np.ndarray, dist: float,
@@ -391,12 +396,11 @@ class Map():
     def add_observation(self, frame: utils.Frame, feat: utils.orbFeature, point: mapPoint):
         point.observe(self._kf_counter, frame.id, feat.kpt, feat.desc)
 
-    def create_track_points(self, t_frame: utils.Frame):
+    def create_points(self, t_frame: utils.Frame):
         """
         Creates and adds new points to the map, by triangulating matches in so far
         un-matched points in connected keyframes.
         """
-        log.info(f"[Map] Creating new map points using frame {t_frame.id}")
         # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
 
         # Prepare matcher
@@ -404,8 +408,9 @@ class Map():
 
         # Get the neighbor frames in the convisibility graph
         neighbor_kf_ids = ctx.cgraph.get_connected_frames(t_frame.id)
-
         ratio_factor = 1.5 * t_frame.scale_factors[1]
+        if DEBUG:
+            log.info(f"[Map] Creating new map points using frame {t_frame.id} and {len(neighbor_kf_ids)} neighbors!")
 
         # Iterate over all neighbor frames
         in_map_counter = 0
@@ -414,6 +419,7 @@ class Map():
         parallax_counter = 0
         dist_counter = 0
         scale_counter = 0
+        num_created_points = 0
         for q_frame_id in neighbor_kf_ids:
             matches = []
             q_frame: utils.Frame = ctx.map.keyframes[q_frame_id]
@@ -428,7 +434,8 @@ class Map():
             # Match descriptors with ratio test
             matches_knn = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
             filtered_matches = utils.filterMatches(matches_knn, 0.7)
-            log.info(f"\t Connected frame #{q_frame_id}: Found {len(filtered_matches)} potential new points!") 
+            if DEBUG:
+                log.info(f"\t Connected frame #{q_frame_id}: Found {len(filtered_matches)} potential new points!") 
 
             # For every formed pair, utils.triangulate new points and add them to the map
             T_q2t = utils.invert_transform(t_frame.pose) @ q_frame.pose
@@ -490,20 +497,22 @@ class Map():
                 self._add_new_point(new_w_point, m.distance, t_frame, q_frame, t_feat, q_feat)
 
                 matches.append((q_feat.idx, t_feat.idx, m.distance))
+                num_created_points += 1
 
-            if debug:
+            if DEBUG:
                 cv2_matches = [cv2.DMatch(q,t,d) for (q,t,d) in matches]
                 save_path = results_dir / "tracking/new_points" / f"{t_frame.id}_{q_frame.id}.png"
                 vis.plot_matches(cv2_matches, q_frame, t_frame, save_path)
 
-        log.info(f"\t Created {len(matches)} points! Filtered the following...")
-        log.info(f"\t\t In map: {in_map_counter}")
-        log.info(f"\t\t Cheirality: {cheirality_counter}")
-        log.info(f"\t\t Reprojection: {reprojection_counter}")
-        log.info(f"\t\t Parallax: {parallax_counter}")
-        log.info(f"\t\t Distance: {dist_counter}")
-        log.info(f"\t\t Scale: {scale_counter}")
-        log.info(f"\t Total points: {self.num_points}!")
+        if DEBUG:
+            log.info(f"\t Created {num_created_points} points! Filtered the following...")
+            log.info(f"\t\t In map: {in_map_counter}")
+            log.info(f"\t\t Cheirality: {cheirality_counter}")
+            log.info(f"\t\t Reprojection: {reprojection_counter}")
+            log.info(f"\t\t Parallax: {parallax_counter}")
+            log.info(f"\t\t Distance: {dist_counter}")
+            log.info(f"\t\t Scale: {scale_counter}")
+            log.info(f"\t Total points: {self.num_points}!")
 
 
     def optimize_pose(self, kf_id: int, pose: np.ndarray):
@@ -514,23 +523,35 @@ class Map():
         self.points[pid].optimize_pos(new_pos)
 
 
-    def remove_match(self, kf_id: int, pid: int):
-        self.keyframes[kf_id].remove_mp_match(pid)
-        self.points[pid].remove_observation(kf_id)
-
-    def remove_observation(self, kf_id: int):
-        """Removes all the point ovservations from the given keyframe"""
-        for p in self.points.values():
-            p.remove_observation(kf_id)
+    def remove_matches(self, matches: set[int, int]):
+        """
+        Removes a match completely:
+            1) Remove the match from the feature
+            2) Remove the observation from the map point
+            3) Remove the point form the convisibility graph
+        """
+        for pid, kf_id in matches:
+            self.keyframes[kf_id].remove_mp_match(pid)
+            self.points[pid].remove_observation(kf_id)
+        ctx.cgraph.remove_matches(matches)
 
     def remove_keyframe(self, kf_id: int):
+        """
+        Completely removes a keyframe:
+            1) Removes the keyframe from the map
+            2) Removes all the keyframe observations from the map points
+            3) Removes the keyframe from the convisibility graph
+        """
         del self.keyframes[kf_id]
-        self.remove_observation(kf_id)
-        if debug:
+        for p in self.points.values():
+            p.remove_observation(kf_id)
+        if DEBUG:
             log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes} left!")
+        ctx.cgraph.remove_keyframe(kf_id)
 
-    def remove_point(self, pid: int):
-        del self.points[pid]
+    def remove_points(self, pids: set[int]):
+        for pid in pids:
+            del self.points[pid]
 
 
     def cull_points(self):
@@ -550,7 +571,7 @@ class Map():
             (1) rarely matched
             (2) not observed from at least 3 keyframes
         """
-        if debug:
+        if DEBUG:
             log.info("[Map] Culling map points...")
 
         removed_point_ids = set()
@@ -576,11 +597,10 @@ class Map():
                 removed_point_ids.add(pid)
                 continue
 
-        for pid in removed_point_ids:
-            self.remove_point(pid)
+        self.remove_points(removed_point_ids)
         ctx.cgraph.remove_points(removed_point_ids)
 
-        if debug:
+        if DEBUG:
             log.info(f"\t Removed {len(removed_point_ids)} points. {self.num_points} left!")
 
     def cull_keyframes(self, frame: utils.Frame):
@@ -589,28 +609,27 @@ class Map():
         map points have been seen in at least other three keyframes in
         the same or finer scale.
         """
-        if debug:
+        if DEBUG:
             log.info("[Map] Culling frames...")
         # Get the neighbor keyframes in the convisibility graph
-        neighbor_kf_ids = ctx.cgraph.get_connected_frames(frame.id)
+        neighbor_kf_ids = ctx.cgraph.get_connected_frames(frame.id, num_edges=30)
 
         # Iterate over all connected keyframes
         removed_kf_ids = set()
         for kf_id in neighbor_kf_ids:
             # Extract their map points
-            kf_mp_ids = ctx.cgraph.get_frustum_point_ids(kf_id)
-            num_points = len(kf_mp_ids)
+            kf_points = ctx.cgraph.get_frustum_points(kf_id)
+            num_points = len(kf_points)
             
             # Count the number of co-observing points
             count_coobserving_points = 0
             # Iterate over all their map points
-            for pid in kf_mp_ids:
+            for point in kf_points:
                 # Extract the scale of their observation
-                point: mapPoint = self.points[pid]
                 obs = point.get_observation(kf_id)
                 scale = obs.kpt.octave
                 # Get how many keyframes observe the same point in the same or finer scale
-                observing_frame_ids = ctx.cgraph.get_frames_that_observe_point_at_scale(pid, scale)
+                observing_frame_ids = ctx.cgraph.get_frames_that_observe_point_at_scale(point.id, scale)
                 num_observing_frame_ids = len(observing_frame_ids)
                 # Check if at least 3 keyframes observe this point
                 if num_observing_frame_ids >= 3:
@@ -623,7 +642,6 @@ class Map():
 
         for kf_id in removed_kf_ids:
             self.remove_keyframe(kf_id)
-            ctx.cgraph.remove_keyframe(kf_id)
 
 
     def view(self, frame: utils.Frame):

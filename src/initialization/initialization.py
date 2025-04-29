@@ -242,11 +242,12 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     # ------------------------------------------------------------------------
 
     # Save the triangulated points keypoints and descriptors
+    distances = np.array([m.distance for m in matches])
     q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
     t_kpts = np.array([t_frame.keypoints[m.trainIdx] for m in matches])
     q_descriptors = np.uint8([q_frame.descriptors[m.queryIdx] for m in matches])
     t_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in matches])
 
     # Return the initial pose and filtered points
-    return w_points, q_kpts, t_kpts, q_descriptors, t_descriptors, True
+    return w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors, True
       

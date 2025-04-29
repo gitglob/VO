@@ -7,14 +7,16 @@ import src.globals as ctx
 from config import SETTINGS, log, K
 
 
+DEBUG = SETTINGS["generic"]["debug"]
+
+
 class localBA(backend.BA):
-    def __init__(self, frame: utils.Frame, verbose=False):
+    def __init__(self, frame: utils.Frame):
         """
         Performs Local Bundle Adjustment.
         Local BA means that ...         
         """
         super().__init__()
-        self.verbose = verbose
         self.keyframe = frame
 
         self._build()
@@ -42,7 +44,7 @@ class localBA(backend.BA):
         all_kf_ids = connected_kf_ids1.copy()
         all_kf_ids.update(unconnected_kfs_ids)
 
-        if self.verbose:
+        if DEBUG:
             msg = f"[localBA] Adding frame {self.keyframe.id}, {len(connected_kf_ids)} "
             msg += f"connected frames with {len(connected_point_ids)} points, "
             msg += f"and {len(unconnected_kfs)} unconnected frames..."
@@ -79,7 +81,8 @@ class localBA(backend.BA):
 
         # Optimize with the outliers
         num_edges = len(self.optimizer.edges())
-        log.info(f"\t Optimizing {num_edges} edges...")
+        if DEBUG:
+            log.info(f"\t Optimizing {num_edges} edges...")
 
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(5)
@@ -99,18 +102,18 @@ class localBA(backend.BA):
                 self.optimizer.remove_edge(e)
 
         # Remove feature<->map point match and map point observation
-        for (pid, kf_id) in removed_edges:
-            ctx.map.remove_match(kf_id, pid)
-            ctx.cgraph.remove_point(kf_id, pid)
+        ctx.map.remove_matches(removed_edges)
 
-        log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
+        if DEBUG:
+            log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
         num_edges = len(self.optimizer.edges())
 
         self.update_poses_and_landmarks()
         e2 = e = ctx.map.get_mean_projection_error()
 
         # Optimize again without the outliers
-        log.info(f"\t Optimizing {num_edges} edges...")
+        if DEBUG:
+            log.info(f"\t Optimizing {num_edges} edges...")
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(10) # TODO: this crashes
 
@@ -123,17 +126,16 @@ class localBA(backend.BA):
                 removed_edges.add((pid, kf_id))
 
         # Remove feature<->map point match and map point observation
-        for (pid, kf_id) in removed_edges:
-            ctx.map.remove_match(kf_id, pid)
-            ctx.cgraph.remove_point(kf_id, pid)
+        ctx.map.remove_matches(removed_edges)
 
-        log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
-        ctx.cgraph._update_edges_on_point_culling()
+        if DEBUG:
+            log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
 
         self.update_poses_and_landmarks()
         e3 = ctx.map.get_mean_projection_error()
 
-        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f}")
+        if DEBUG:
+            log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f}")
 
     def edge_info(self, edge: g2o.EdgeProjectXYZ2UV) -> tuple[int, int, float]:
         """Using an g2o edge extracts the landmark's Z position (depth) in the camera's frame"""
@@ -159,7 +161,8 @@ class localBA(backend.BA):
 
     def update_poses_and_landmarks(self):
         """Retrieves optimized pose and landmark estimates from the optimizer."""
-        log.info("\t Updating poses and landmark positions...")
+        if DEBUG:
+            log.info("\t Updating poses and landmark positions...")
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):

@@ -9,16 +9,15 @@ import src.globals as ctx
 from config import K, log
 
 # Set parameters from the config
-MEASUREMENT_SIGMA = float(SETTINGS["ba"]["measurement_noise"])
-NUM_OBSERVATIONS = int(SETTINGS["ba"]["num_observations"])
+DEBUG = SETTINGS["generic"]["debug"]
 
 
 class singlePoseBA(backend.BA):
-    def __init__(self, frame: utils.Frame, verbose=False):
+    def __init__(self, frame: utils.Frame):
         """Initializes Single Pose Optimization with a g2o optimizer and camera intrinsics."""
         super().__init__()
-        log.info(f"[BA] Performing Pose #{frame.id} Optimization...")
-        self.verbose = verbose
+        if DEBUG:
+            log.info(f"[singlePoseBA] Performing Pose #{frame.id} Optimization...")
 
         # The keyframes to optimize
         self.frame = frame
@@ -27,7 +26,7 @@ class singlePoseBA(backend.BA):
 
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
-        if self.verbose:
+        if DEBUG:
             log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # Extract the frame <-> map feature matches
@@ -52,8 +51,8 @@ class singlePoseBA(backend.BA):
         Returns:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
-        if self.verbose:
-            log.info("\t Optimizing with g2o...")
+        if DEBUG:
+            log.info("\t Optimizing...")
 
         # Calculate initial number of edges
         n_edges = len(self.optimizer.edges())
@@ -86,7 +85,8 @@ class singlePoseBA(backend.BA):
         e1 = ctx.map.get_mean_projection_error()
         self.update_poses()
         e2 = ctx.map.get_mean_projection_error()
-        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
+        if DEBUG:
+            log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
 
         return n_inlier_edges
 
@@ -96,7 +96,8 @@ class singlePoseBA(backend.BA):
 
     def update_poses(self):
         """Optimizes pose estimates from the optimizer."""
-        log.info(f"\t Updating Pose #{self.frame.id}...")
+        if DEBUG:
+            log.info(f"\t Updating Pose #{self.frame.id}...")
 
         frame_id = self.frame.id
         vertex = self.optimizer.vertex(backend.X(frame_id))
