@@ -394,11 +394,8 @@ class Map():
         t_feat.match_map_point(point, dist)
 
         # Add the point to the convisibility graph too
-        ctx.cgraph.add_point(q_frame.id, point.id)
-        ctx.cgraph.add_point(t_frame.id, point.id)
-
-    def add_observation(self, frame: utils.Frame, feat: utils.orbFeature, point: mapPoint):
-        point.observe(self._kf_counter, frame.id, feat.kpt, feat.desc)
+        ctx.cgraph.add_observation(q_frame.id, point.id)
+        ctx.cgraph.add_observation(t_frame.id, point.id)
 
     def create_points(self, t_frame: utils.Frame):
         """
@@ -507,6 +504,9 @@ class Map():
                 cv2_matches = [cv2.DMatch(q,t,d) for (q,t,d) in matches]
                 save_path = results_dir / "tracking/new_points" / f"{t_frame.id}_{q_frame.id}.png"
                 vis.plot_matches(cv2_matches, q_frame, t_frame, save_path)
+
+        # Update graph edges
+        ctx.cgraph.update_edges()
 
         if DEBUG:
             log.info(f"\t Created {num_created_points} points! Filtered the following...")

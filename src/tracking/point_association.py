@@ -53,8 +53,8 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
     
     # Match descriptors
     matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
-    if len(matches) < 10:
-        return []
+    if len(matches) < 20:
+        return -1
 
     # Filter matches
     # Apply Lowe's ratio test to filter out false matches
@@ -65,8 +65,8 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
     if DEBUG:
         log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
-    if len(good_matches) < 10:
-        return []
+    if len(good_matches) < 20:
+        return -1
     
     # Next, ensure uniqueness by keeping only the best match per train descriptor.
     unique_matches = {}
@@ -80,8 +80,8 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
     if DEBUG:
         log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
 
-    if len(unique_matches) < 10:
-        return []
+    if len(unique_matches) < 20:
+        return -1
     
     # Finally, filter using the epipolar constraint
     if use_epipolar_constraint:
@@ -90,7 +90,7 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
         epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
         if epipolar_constraint_mask is None:
             log.warning("Failed to apply epipolar constraint..")
-            return []
+            return -1
         unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
     
     # Prepare results
@@ -99,10 +99,10 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
         point = ctx.map.points[pid]
 
         t_kpt = t_frame.keypoints[m.trainIdx]
-        feat = t_frame.features[t_kpt.class_id]
+        t_feat = t_frame.features[t_kpt.class_id]
 
-        feat.match_map_point(point, m.distance)
-        ctx.map.add_observation(t_frame, feat, point)
+        t_feat.match_map_point(point, m.distance)
+        point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
 
     # Save the matches
     if DEBUG:

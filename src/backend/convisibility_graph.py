@@ -134,7 +134,7 @@ class ConvisibilityGraph(Graph):
 
         self._update_edges_on_new_frame(keyframe.id, kf_map_pt_ids)
 
-    def add_point(self, kf_id: int, pid: int):
+    def add_observation(self, kf_id: int, pid: int):
         """Adds a point observation to a node"""
         self.nodes[kf_id].add(pid)
 

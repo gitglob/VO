@@ -12,8 +12,9 @@ DEBUG = SETTINGS["generic"]["debug"]
 
 
 def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
-    """Find suitable candidates for loop closure using the convisibility graph."""   
-    log.info(f"\t Searching for loop closing candidates with frame {frame.id}")
+    """Find suitable candidates for loop closure using the convisibility graph.""" 
+    if DEBUG:
+        log.info(f"\t Searching for loop closing candidates with frame {frame.id}")
     if frame.bow_hist is None:
         log.warning("\t No BoW descriptor computed for the current frame.")
         return None
@@ -49,7 +50,7 @@ def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
     # Find the best candidate
     best_candidate = max(good_candidates, key=lambda x: x[1])
     if DEBUG:
-        log.info(f"\t Loop closure candidate: {best_candidate[0]}, score: {best_candidate[1]:.2f}")
+        log.info(f"\t Loop closure best candidate: {best_candidate[0]}, score: {best_candidate[1]:.2f}")
     best_candidate_kf = ctx.map.keyframes[best_candidate[0]]
 
     return candidate_kfs
@@ -124,9 +125,11 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
         t_feat = t_frame.features[m.trainIdx]
 
         t_feat.match_map_point(point, m.distance)
-        ctx.map.add_observation(t_frame, t_feat, point)
+        point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
+        ctx.cgraph.add_observation(t_frame.id, point.id)
 
         cv2_matches.append(cv2.DMatch(q_feat.idx, t_feat.idx, m.distance))
+    ctx.cgraph.update_edges()
 
     # Save the matches
     if DEBUG:
