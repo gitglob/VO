@@ -280,20 +280,6 @@ class ConvisibilityGraph(Graph):
 
         return observing_kf_ids
     
-    def get_frames_that_observe_point_at_scale(self, pid: int, scale: int) -> set[int]:
-        """Returns all the keyframes that see a point at a specific or finer scale"""
-        # Get all the keyframes that see the point
-        cand_observing_kf_ids = set()
-        for kf_id, point_ids in self.nodes.items():
-            if pid in point_ids:
-                cand_observing_kf_ids.add(kf_id)
-
-        # Get the observations of that point in these keyframes
-        point = ctx.map.points[pid]
-        keyframe_observers_ids = point.get_scale_observations(scale)
-
-        return keyframe_observers_ids
-
     def get_frames_that_observe_points(self, pids: set[int]) -> set[int]:
         """Returns the keyframes that observe a set of points"""
         observing_kf_ids = set()

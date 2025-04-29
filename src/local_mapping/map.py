@@ -611,11 +611,12 @@ class Map():
         """
         if DEBUG:
             log.info("[Map] Culling frames...")
+
         # Get the neighbor keyframes in the convisibility graph
         neighbor_kf_ids = ctx.cgraph.get_connected_frames(frame.id, num_edges=30)
 
-        # Iterate over all connected keyframes
         removed_kf_ids = set()
+        # Iterate over all connected keyframes
         for kf_id in neighbor_kf_ids:
             # Extract their map points
             kf_points = ctx.cgraph.get_frustum_points(kf_id)
@@ -623,17 +624,22 @@ class Map():
             
             # Count the number of co-observing points
             count_coobserving_points = 0
+            
             # Iterate over all their map points
             for point in kf_points:
+                # Skip points with too few observations
+                if point.num_observations < 4:
+                    continue
                 # Extract the scale of their observation
                 obs = point.get_observation(kf_id)
-                scale = obs.kpt.octave
-                # Get how many keyframes observe the same point in the same or finer scale
-                observing_frame_ids = ctx.cgraph.get_frames_that_observe_point_at_scale(point.id, scale)
-                num_observing_frame_ids = len(observing_frame_ids)
-                # Check if at least 3 keyframes observe this point
-                if num_observing_frame_ids >= 3:
-                    count_coobserving_points += 1
+                
+                # Iterate over all other point observations
+                for other_obs in point.observations:
+                    if other_obs.kf_id == kf_id:
+                        continue
+                    # Check if the other observation is in the same or finer scale
+                    if other_obs.kpt.octave <= obs.kpt.octave:
+                        count_coobserving_points += 1
 
             # Calculate the percentage of co-observing points
             if count_coobserving_points / num_points > 0.9:
