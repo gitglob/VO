@@ -102,8 +102,6 @@ def triangulation_angles(points1, points2, T):
 
     return angles
 
-    # Filter out points with too small triangulation angle
-
 def triangulate(pxs1, pxs2, T):
     # Compute projection matrices for triangulation
     M1 = K @ np.eye(3,4)  # First camera at origin
@@ -119,34 +117,6 @@ def triangulate(pxs1, pxs2, T):
     points1_3d = points1_4d_hom[:3] / points1_4d_hom[3]
 
     return points1_3d.T # (N, 3)
-
-def compute_T12(frame1, frame2):
-    """
-    Computes the Transformation Matrix between 2 frames.
-    
-    Returns
-    -------
-    numpy.ndarray
-        The 4x4 transformation matrix (T12) relating the two keyframes.
-    """
-    # Retrieve rotation and translation for the first keyframe (from world to keyframe)
-    R1w = frame1.R
-    t1w = frame1.t
-    
-    # Retrieve rotation and translation for the second keyframe
-    R2w = frame2.R
-    t2w = frame2.t
-    
-    # Compute the relative rotation: R12 = R1w * (R2w).T
-    R12 = R1w @ R2w.T
-    
-    # Compute the relative translation: t12 = -R1w * (R2w).T * t2w + t1w
-    t12 = -R1w @ (R2w.T @ t2w) + t1w
-    
-    T12 = np.eye(4)
-    T12[:3, :3] = R12
-    T12[:3, 3] = t12 
-    return T12
 
 def compute_F12(frame1, frame2):
     """

@@ -55,7 +55,7 @@ class poseBA:
         The first pose is fixed to anchor the graph.
         """
         if self.verbose:
-            log.info(f"\t Adding {ctx.map.num_keyframes()} poses...")
+            log.info(f"\t Adding {ctx.map.num_keyframes} poses...")
         
         frames = list(ctx.map.keyframes.values())
         for frame in frames:
@@ -84,7 +84,7 @@ class poseBA:
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"\t Adding {ctx.map.num_points()} landmarks...")
+            log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # This kernel value is chosen based on the chi–squared distribution with 2 degrees of freedom 
         # (since the measurement is 2D) so that errors above this threshold are down–weighted.

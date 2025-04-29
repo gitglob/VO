@@ -23,7 +23,7 @@ class globalBA(backend.BA):
         The first pose is fixed to anchor the graph.
         """
         if self.verbose:
-            log.info(f"\t Adding {ctx.map.num_keyframes()} poses...")
+            log.info(f"\t Adding {ctx.map.num_keyframes} poses...")
         
         frames = list(ctx.map.keyframes.values())
         self._add_frame(frames[0], fixed=True)
@@ -33,7 +33,7 @@ class globalBA(backend.BA):
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"\t Adding {ctx.map.num_points()} landmarks...")
+            log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # Iterate over all map points
         for pid, mp in ctx.map.points.items():

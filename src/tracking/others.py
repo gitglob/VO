@@ -4,14 +4,91 @@ import src.local_mapping as mapping
 import src.utils as utils
 import src.globals as ctx
 import src.visualization as vis
-from config import SETTINGS, results_dir, K, log
+from config import SETTINGS, log
 
 
 debug = SETTINGS["generic"]["debug"]
 DIST_THRESH = SETTINGS["point_association"]["hamming_threshold"]
+use_epipolar_constraint = False
 
 
-def global_search(t_frame: utils.Frame):
+def track_map_points(t_frame: utils.Frame, theta: int = 15):
+    """Projects all un-matched map points to a frame and searches more correspondances."""
+    # Extract the already matched features and map points
+    matched_point_ids = t_frame.get_map_point_ids()
+    new_matched_features = {}
+
+    # Iterate over all the map points
+    for point, pid in ctx.local_map.points.items():
+        # Skip matched map points
+        if pid in matched_point_ids:
+            continue
+
+        # Check if the point is in the current camera's frustum
+        result = t_frame.is_in_frustum(point)
+        if result is False:
+            continue
+        u, v, scale = result
+
+        # Compare the representative descriptor D of the map point with the 
+        # still unmatched ORB features in the frame, at the predicted scale, 
+        # and near x, and associate the map point with the best match.
+        D = point.best_descriptor
+
+        # Collect candidate current frame un-matched keypoints whose pixel coordinates 
+        # fall within a window around the predicted pixel
+        octave_idx = np.abs(t_frame.scale_factors - scale).argmin()
+        radius = theta * t_frame.scale_factors[octave_idx]
+        candidates = []
+        for feat_id, feat in t_frame.features.items():
+            # Skip already matched features
+            if feat.matched:
+                continue
+            feat_px = feat.kpt.pt
+            if (abs(feat_px[0] - u) <= radius and
+                abs(feat_px[1] - v) <= radius):
+                candidates.append(feat_id)
+        
+        # If no keypoints are found in the window, skip to the next map point.
+        if len(candidates) == 0:
+            continue
+        
+        # For each candidate, compute the descriptor distance using the Hamming norm.
+        best_dist = np.inf
+        best_feature_id = None
+        for feat_id in candidates:
+            candidate_desc = t_frame.features[feat_id].desc
+            # Compute Hamming distance.
+            d = cv2.norm(np.array(D), np.array(candidate_desc), cv2.NORM_HAMMING)
+            if d < best_dist:
+                best_dist = d
+                best_feature_id = feat_id
+        
+        # Accept the match only if the best distance is below the threshold.
+        if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
+            # Make sure that we only keep 1 match per frame pixel
+            if best_feature_id not in new_matched_features.keys() or best_dist < new_matched_features[best_feature_id][1]:
+                new_matched_features[best_feature_id] = (pid, best_dist)
+    
+    if debug:
+        log.info(f"\t Found {len(new_matched_features)} Point Associations!")
+
+    # Update the frame<->map matches
+    for feat_id, (pid, dist) in new_matched_features.items():
+        feat = t_frame.features[feat_id]
+        feat.match_map_point(pid, dist)
+        point = ctx.map.points[pid]
+        ctx.map.add_observation(t_frame, feat, point)
+    
+    if debug and len(new_matched_features.keys()) > 0:
+        match_save_path = results_dir / "matches/tracking/map" / f"map_{t_frame.id}.png"
+        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in new_matched_features.keys()], dtype=np.float64)        
+        vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
+
+    return len(new_matched_features)
+
+
+def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, save_path: str):
     """
     Matches the map points seen in previous frames with the current frame.
 
@@ -24,26 +101,13 @@ def global_search(t_frame: utils.Frame):
     Returns:
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
     """
-    # Extract the in view descriptors
-    map_points = ctx.cgraph.get_frustum_points(t_frame)
-    map_descriptors = []
-    map_point_ids = []
-    map_pixels = []
-    for pid, p in map_points:
-        # Get the descriptors from every observation of a point
-        for obs in p.observations:
-            map_descriptors.append(obs.desc)
-            map_point_ids.append(pid)
-            map_pixels.append(obs.kpt.pt)
-    map_descriptors = np.array(map_descriptors)
-    map_point_ids = np.array(map_point_ids)
-    map_pixels = np.array(map_pixels)
-
     # Create BFMatcher object
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # Match descriptors
-    matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
+    points, q_features = q_frame.get_map_points_and_features()
+    q_descriptors = [f.desc for f in q_features]
+    matches = bf.knnMatch(q_descriptors, t_frame.descriptors, k=2)
     if len(matches) < 10:
         return []
 
@@ -73,38 +137,38 @@ def global_search(t_frame: utils.Frame):
 
     if len(unique_matches) < 10:
         return []
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "matches/tracking/point_assocation/global" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-        vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
     
     # Finally, filter using the epipolar constraint
-    # q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
-    # t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-    # epipolar_constraint_mask, _, _ = enforce_epipolar_constraint(q_pixels, t_pixels)
-    # if epipolar_constraint_mask is None:
-    #     log.warning("Failed to apply epipolar constraint..")
-    #     return []
-    # unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
-            
-    # # Save the matches
-    # if debug:
-    #     match_save_path = results_dir / "matches/tracking/point_assocation/1-epipolar_constraint" / f"map_{t_frame.id}.png"
-    #     vis.plot_pixels(t_frame.img, t_pixels, save_path=match_save_path)
+    if use_epipolar_constraint:
+        q_pixels = np.array([q_features[m.queryIdx].kpt.pt for m in unique_matches], dtype=np.float64)
+        t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
+
+        epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
+        if epipolar_constraint_mask is None:
+            log.warning("Failed to apply epipolar constraint..")
+            return []
+        unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
     
     # Prepare results
+    cv2_matches = []
+    m: cv2.DMatch
     for m in unique_matches:
-        feat = t_frame.features[m.trainIdx]
-        pid = map_points[m.queryIdx]
-        point = ctx.map.points[pid]
-        feat.match_map_point(point, m.distance)
-        ctx.map.add_observation(t_frame, feat, point)
+        q_feat = q_features[m.queryIdx]
+        point = points[m.queryIdx]
+        t_feat = t_frame.features[m.trainIdx]
+
+        t_feat.match_map_point(point, m.distance)
+        ctx.map.add_observation(t_frame, t_feat, point)
+
+        cv2_matches.append(cv2.DMatch(q_feat.idx, t_feat.idx, m.distance))
+
+    # Save the matches
+    if debug:
+        vis.plot_matches(cv2_matches, q_frame, t_frame, save_path = save_path)
 
     if debug:
-        log.info(f"\t Found {len(unique_matches)} Point Associations!")
-    return len(unique_matches)
+        log.info(f"\t Found {len(cv2_matches)} Point Associations!")
+    return len(cv2_matches)
 
 def window_search(q_keyframe: utils.Frame, t_frame: utils.Frame, radius: int, 
                   min_scale_level: int = -1, max_scale_level: int = -1 , save_path: str = None) -> int:
@@ -345,96 +409,3 @@ def search_by_bow(q_keyframe: utils.Frame, t_frame: utils.Frame, save_path: str)
 
     return len(matches)
 
-def search_for_triangulation(q_frame: utils.Frame, t_frame: utils.Frame):
-    """Matches the visual words between 2 frames and returns the matches between their features."""
-    # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
-    pairs = {} # t_feature_id: (neighbor_frame_id, neighbor_feature_id, dist)
-
-    # Compute the fundamental matrix
-    F_tn = utils.compute_F12(t_frame, q_frame)
-
-    # Iterate over all visual words
-    for word_id in ctx.bow_db.keys():
-        # Extract the features from the frames, if the word exists
-        t_features = t_frame.get_features_for_word(word_id)
-        if t_features is None:
-            continue
-        q_features = q_frame.get_features_for_word(word_id)
-        if q_features is None:
-            continue
-        # log.info(f"\t Word #{word_id}: {len(t_features)} x {len(q_features)} candidates!") 
-
-        # Iterate over features that match this word in the current frame
-        for t_feature in t_features:
-            # Skip features that are already in the map
-            if t_feature.in_map: 
-                break
-
-            # Store feature matches
-            desc_distances = {}
-
-            # Iterate over features for the same word in the neighbor frame
-            for q_feat in q_features:
-                # Extract their distance
-                dist = cv2.norm(t_feature.desc, q_feat.desc, cv2.NORM_HAMMING)
-                # Check if the descriptors are similar enough
-                if dist > DIST_THRESH:
-                    continue
-                # Keep the match distance and the feature id
-                desc_distances[q_feat.id] = dist
-
-            # Check if any matches were found
-            if len(desc_distances.keys()) == 0:
-                continue
-
-            # Sort the match distances based on distance
-            desc_distances_sorted = sorted(desc_distances.items(), key=lambda item: item[1])
-            best_dist = desc_distances_sorted[0][1]
-            dist_th = round(2*best_dist)
-
-            # Iterate over all feature candidates for this word
-            for n_feature_id, dist in desc_distances_sorted:
-                q_feat = q_frame.features[n_feature_id]
-                assert(q_feat.id == n_feature_id)
-                # If the distance if much larger than the best candidate, stop searching
-                if dist > dist_th:
-                    break
-
-                # Check if the candidate pair satisfies the epipolar constraint
-                d_epi_sqr = utils.dist_epipolar_line(t_feature.kpt.pt, q_feat.kpt.pt, F_tn)
-                d_threshold = 3.84 * q_frame.scale_uncertainties[q_feat.kpt.octave]
-                if d_epi_sqr < d_threshold:
-                    pairs[t_feature.id] = (q_feat.id, dist)
-                    # log.info(f"\t\t Match at word #{word_id}: t_{t_feature.id} <-> n_{q_feat.id}!") 
-                    # Stop if you find a good matching candidate
-                    break
-
-    # Drop duplicated features from the pairs
-    unique_pairs = dedupe_pairs(pairs)
-
-    return len(unique_pairs)
-
-def dedupe_pairs(pairs):
-    """
-    Given:
-      pairs: dict[t_feat_id] = (n_feat_id, dist)
-    Returns:
-      new_pairs: dict[t_feat_id] = (n_feat_id, dist)
-                 with no repeated t_feat_id or n_feat_id, keeping minimal dist.
-    """
-    # 1. Sort all data by ascending dist
-    sorted_pairs = sorted(pairs.items(), key=lambda item: item[1][1])
-    
-    new_pairs = {}
-    used_t = set()
-    used_n = set()
-    
-    # 2. Greedily take each pair if both feature IDs are still unused
-    for t_feat_id, (n_feat_id, dist) in sorted_pairs:
-        if t_feat_id in used_t or n_feat_id in used_n:
-            continue
-        new_pairs[t_feat_id] = (n_feat_id, dist)
-        used_t.add(t_feat_id)
-        used_n.add(n_feat_id)
-    
-    return new_pairs

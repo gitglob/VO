@@ -3,7 +3,7 @@ from .data       import Dataset
 from .frame      import Frame, orbFeature
 from .linalg     import invert_transform, transform_points
 from .utils      import save_image, delete_subdirectories
-from .epipolar_geometry import triangulate, compute_F12, compute_T12, dist_epipolar_line, triangulation_angles, triang_points_reprojection_error
+from .epipolar_geometry import triangulate, compute_F12, dist_epipolar_line, triangulation_angles, triang_points_reprojection_error
 from .filtering  import filterMatches, enforce_epipolar_constraint, filter_by_reprojection, filter_cheirality, filter_parallax, filter_scale
 from .scale      import estimate_depth_scale, validate_scale, get_scale_invariance_limits
 
@@ -13,7 +13,7 @@ __all__ = [
     "Frame", "orbFeature",
     "invert_transform", "transform_points",
     "save_image", "delete_subdirectories",
-    "triangulate",  "compute_F12", "compute_T12", "dist_epipolar_line", "triangulation_angles", "triang_points_reprojection_error"
+    "triangulate",  "compute_F12", "dist_epipolar_line", "triangulation_angles", "triang_points_reprojection_error"
     "filterMatches", "enforce_epipolar_constraint", "filter_by_reprojection", "filter_cheirality", "filter_parallax", "filter_scale",
     "estimate_depth_scale", "validate_scale",
     "get_scale_invariance_limits"

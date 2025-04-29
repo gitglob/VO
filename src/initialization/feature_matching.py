@@ -45,7 +45,7 @@ def matchFeatures(q_frame: utils.Frame, t_frame: utils.Frame):
 
     # Save the matches
     if debug:
-        match_save_path = results_dir / f"matches/initialization/0-raw" / f"{q_frame.id}_{t_frame.id}.png"
+        match_save_path = results_dir / f"initialization/0-raw" / f"{q_frame.id}_{t_frame.id}.png"
         vis.plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
 
     return np.array(matches, dtype=object)

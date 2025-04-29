@@ -46,11 +46,8 @@ def plot_BA():
     # Display the plot
     plt.show()
 
-def plot_BA2d(i, save_path=results_dir / "ba"):
-    """
-    Visualize the map points in 3D.
-    """
-    save_path = save_path / f"{i}.png"
+def plot_BA2d(save_path):
+    """Visualize the map points in 3D."""
 
     # Create a new figure and a 3D subplot
     fig = plt.figure(figsize=(14, 8))

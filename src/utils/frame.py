@@ -1,6 +1,7 @@
 from typing import Tuple
 import numpy as np
 import cv2
+# import src.local_mapping as mapping
 import src.utils as utils
 import src.visualization as vis
 import src.globals as ctx
@@ -8,7 +9,6 @@ import src.globals as ctx
 from config import results_dir, SETTINGS, log, fx, fy, cx, cy
 
 
-debug = SETTINGS["generic"]["debug"]
 ORB_SETTINGS = SETTINGS["orb"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
@@ -61,8 +61,6 @@ class Frame():
         self.feature_vector: dict = {}       # Mapping: visual word -> keypoint id
 
         self._extract_features()    # Extract ORB features from the image
-        if debug:
-            self.log_keypoints()
 
     @property
     def num_tracked_points(self):
@@ -182,30 +180,32 @@ class Frame():
 
     def is_in_frustum(self, point):
         """Checks if a map point is inside this frame's frustum (cone of view)"""
-        keyframes = ctx.map.keyframes
-
         # 1) Projection check (positive depth and in image boundaries)
         px = self.project(point.pos)
         if px is None:
             return False
         u, v = px
 
-        # 2) Viewing‐angle check
-        # Compute the angle between the current viewing ray v
-        # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
-        v1 = point.view_ray(self.t)
-        v2 = point.mean_view_ray()
-        if v1.dot(v2) < np.cos(np.deg2rad(60)):
-            return False
+        # If the point is already observed, we can do more checks
+        if point.num_observations > 0:
+            # 2) Viewing‐angle check
+            # Compute the angle between the current viewing ray v
+            # and the map point mean viewing direction n. Discard if v · n < cos(60◦).
+            v1 = point.view_ray(self.t)
+            v2 = point.mean_view_ray()
+            if v1.dot(v2) < np.cos(np.deg2rad(60)):
+                return False
 
-        # 3) Distance‐based scale invariance check
-        d = np.linalg.norm(point.pos - self.R)
-        dmin, dmax = point.getScaleInvarianceLimits()
-        if d < dmin or d > dmax:
-            return False
+            # 3) Distance‐based scale invariance check
+            d = np.linalg.norm(point.pos - self.R)
+            dmin, dmax = point.getScaleInvarianceLimits()
+            if d < dmin or d > dmax:
+                return False
 
-        # 4) Compute the scale in the frame by the ration d/d_min
-        scale = d / dmin
+            # 4) Compute the scale in the frame by the ration d/d_min
+            scale = d / dmin
+        else:
+            scale = 1.0
 
         return u, v, scale
 
@@ -222,6 +222,38 @@ class Frame():
             depths.append(point_cam[2])
 
         return np.median(depths)
+
+    def is_keyframe(self):
+        """
+        New Keyframe conditions:
+            1) More than X frames must have passed from the last global relocalization.
+            2) Local mapping is idle, or more than X frames have passed from last keyframe insertion.
+            3) Current frame tracks at least 50 points.
+            4) Current frame tracks less than 90% points than Kref .
+        """
+        keyframes = ctx.map.keyframes
+        local_map = ctx.local_map
+
+        c3 = self.num_tracked_points > 50
+
+        ref_frame = keyframes[local_map.ref]
+        A = ref_frame.tracked_points
+        B = self.tracked_points
+        common_features_ratio = len(A.intersection(B)) / len(A)
+        c4 = common_features_ratio < 0.9
+        
+        is_keyframe = c3 and c4
+        if is_keyframe:
+            log.info("\t\t Keyframe!")
+        else:
+            log.warning("\t\t Not a keyframe!")
+            if not c3:
+                log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50!")
+            if not c4:
+                log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9!")
+            pass
+
+        return is_keyframe
 
 
     def get_map_points_and_features(self):
@@ -243,12 +275,12 @@ class Frame():
                 map_point_ids.add(feat.mp.id)
         return map_point_ids
 
-    def get_map_matches(self) -> set[tuple[int, int]]:
+    def get_map_matches(self):
         """Returns all feature <-> map matches"""
         map_matches = set()
         for feat in self.features.values():
-            if feat.matched:
-                map_matches.add((feat.id, feat.mp.id))
+            if feat.in_map:
+                map_matches.add((feat, feat.mp))
         return map_matches
 
 

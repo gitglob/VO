@@ -43,7 +43,7 @@ class localBA(backend.BA):
         all_kf_ids.update(unconnected_kfs_ids)
 
         if self.verbose:
-            msg = f"[BA] Adding frame {self.keyframe.id}, {len(connected_kf_ids)} "
+            msg = f"[localBA] Adding frame {self.keyframe.id}, {len(connected_kf_ids)} "
             msg += f"connected frames with {len(connected_point_ids)} points, "
             msg += f"and {len(unconnected_kfs)} unconnected frames..."
             log.info(msg)
@@ -70,13 +70,14 @@ class localBA(backend.BA):
                 kf = ctx.map.keyframes[kf_id]
                 kpt = obs.kpt
                 # Add the pose->landmark observations
+                assert point.id in ctx.cgraph.nodes[kf.id]
                 self._add_observation(point.id, kf, kpt.pt, kpt.octave)
 
     def optimize(self):
         """Optimize the poses and landmark positions."""
         e1 = ctx.map.get_mean_projection_error()
 
-        # Optimize again with the outliers
+        # Optimize with the outliers
         num_edges = len(self.optimizer.edges())
         log.info(f"\t Optimizing {num_edges} edges...")
 
@@ -99,8 +100,7 @@ class localBA(backend.BA):
 
         # Remove feature<->map point match and map point observation
         for (pid, kf_id) in removed_edges:
-            ctx.map.keyframes[kf_id].remove_mp_match(pid)
-            ctx.map.points[pid].remove_observation(kf_id)
+            ctx.map.remove_match(kf_id, pid)
             ctx.cgraph.remove_point(kf_id, pid)
 
         log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
@@ -123,9 +123,8 @@ class localBA(backend.BA):
                 removed_edges.add((pid, kf_id))
 
         # Remove feature<->map point match and map point observation
-        for (pid, kf_id) in removed_edges:    
-            ctx.map.keyframes[kf_id].remove_mp_match(pid)
-            ctx.map.points[pid].remove_observation(kf_id)
+        for (pid, kf_id) in removed_edges:
+            ctx.map.remove_match(kf_id, pid)
             ctx.cgraph.remove_point(kf_id, pid)
 
         log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")

@@ -8,7 +8,7 @@ matplotlib.use('tkAgg')
 
 
 # Function to visualize the found feature matches
-def plot_matches(matches, q_frame, t_frame, save_path: str = None):
+def plot_matches(matches, q_frame, t_frame, save_path: str):
     if isinstance(matches, np.ndarray):
         matches = matches.tolist()
         
@@ -25,8 +25,6 @@ def plot_matches(matches, q_frame, t_frame, save_path: str = None):
     matched_image = cv2.drawMatches(q_img, q_kpts, t_img, t_kpts, matches, outImg=None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     
     # Save the image with matched features
-    if not save_path:
-        save_path = results_dir / "matches" / f"{q_frame.id}_{t_frame.id}.png"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     cv2.imwrite(str(save_path), matched_image)
 

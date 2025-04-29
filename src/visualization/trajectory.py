@@ -10,9 +10,7 @@ from config import results_dir
 matplotlib.use('tkAgg')
 
 
-def plot_trajectory(i: int, ba=True, save_path=results_dir / "trajectory"):
-    save_path = save_path / f"{i}.png"
-
+def plot_trajectory(save_path: str, ba=True):
     poses = ctx.map.poses()
     gt_poses = ctx.map.ground_truth()
 

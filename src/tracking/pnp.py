@@ -25,22 +25,19 @@ def estimate_relative_pose(t_frame: utils.Frame):
 
         If the function fails, returns (None, None).
     """
-    t_map_point_ids = t_frame.get_map_matches()
-    num_matches = len(t_map_point_ids)
+    t_map_pairs = t_frame.get_map_matches()
+    num_matches = len(t_map_pairs)
     if debug:
-        log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_matches}/{map.num_points()} map points...")
+        log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_matches}/{ctx.map.num_points} map points...")
 
     # 1) Build 3D <-> 2D correspondences
-    map_points = []
+    map_point_positions = []
     image_pxs = []
-    t_map_pairs = t_frame.get_map_matches()
-    for (feature_idx, pid) in t_map_pairs:
-        map_points.append(ctx.map.points[pid])  # 3D in world coords
-        kp = t_frame.keypoints[feature_idx]
-        image_pxs.append(kp.pt)                   # 2D pixel (u, v)
+    for (feat, point) in t_map_pairs:
+        map_point_positions.append(point.pos) # 3D in world coords
+        image_pxs.append(feat.kpt.pt)         # 2D pixel (u, v)
 
-    map_points = np.array(map_points, dtype=object)   
-    map_point_positions = np.array([p.pos for p in map_points], dtype=np.float64) # (M, 3)
+    map_point_positions = np.array(map_point_positions, dtype=np.float64) # (M, 3)
     image_pxs = np.array(image_pxs, dtype=np.float64)     # (M, 2)
 
     # 2) solvePnPRansac to get rvec/tvec for world->new_cam
@@ -91,17 +88,17 @@ def estimate_relative_pose(t_frame: utils.Frame):
     errors = np.sqrt(np.sum((image_pxs[inliers_mask] - projected_world_pxs[inliers_mask])**2, axis=1))
     
     ## Create a mask for points with error less than the threshold
-    reproj_mask = errors < SETTINGS["PnP"]["reprojection_threshold"]
+    reproj_mask = errors < SETTINGS["tracking"]["PnP"]["reprojection_threshold"]
     if debug:
-        log.info(f"\t Reprojection:",
-              f"\n\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})",
-              f"\n\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
+        log.info(f"\t Reprojection:")
+        log.info(f"\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})")
+        log.info(f"\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
 
     ## Visualization
     if debug:
-        img_path = results_dir / f"matches/tracking/1-PnP_reprojection/map_{t_frame.id}a.png"
+        img_path = results_dir / f"tracking/pnp/map_{t_frame.id}a.png"
         vis.plot_reprojection(t_frame.img, image_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
-        img_path = results_dir / f"matches/tracking/1-PnP_reprojection/map_{t_frame.id}b.png"
+        img_path = results_dir / f"tracking/pnp/map_{t_frame.id}b.png"
         vis.plot_reprojection(t_frame.img, image_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
     # 6) Construct T_{world->cam_new}

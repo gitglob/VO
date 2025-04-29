@@ -28,24 +28,22 @@ class singlePoseBA(backend.BA):
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
         if self.verbose:
-            log.info(f"\t Adding {ctx.map.num_points()} landmarks...")
+            log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # Extract the frame <-> map feature matches
         feat_mp_matches = self.frame.get_map_matches()
 
         # Iterate over all matches
-        for feat_id, pid in feat_mp_matches:
-            # Extract the map point position
-            mp = ctx.map.points[pid]
+        for feat, point in feat_mp_matches:
             # Add the landmark observation
-            self._add_landmark(mp.id, deepcopy(mp.pos), fixed=True)
+            self._add_landmark(point.id, deepcopy(point.pos), fixed=True)
 
             # Extract the frame feature
-            kpt = self.frame.features[feat_id].kpt
+            kpt = feat.kpt
             pt = deepcopy(kpt.pt)
             octave = kpt.octave
             # Add the observation
-            self._add_observation(pid, self.frame, pt, octave, level=0)
+            self._add_observation(point.id, self.frame, pt, octave, level=0)
 
     def optimize(self):
         """

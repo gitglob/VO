@@ -20,7 +20,7 @@ def filterMatches(matches, lowe_ratio):
             good_matches.append(m)
 
     if debug:
-        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+        log.info(f"\t\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
 
     # Next, ensure uniqueness by keeping only the best match per train descriptor.
     unique_matches = {}
@@ -33,7 +33,7 @@ def filterMatches(matches, lowe_ratio):
     unique_matches = list(unique_matches.values())
 
     if debug:
-        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
+        log.info(f"\t\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
 
     return unique_matches
 

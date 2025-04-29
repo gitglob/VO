@@ -69,6 +69,7 @@ def main():
         t_frame = utils.Frame(i, img)
         t_frame.set_gt(gt_pose)
         t_frame.set_time(t)
+        t_frame.compute_bow()
 
         # Iteration #0
         if t_frame.id == 0:
@@ -79,8 +80,8 @@ def main():
             # Bookkeping
             t_frame.set_pose(gt_pose)
             ctx.cgraph.add_first_keyframe(t_frame)
-            if debug:
-                utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+
+            utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
             q_frame = t_frame
         else:                    
             # ########### Initialization ###########
@@ -142,44 +143,62 @@ def main():
                 ba = backend.globalBA(verbose=debug)
                 ba.optimize()
 
+                # Plots
                 # plot_BA()
-                vis.plot_BA2d(i)
-                vis.plot_trajectory(i)
+                vis.plot_BA2d(results_dir / "ba" / f"{i}_global.png")
+                vis.plot_trajectory(results_dir / "trajectory" / f"{i}.png")
+                utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
-                tracking_success = True
                 q_frame = t_frame
                     
             # ########### Tracking ###########
             else:
                 log.info("")
                 log.info("~~~~Tracking~~~~")
-                if tracking_success:
-                    # ########### Track from Previous utils.Frame ###########
-                    log.info("Using constant velocity model...")
-                    tracking_success = track.constant_velocity(q_frame, t_frame)
-                    if not tracking_success:
-                        continue
-                else:
-                    # ########### Relocalization ###########
-                    log.info("")
-                    log.info("Performing Relocalization!")
-                    tracking_success = track.relocalization(q_frame, t_frame)
-                    if not tracking_success:
-                        is_initialized = False
-                        breakpoint() # We should ideally never get to this point!! It becomes a mess!
+
+                num_matches = track.map_search(t_frame, save_path=results_dir / "tracking/matches" / f"map_{t_frame.id}.png")
+                if num_matches < 20:
+                    log.error(f"Tracking failed! {num_matches} (<20) matches found!")
+                    ctx.map.remove_observation(t_frame.id)
+                    is_initialized = False
+                    breakpoint()
+                    continue
+
+                # Estimate the new pose using PnP
+                pnp_success = track.estimate_relative_pose(t_frame)
+                if not pnp_success:
+                    ctx.map.remove_observation(t_frame.id)
+                    is_initialized = False
+                    breakpoint()
+
+                # Perform pose optimization
+                ctx.map.add_keyframe(t_frame)
+                ba = backend.singlePoseBA(t_frame, verbose=debug)
+                ba.optimize()
+
+                # Plot the BA
+                # plot_BA()
+                vis.plot_BA2d(results_dir / "ba" / f"{i}_pose.png")
+                vis.plot_trajectory(results_dir / "trajectory" / f"{i}_a.png")
                 
-                # ########### Track Local mapping.Map ###########
+                # ########### Track Local Map ###########
                 log.info("")
                 log.info("~~~~Local Mapping~~~~")
-                tracking_success = track.local_map(t_frame)
-                if not tracking_success:
-                    continue
-    
+
+                # Set the visible mask
+                ctx.map.view(t_frame)
+
+                # Extract a local map from the map
+                ctx.local_map = ctx.cgraph.create_local_map(t_frame)
+                
+                # Set the found mask
+                ctx.map.tracked(t_frame)
+                
                 # ########### New Keyframe Decision ###########
                 log.info("")
                 log.info("~~~~Keyframe Check~~~~")
                 # Check if this t_frame is a keyframe
-                if not mapping.is_keyframe(t_frame):
+                if not t_frame.is_keyframe():
                     ctx.map.remove_keyframe(t_frame.id)
                     continue
 
@@ -187,8 +206,7 @@ def main():
                 log.info(f"\t RMSE: {np.linalg.norm(t_frame.gt[:3, 3] - t_frame.t):.2f}")
 
                 # Save the keyframe
-                if debug:
-                    utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+                utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 # ########### Map Point/Keyframe Creating/Culling ###########
                 log.info("")
@@ -197,9 +215,6 @@ def main():
                 # Add frame to graph
                 ctx.cgraph.add_track_keyframe(t_frame)
 
-                # # Compute the BOW representation of the keyframe
-                # t_frame.compute_bow() # This here is only useful if there was no relocalization
-
                 # Clean up map points that are not seen anymore
                 ctx.map.cull_points()
 
@@ -207,20 +222,24 @@ def main():
                 ctx.map.create_track_points(t_frame)
 
                 # Perform Local Bundle Adjustment
+                # ba = backend.globalBA(verbose=debug)
                 ba = backend.localBA(t_frame, verbose=debug)
                 ba.optimize()
-                vis.plot_trajectory(i)
+
+                # Plot the BA
+                # plot_BA()
+                vis.plot_BA2d(results_dir / "ba" / f"{i}_local.png")
+                vis.plot_trajectory(results_dir / "trajectory" / f"{i}_b.png")
 
                 # Clean up redundant frames
                 ctx.map.cull_keyframes(t_frame)
 
-                q_frame = t_frame            
+                q_frame = t_frame
 
     # Perform one final optimization
     ba.finalize()
 
     # Save final map and trajectory
-    # vis.plot_trajectory(i)
     vis.plot_trajectory_3d()
 
 if __name__ == "__main__":

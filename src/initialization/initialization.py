@@ -55,9 +55,9 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
 
     # Save the matches
     if debug:
-        match_save_path = results_dir / f"matches/initialization/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}a.png"
+        match_save_path = results_dir / f"initialization/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}a.png"
         vis.plot_matches(matches[~epipolar_constraint_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / f"matches/initialization/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}b.png"
+        match_save_path = results_dir / f"initialization/1-epipolar_constraint" / f"{q_frame.id}_{t_frame.id}b.png"
         vis.plot_matches(matches[epipolar_constraint_mask], q_frame, t_frame, save_path=match_save_path)
     matches = matches[epipolar_constraint_mask]
     q_kpt_pixels = q_kpt_pixels[epipolar_constraint_mask]
@@ -86,7 +86,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
             matches, q_frame, t_frame,
             R, t,
             REPROJECTION_THREHSOLD,
-            save_path=results_dir / f"matches/initialization/2-reprojection"
+            save_path=results_dir / f"initialization/2-reprojection"
         )
     else:
         # Decompose Homography Matrix
@@ -136,7 +136,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
             q_frame, t_frame,
             R, t,
             REPROJECTION_THREHSOLD,
-            save_path=results_dir / f"matches/initialization/2-reprojection/"
+            save_path=results_dir / f"initialization/2-reprojection/"
         )
 
     # If we failed to recover R and t
@@ -146,9 +146,9 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}a.png"
+        match_save_path = results_dir / "initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}a.png"
         vis.plot_matches(matches[~reproj_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / "matches/initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}b.png"
+        match_save_path = results_dir / "initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}b.png"
         vis.plot_matches(matches[reproj_mask], q_frame, t_frame, save_path=match_save_path)
 
     matches = matches[reproj_mask]
@@ -207,9 +207,9 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/initialization/4-cheirality" / f"{q_frame.id}_{t_frame.id}a.png"
+        match_save_path = results_dir / "initialization/4-cheirality" / f"{q_frame.id}_{t_frame.id}a.png"
         vis.plot_matches(matches[~cheirality_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / "matches/initialization/4-cheirality" / f"{q_frame.id}_{t_frame.id}b.png"
+        match_save_path = results_dir / "initialization/4-cheirality" / f"{q_frame.id}_{t_frame.id}b.png"
         vis.plot_matches(matches[cheirality_mask], q_frame, t_frame, save_path=match_save_path)
 
     matches = matches[cheirality_mask]
@@ -225,9 +225,9 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "matches/initialization/5-parallax" / f"{q_frame.id}_{t_frame.id}a.png"
+        match_save_path = results_dir / "initialization/5-parallax" / f"{q_frame.id}_{t_frame.id}a.png"
         vis.plot_matches(matches[~parallax_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / "matches/initialization/5-parallax" / f"{q_frame.id}_{t_frame.id}b.png"
+        match_save_path = results_dir / "initialization/5-parallax" / f"{q_frame.id}_{t_frame.id}b.png"
         vis.plot_matches(matches[parallax_mask], q_frame, t_frame, save_path=match_save_path)
 
     matches = matches[parallax_mask]

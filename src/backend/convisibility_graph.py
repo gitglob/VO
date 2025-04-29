@@ -126,6 +126,10 @@ class ConvisibilityGraph(Graph):
 
         self._update_edges_on_new_frame(keyframe.id, kf_map_pt_ids)
 
+    def add_point(self, kf_id: int, pid: int):
+        """Adds a point observation to a node"""
+        self.nodes[kf_id].add(pid)
+
 
     def _update_edges_on_new_frame(self, kf_id: int, map_pt_ids: set):
         """Updates the covisibility edges and the spanning tree given a new keyframe and its points."""
@@ -293,6 +297,7 @@ class ConvisibilityGraph(Graph):
         for (kf1_id, kf2_id) in self.edges.keys():
             # Check if this node is part of this edge
             # If it is, the other node and its points are of interest
+            assert kf1_id != kf2_id
             if kf1_id == kf_id:
                 connected_kf_ids.add(kf2_id)
                 connected_kf_point_ids.update(self.nodes[kf2_id])
@@ -348,7 +353,7 @@ class ConvisibilityGraph(Graph):
         # to ensure full connectivity, but for simplicity we are only removing associated edges here.
 
     def remove_point(self, kf_id: int, pid: int):
-        """Remove a set of points along and adjust the edges"""
+        """Remove a point from a node"""
         self.nodes[kf_id].remove(pid)
 
     def remove_points(self, pids: set[int]):
