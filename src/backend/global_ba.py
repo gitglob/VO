@@ -3,13 +3,14 @@ from src.utils.linalg import invert_transform
 import src.backend as backend
 import src.utils as utils
 import src.globals as ctx
+from .ba import BA
 from config import log, SETTINGS
 
 
 DEBUG = SETTINGS["generic"]["debug"]
 
 
-class globalBA(backend.BA):
+class globalBA(BA):
     def __init__(self):
         """Performs global Bungle Adjustment fixing only the very first pose"""
         super().__init__()

@@ -11,6 +11,7 @@ import src.globals as ctx
 
 
 SIM_THRESHOLD = SETTINGS["place_recognition"]["similarity_threshold"]
+DEBUG = SETTINGS["generic"]["debug"]
 
 
 def load_vocabulary(type: Literal["dbow", "cv2"]):
@@ -22,7 +23,7 @@ def load_vocabulary(type: Literal["dbow", "cv2"]):
     else:
         raise(ValueError(f"Vocabulary {vocab_path} does not exist!"))
 
-def query_recognition_candidate(frame: utils.Frame):
+def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
     """
     Compare the BoW descriptor in an image with all descriptors in a database.
     Returns the best matching frame id and the similarity score if the highest similarity exceeds the threshold.
@@ -33,7 +34,7 @@ def query_recognition_candidate(frame: utils.Frame):
         log.warning("\t No BoW descriptor computed for the new image.")
         return None
 
-    candidates_ids = set()
+    candidates = []
     best_match_id = None
     best_similarity = 0.0
 
@@ -55,16 +56,16 @@ def query_recognition_candidate(frame: utils.Frame):
                 best_similarity = score
                 best_match_id = other_kf_id
 
-            # Find recognition candidates_ids
+            # Find recognition candidates
             if score > SIM_THRESHOLD:
-                candidates_ids.add(other_kf_id)
+                candidates.append((other_kf_id, score))
 
-    if len(candidates_ids) == 0:
-        log.warning("\t Recognition candidate not found!")
-    else:
-        log.info(f"\t Found {len(candidates_ids)} relocalization candidates.")
+    if len(candidates) == 0:
+        log.warning("\t Recognition candidates not found!")
+        return candidates
 
-    if best_match_id is not None:
+    if DEBUG:
+        log.info(f"\t Found {len(candidates)} relocalization candidates.")
         log.info(f"\t Best match: Keyframe #{best_match_id} with similarity: {best_similarity:.3f}")
 
-    return candidates_ids
+    return candidates

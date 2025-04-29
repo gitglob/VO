@@ -11,20 +11,7 @@ debug = SETTINGS["generic"]["debug"]
 
 # Function to estimate the relative pose using solvePnP
 def estimate_relative_pose(t_frame: utils.Frame):
-    """
-    Estimate the relative camera displacement using a 3D-2D PnP approach.
-
-    Args:
-        t_frame (Frame): 
-            The current t_frame containing keypoints and descriptors.
-
-    Returns:
-        displacement (np.ndarray): 4×4 transformation matrix T_{cam_new <- cam_old}.
-                                    i.e., the relative transform from the old camera t_frame
-                                    to the new camera t_frame.
-
-        If the function fails, returns (None, None).
-    """
+    """Estimate the map <-> camera displacement using a 3D-2D PnP approach."""
     t_map_pairs = t_frame.get_map_matches()
     num_matches = len(t_map_pairs)
     if debug:
@@ -111,3 +98,4 @@ def estimate_relative_pose(t_frame: utils.Frame):
     t_frame.set_pose(T_c2w)
 
     return True
+

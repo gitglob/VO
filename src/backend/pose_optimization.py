@@ -13,7 +13,7 @@ from config import K, log
 DEBUG = SETTINGS["generic"]["debug"]
 
 
-class singlePoseBA(BA):
+class poseBA(BA):
     def __init__(self):
         """Initializes Single Pose Optimization with a g2o optimizer and camera intrinsics."""
         super().__init__()

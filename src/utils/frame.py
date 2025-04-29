@@ -283,6 +283,14 @@ class Frame():
             if feat.in_map:
                 map_matches.add((feat, feat.mp))
         return map_matches
+    
+    def get_map_matches_with(self, kf_id: int):
+        """Returns all feature <-> map matches with a specific keyframe"""
+        map_matches = set()
+        for feat in self.features.values():
+            if feat.in_map and feat.mp.kf_id == kf_id:
+                map_matches.add((feat, feat.mp))
+        return map_matches
 
 
     def optimize_pose(self, pose: np.ndarray):

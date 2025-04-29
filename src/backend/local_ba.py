@@ -4,13 +4,14 @@ import src.local_mapping as mapping
 import src.utils as utils
 import src.backend as backend
 import src.globals as ctx
+from .ba import BA
 from config import SETTINGS, log, K
 
 
 DEBUG = SETTINGS["generic"]["debug"]
 
 
-class localBA(backend.BA):
+class localBA(BA):
     def __init__(self, frame: utils.Frame):
         """
         Performs Local Bundle Adjustment.

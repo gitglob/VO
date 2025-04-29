@@ -270,6 +270,21 @@ class ConvisibilityGraph(Graph):
     
         return connection_frame_ids
 
+    def get_connected_frames_with_min_w(self, kf_id: int, min_weight: int) -> set[int]:
+        """Returns the keyframes connected to a given keyframe that share the at least X map points"""
+        connected_frame_ids = set()
+        # Iterate over all the edges
+        for (kf1_id, kf2_id), weight in self.edges.items():
+            # Check if this node is part of this edge
+            if kf1_id == kf_id:
+                if weight > min_weight:
+                    connected_frame_ids.add(kf2_id)
+            elif kf2_id == kf_id:
+                if weight > min_weight:
+                    connected_frame_ids.add(kf1_id)
+
+        return connected_frame_ids
+
 
     def get_frames_that_observe_point(self, pid: int) -> set[int]:
         """Returns the keyframes that observe a specific point"""

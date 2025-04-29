@@ -121,6 +121,37 @@ class BA:
         # Add observation edge
         self.optimizer.add_edge(edge)
 
+    def add_loop_edge(self, kf_lc: int, kf: int, T: np.ndarray, trans_sigma: float=0.1, rot_sigma: float=1.0, kernel: bool=True):
+        """
+        kf, kf_lc: the two keyframe objects
+        T: 4x4 transformation that takes point from the loop closure keyframe to the current keyframe
+        weight: scalar for how “strong” the constraint is
+        """
+        # Extract the vertex IDS from the keyframes
+        vid_lc = X(kf_lc.id)
+        vid_i = X(kf.id)
+
+        # Create the loop closure edge
+        edge = g2o.EdgeSE3Expmap()
+        edge.set_vertex(0, self.optimizer.vertex(vid_lc))
+        edge.set_vertex(1, self.optimizer.vertex(vid_i))
+
+        # Set the relative pose
+        edge.set_measurement(g2o.SE3Quat(T[:3, :3], T[:3, 3]))
+
+        # Set the information matrix - separate translation and rotation variance
+        info = np.eye(6)
+        info[0:3, 0:3] = np.eye(3) * (1.0 / trans_sigma**2)
+        info[3:6, 3:6] = np.eye(3) * (1.0 / rot_sigma**2)
+        edge.set_information(info)
+
+        # Set the huber kernel
+        if kernel:
+            kernel = g2o.RobustKernelHuber(self._delta)
+            edge.set_robust_kernel(kernel)
+
+        self.optimizer.add_edge(edge)
+
     ############################################### DEBUG ###############################################
 
     def print_x_nodes_in_graph(self):

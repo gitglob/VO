@@ -6,13 +6,15 @@ import src.utils as utils
 import src.backend as backend
 import src.globals as ctx
 
+from .ba import BA
+
 from config import K, log
 
 # Set parameters from the config
 DEBUG = SETTINGS["generic"]["debug"]
 
 
-class singlePoseBA(backend.BA):
+class singlePoseBA(BA):
     def __init__(self, frame: utils.Frame):
         """Initializes Single Pose Optimization with a g2o optimizer and camera intrinsics."""
         super().__init__()

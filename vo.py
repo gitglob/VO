@@ -236,9 +236,37 @@ def main():
                 # Clean up redundant frames
                 ctx.map.cull_keyframes(t_frame)
 
+                # ########### Loop Closing ###########
+                if i > 10:
+                    log.info("")
+                    log.info("~~~~Loop Closing~~~~")
+
+                    # Find candidates for loop closure
+                    candidate_kfs = pr.detect_candidates(t_frame)
+                    if candidate_kfs is not None:
+                        # Iterate over all possible candidates
+                        for cand_kf in candidate_kfs:
+                            # Search for matches with current frame
+                            matches = pr.frame_search(cand_kf, t_frame)
+                            if len(matches) < 20:
+                                continue
+                            
+                            # Estimate the new world pose using PnP (3d-2d)
+                            T_q2t = pr.estimate_relative_pose(q_frame, t_frame)
+                            if T_q2t is None:
+                                continue
+
+                            # Perform pose optimization
+                            ba = backend.poseBA()
+                            ba.add_loop_edge(cand_kf, t_frame, T_q2t)
+                            ba.optimize()
+                            break
+
+                # Advance to the next iteration
                 q_frame = t_frame
 
     # Perform one final optimization
+    ba = backend.globalBA()
     ba.finalize()
 
     # Save final map and trajectory

@@ -36,6 +36,13 @@ tracking:
         iterations: 3000
         min_inliers: 4
 
+place_recognition:
+    vocab_size: 1000
+    similarity_threshold: 0.8
+
+loop:
+    pnp_inliers: 30
+
 point_association:
     num_matches: 10
     search_window: 200
@@ -54,7 +61,5 @@ convisibility:
     min_common_edges: 15
     essential_common_edges: 100
 
-place_recognition:
-    vocab_size: 1000
-    similarity_threshold: 0.8
+
     
