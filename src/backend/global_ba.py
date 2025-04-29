@@ -66,7 +66,8 @@ class globalBA(BA):
         self.update_poses_and_landmarks()
         e2 = ctx.map.get_mean_projection_error()
         
-        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
+        if DEBUG:
+            log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
 
     def finalize(self):
         """Returns the final poses (optimized)."""

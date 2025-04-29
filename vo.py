@@ -118,10 +118,12 @@ def main():
                 t_frame.set_pose(T_t2w)
 
                 # Triangulate the 3D points using the initial pose
-                w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors, is_initialized = init.triangulate_points(matches, T_q2t, q_frame, t_frame, scale)
-                if not is_initialized:
+                triang_result = init.triangulate_points(matches, T_q2t, q_frame, t_frame, scale)
+                if triang_result is None:
+                    is_initialized = False
                     log.info("Triangulation failed!")
                     continue
+                w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors = triang_result
 
                 # Push the keyframes and triangulated points to the map
                 ctx.map.add_keyframe(q_frame)
@@ -157,7 +159,6 @@ def main():
                 num_matches = track.map_search(t_frame, save_path=results_dir / "tracking/matches" / f"map_{t_frame.id}.png")
                 if num_matches < 20:
                     log.error(f"Tracking failed! {num_matches} (<20) matches found!")
-                    ctx.map.remove_keyframe(t_frame.id)
                     is_initialized = False
                     breakpoint()
                     continue
@@ -165,12 +166,12 @@ def main():
                 # Estimate the new pose using PnP
                 pnp_success = track.estimate_relative_pose(t_frame)
                 if not pnp_success:
-                    ctx.map.remove_keyframe(t_frame.id)
                     is_initialized = False
                     breakpoint()
 
                 # Perform pose optimization
                 ctx.map.add_keyframe(t_frame)
+                ctx.cgraph.add_track_keyframe(t_frame)
                 ba = backend.singlePoseBA(t_frame)
                 ba.optimize()
 
@@ -198,7 +199,6 @@ def main():
                 log.info("~~~~Keyframe Check~~~~")
                 # Check if this t_frame is a keyframe
                 if not t_frame.is_keyframe():
-                    ctx.map.remove_keyframe(t_frame.id)
                     continue
 
                 # Save the keyframe
@@ -208,9 +208,6 @@ def main():
                 # ########### Map Point/Keyframe Creating/Culling ###########
                 log.info("")
                 log.info("~~~~Updating Map~~~~")
-
-                # Add frame to graph
-                ctx.cgraph.add_track_keyframe(t_frame)
 
                 # Clean up map points that are not seen anymore
                 ctx.map.cull_points()
@@ -240,6 +237,7 @@ def main():
                     # Find candidates for loop closure
                     candidate_kfs = pr.detect_candidates(t_frame)
                     if candidate_kfs is not None:
+                        breakpoint()
                         # Iterate over all possible candidates
                         for cand_kf in candidate_kfs:
                             # Search for matches with current frame

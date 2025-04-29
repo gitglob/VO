@@ -29,7 +29,8 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
     Returns the best matching frame id and the similarity score if the highest similarity exceeds the threshold.
     Otherwise, returns None.
     """
-    log.info(f"\t Querying database with frame {frame.id}")
+    if DEBUG:
+        log.info(f"\t Querying database with frame {frame.id}")
     if frame.bow_hist is None:
         log.warning("\t No BoW descriptor computed for the new image.")
         return None
@@ -56,7 +57,8 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
         # Compare the histograms of the 2 frames
         # Use cosine similarity: higher score indicates greater similarity.
         score = cosine_similarity(frame.bow_hist, other_kf.bow_hist)[0][0]
-        log.info(f"\t Comparing to frame {other_kf_id}, similarity score: {score:.3f}")
+        if DEBUG:
+            log.info(f"\t Comparing to frame {other_kf_id}, similarity score: {score:.3f}")
         if score > best_similarity:
             best_similarity = score
             best_match_id = other_kf_id
