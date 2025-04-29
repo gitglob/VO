@@ -46,7 +46,7 @@ def main():
     # Read the vocabulary and initialize the BoW database
     ctx.vocab = pr.load_vocabulary("cv2").astype(np.uint8) # Basically contains 1000 descriptors
     ctx.bow_db = {} # contains visual_word_id -> keyframe_that_sees_it dicts
-    for i in range(len(ctx.vocab)): ctx.bow_db[i] = []
+    for i in range(len(ctx.vocab)): ctx.bow_db[i] = set()
 
     # Initialize map and convisibility graph
     ctx.map = mapping.Map()
@@ -132,10 +132,6 @@ def main():
 
                 # Add the keyframe to the convisibility graph
                 ctx.cgraph.add_init_keyframe(t_frame)
-
-                # Compute the BOW representation for both keyframes
-                q_frame.compute_bow()
-                t_frame.compute_bow()
 
                 # Validate the scale
                 utils.validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
@@ -237,7 +233,7 @@ def main():
                 ctx.map.cull_keyframes(t_frame)
 
                 # ########### Loop Closing ###########
-                if i > 10:
+                if i > 5:
                     log.info("")
                     log.info("~~~~Loop Closing~~~~")
 

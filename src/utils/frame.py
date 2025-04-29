@@ -396,7 +396,7 @@ class Frame():
             # Check if the histogram count for this visual word is greater than zero
             if self.bow_hist[0, visual_word] > 0:
                 # Append the current frame's ID to the list for this visual word.
-                ctx.bow_db[visual_word].append(self.id)
+                ctx.bow_db[visual_word].add(self.id)
 
     def get_features_for_word(self, word_id: int) -> list[orbFeature]:
         # Check if the frame sees this word

@@ -13,7 +13,7 @@ DEBUG = SETTINGS["generic"]["debug"]
 
 def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
     """Find suitable candidates for loop closure using the convisibility graph."""   
-    log.info(f"\t Querying database with frame {frame.id}")
+    log.info(f"\t Searching for loop closing candidates with frame {frame.id}")
     if frame.bow_hist is None:
         log.warning("\t No BoW descriptor computed for the current frame.")
         return None
@@ -40,14 +40,14 @@ def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
         return None
 
     # Keep only candidates that have better similarity than the minimum score of the neighbors, and aren't neighbors
-    candidates = [(kf_id, score) for kf_id, score in candidates if score < min_score or kf_id in neighbor_frame_ids]
-    if len(candidates) == 0:
+    good_candidates = [(kf_id, score) for kf_id, score in candidates if (score >= min_score) and (kf_id not in neighbor_frame_ids)]
+    if len(good_candidates) == 0:
         log.warning("\t No candidates found!")
         return None
-    candidate_kfs = [ctx.map.keyframes[kf_id] for kf_id, _ in candidates]
+    candidate_kfs = [ctx.map.keyframes[kf_id] for kf_id, _ in good_candidates]
     
     # Find the best candidate
-    best_candidate = max(candidates, key=lambda x: x[1])
+    best_candidate = max(good_candidates, key=lambda x: x[1])
     if DEBUG:
         log.info(f"\t Loop closure candidate: {best_candidate[0]}, score: {best_candidate[1]:.2f}")
     best_candidate_kf = ctx.map.keyframes[best_candidate[0]]

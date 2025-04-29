@@ -38,27 +38,32 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
     best_match_id = None
     best_similarity = 0.0
 
-    # Iterate over all database visual words
-    for v_word_id in ctx.bow_db.keys():
-        other_kf_id_list = ctx.bow_db[v_word_id]
-        # Iterate over the keyframes that saw it
-        for other_kf_id in other_kf_id_list:
-            # Skip itself
-            if other_kf_id == frame.id:
-                continue
-            other_kf = ctx.map.keyframes[other_kf_id]
+    # Gather unique keyframe IDs from the BoW DB
+    all_db_frames = {kf_id 
+                     for kf_list in ctx.bow_db.values() 
+                     for kf_id in kf_list}
+    # remove self and any kf not in the current map
+    all_db_frames.discard(frame.id)
+    map_frames = ctx.map.keyframe_ids
+    frames_that_share_words = all_db_frames & map_frames
 
-            # Compare the histograms of the 2 frames
-            # Use cosine similarity: higher score indicates greater similarity.
-            score = cosine_similarity(frame.bow_hist, other_kf.bow_hist)[0][0]
-            log.info(f"\t Comparing to frame {other_kf_id}, similarity score: {score:.3f}")
-            if score > best_similarity:
-                best_similarity = score
-                best_match_id = other_kf_id
+    # Iterate over the keyframes that share words with the current frame
+    for other_kf_id in frames_that_share_words:
+        assert other_kf_id != frame.id
+        assert other_kf_id in ctx.map.keyframe_ids
+        other_kf = ctx.map.keyframes[other_kf_id]
 
-            # Find recognition candidates
-            if score > SIM_THRESHOLD:
-                candidates.append((other_kf_id, score))
+        # Compare the histograms of the 2 frames
+        # Use cosine similarity: higher score indicates greater similarity.
+        score = cosine_similarity(frame.bow_hist, other_kf.bow_hist)[0][0]
+        log.info(f"\t Comparing to frame {other_kf_id}, similarity score: {score:.3f}")
+        if score > best_similarity:
+            best_similarity = score
+            best_match_id = other_kf_id
+
+        # Find recognition candidates
+        if score > SIM_THRESHOLD:
+            candidates.append((other_kf_id, score))
 
     if len(candidates) == 0:
         log.warning("\t Recognition candidates not found!")

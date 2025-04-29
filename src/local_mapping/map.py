@@ -334,6 +334,10 @@ class Map():
     def num_keyframes(self) -> int:
         return len(self.keyframes.keys())
 
+    @property
+    def keyframe_ids(self) -> set[int]:
+        return set(self.keyframes.keys())
+
 
     def add_keyframe(self, kf: utils.Frame):
         if kf.id in self.keyframes.keys():
