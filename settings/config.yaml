@@ -46,6 +46,7 @@ map:
     min_parallax: 2.0
     max_reprojection: 4.0
     match_view_ratio: 0.25
+    kf_culling_ratio: 0.9
 
 loop:
     lowe_ratio: 0.9

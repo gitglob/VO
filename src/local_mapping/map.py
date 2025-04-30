@@ -19,6 +19,7 @@ MIN_PARALLAX = SETTINGS["map"]["min_parallax"]
 MAX_REPROJECTION = SETTINGS["map"]["max_reprojection"]
 
 MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
+KF_CULLING_RATIO = SETTINGS["map"]["kf_culling_ratio"]
 
 DEBUG = SETTINGS["generic"]["debug"]
 
@@ -728,7 +729,8 @@ class Map():
                         break
 
             # Calculate the percentage of co-observing points
-            if count_coobserving_points / num_points > 0.9:
+            ratio = count_coobserving_points / num_points
+            if ratio > KF_CULLING_RATIO:
                 # Remove keyframe
                 removed_kf_ids.add(kf_id)
 
