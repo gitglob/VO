@@ -120,105 +120,62 @@ def triangulate(pxs1, pxs2, T):
 
 def compute_F12(frame1, frame2):
     """
-    Computes the fundamental matrix (F12) between two keyframes based on their camera poses
-    and intrinsic calibration matrices.
-    
-    The fundamental matrix is computed using the relative rotation and translation between
-    the two keyframes. The steps are:
-    
-        1. Retrieve the rotations (R1w, R2w) and translations (t1w, t2w) for each keyframe.
-        2. Compute the relative rotation:
-               R12 = R1w * (R2w)^T
-        3. Compute the relative translation:
-               t12 = -R1w * (R2w)^T * t2w + t1w
-        4. Construct the skew-symmetric matrix of t12 (denoted as t12x).
-        5. Retrieve the calibration matrices (K1, K2) for the keyframes.
-        6. Compute the fundamental matrix as:
-               F12 = inv(K1.T) * t12x * R12 * inv(K2)
-    
+    Compute the 3×3 fundamental matrix F12 mapping points in img1 → epipolar lines in img2.
+
     Parameters
     ----------
-    frame1 : KeyFrame
-        The first keyframe object. Expected to have methods:
-            - GetRotation(): returns a (3,3) numpy.ndarray.
-            - GetTranslation(): returns a (3,) or (3,1) numpy.ndarray.
-            - GetCalibrationMatrix(): returns a (3,3) numpy.ndarray.
-    frame2 : KeyFrame
-        The second keyframe object. Expected to have the same methods as frame1.
-    
+    frame1.pose, frame2.pose : 4×4 array
+        Rigid transforms CAMERA→WORLD.
+
     Returns
     -------
-    numpy.ndarray
-        The 3x3 fundamental matrix (F12) relating the two keyframes.
+    F12 : (3×3) ndarray
     """
-    # Retrieve rotation and translation for the first keyframe (from world to keyframe)
-    R1w = frame1.R
-    t1w = frame1.t
-    
-    # Retrieve rotation and translation for the second keyframe
-    R2w = frame2.R
-    t2w = frame2.t
-    
-    # Compute the relative rotation: R12 = R1w * (R2w).T
-    R12 = R1w @ R2w.T
-    
-    # Compute the relative translation: t12 = -R1w * (R2w).T * t2w + t1w
-    t12 = -R1w @ (R2w.T @ t2w) + t1w
-    
-    # Compute the skew-symmetric matrix of t12
-    t12x = skew_symmetric(t12)
-    
-    # Compute the fundamental matrix:
-    # F12 = inv(K1.T) * t12x * R12 * inv(K2)
-    F12 = np.linalg.inv(K.T) @ t12x @ R12 @ np.linalg.inv(K)
-    
+    # 1) world→camera extrinsics
+    Twc1 = invert_transform(frame1.pose)
+    Twc2 = invert_transform(frame2.pose)
+    R1, t1 = Twc1[:3, :3], Twc1[:3, 3]
+    R2, t2 = Twc2[:3, :3], Twc2[:3, 3]
+
+    # 2) relative motion: cam1 → cam2
+    R12 = R2 @ R1.T
+    t12 = t2 - R12 @ t1
+
+    # 3) essential matrix
+    E12 = skew_symmetric(t12) @ R12
+
+    # 4) fundamental matrix
+    F12 = np.linalg.inv(K).T @ E12 @ np.linalg.inv(K)
     return F12
 
 def dist_epipolar_line(px1, px2, F12):
     """
-    Returns the squared distance from a pixel in the second image (kp2) to the epipolar line
-    (computed from a pixel in the first image, kp1, and the fundamental matrix F12).
-    
-    The epipolar line in the second image is given by:
-        l = [a, b, c]
-    where:
-        a = px1[0]*F12[0,0] + px1[1]*F12[1,0] + F12[2,0]
-        b = px1[0]*F12[0,1] + px1[1]*F12[1,1] + F12[2,1]
-        c = px1[0]*F12[0,2] + px1[1]*F12[1,2] + F12[2,2]
-    
-    The squared distance from kp2 to the epipolar line is computed as:
-        dsqr = (a*px2[0] + b*px2[1] + c)^2 / (a^2 + b^2)
-    
+    Squared distance of px2 to the epipolar line in img2 induced by px1 in img1.
+
     Parameters
     ----------
-    kp1 : cv2.KeyPoint
-        Keypoint from the first image.
-    kp2 : cv2.KeyPoint
-        Keypoint from the second image.
-    F12 : numpy.ndarray
-        The 3x3 Fundamental matrix relating the two images.
-    
+    px1 : array-like (2,) or tuple (x1, y1)
+        Pixel coordinates in image 1.
+    px2 : array-like (2,) or tuple (x2, y2)
+        Pixel coordinates in image 2.
+    F12 : (3×3) ndarray
+        Fundamental matrix from img1 → img2.
+
     Returns
     -------
     float
-        the distance kp2 -> epipolar line squared
+        (a*x2 + b*y2 + c)**2 / (a² + b²), or np.inf if degenerate.
     """
-    # Compute the coefficients [a, b, c] of the epipolar line in the second image.
-    a = px1[0]*F12[0, 0] + px1[1]*F12[1, 0] + F12[2, 0]
-    b = px1[0]*F12[0, 1] + px1[1]*F12[1, 1] + F12[2, 1]
-    c = px1[0]*F12[0, 2] + px1[1]*F12[1, 2] + F12[2, 2]
+    x1, y1 = px1
+    x2, y2 = px2
 
-    # Compute the numerator of the distance formula.
-    num = a * px2[0] + b * px2[1] + c
+    # epipolar line l = [a, b, c] in image2: l^T [x1, y1, 1] = 0
+    l = F12 @ np.array([x1, y1, 1.0])
+    a, b, c = l
 
-    # Compute the denominator as the squared norm of the line coefficients.
-    den = a*a + b*b
+    denom = a*a + b*b
+    if denom < np.finfo(float).eps:
+        return np.inf
 
-    # If the denominator is zero, the line is degenerate, so return False.
-    if den == 0:
-        return False
-
-    # Compute the squared distance from kp2 to the epipolar line.
-    dsqr = (num * num) / den
-
-    return dsqr
+    num = a*x2 + b*y2 + c
+    return (num*num) / denom

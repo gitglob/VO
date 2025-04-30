@@ -5,6 +5,7 @@ import src.utils as utils
 import src.tracking as track
 import src.visualization as vis
 import src.globals as ctx
+from .point_association import search_for_triangulation
 from config import SETTINGS, K, log, fx, fy, cx, cy, results_dir
 
 
@@ -415,6 +416,7 @@ class Map():
         ctx.cgraph.add_observation(q_frame.id, point.id)
         ctx.cgraph.add_observation(t_frame.id, point.id)
 
+
     def create_points(self, t_frame: utils.Frame):
         """
         Creates and adds new points to the map, by triangulating matches in so far
@@ -451,10 +453,12 @@ class Map():
                 continue
 
             # Match descriptors with ratio test
-            matches_knn = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
-            filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
-            filtered_matches = utils.unique_filter(filtered_matches)
-            filtered_matches = np.array(filtered_matches, dtype=object)
+            # matches_knn = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
+            # filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+            # filtered_matches = utils.unique_filter(filtered_matches)
+
+            # Match descriptors with ratio test
+            filtered_matches = search_for_triangulation(q_frame, t_frame)
             if DEBUG:
                 log.info(f"\t Connected frame #{q_frame_id}: Found {len(filtered_matches)} potential new points!") 
 
@@ -463,7 +467,7 @@ class Map():
             t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches])
             epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
             if epipolar_constraint_mask is None: continue
-            filtered_matches = filtered_matches[epipolar_constraint_mask]
+            filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask]
 
             # For every formed pair, utils.triangulate new points and add them to the map
             T_q2t = utils.invert_transform(t_frame.pose) @ q_frame.pose
@@ -593,6 +597,7 @@ class Map():
         local_map = localMap(ref_frame_id, K1_frame_ids, K1_point_ids, K2_frame_ids, K2_point_ids)
 
         return local_map
+
 
     def optimize_pose(self, kf_id: int, pose: np.ndarray):
         self.ba_trajectory[kf_id] = pose.copy()
