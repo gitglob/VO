@@ -13,15 +13,32 @@ matplotlib.use('tkAgg')
 def plot_trajectory(save_path: str, ba=True):
     poses = ctx.map.poses()
     gt_poses = ctx.map.ground_truth()
+    keyframe_positions = ctx.map.keyframe_positions()
+    loop_closures = ctx.map.loop_closure_positions()
 
     num_poses = len(poses)
 
     fig = plt.figure(figsize=(12, 6))
 
-    # First subplot: XZ 2D view
+    # XZ 2D view
     ax1 = fig.add_subplot(121)
     ax1.plot(poses[:, 0, 3], poses[:, 2, 3], 'b-', label='XZ')
     ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r--', label='Ground Truth')
+    
+    # Keyframes
+    ax1.scatter(keyframe_positions[:, 0], keyframe_positions[:, 2], 
+                    facecolors='none',
+                    edgecolors='black',
+                    marker='p', s=120, alpha=1, label='Keyframes')
+    
+    # Loop closures - add a single line between the two points
+    l1, l2 = loop_closures
+    for i in range(len(l1)):
+        l1_pos = l1[i]
+        l2_pos = l2[i]
+        ax1.plot([l1_pos[0], l2_pos[0]], [l1_pos[2], l2_pos[2]], 'm--', alpha=0.5)
+        ax1.scatter(l1_pos[0], l1_pos[2], marker="1", color='orange', s=150, alpha=1)
+        ax1.scatter(l2_pos[0], l2_pos[2], marker="1", color='orange', s=150, alpha=1)
     
     # Mark the start and end points with bubbles
     ax1.scatter(poses[0,0,3], poses[0,2,3], color='black', s=100, alpha=0.7, label='Start')
@@ -86,8 +103,8 @@ def plot_trajectory(save_path: str, ba=True):
 def plot_trajectory_3d(save_path=results_dir / "vo" / "final_trajectory.png"):
     frames = ctx.map.keyframes
 
-    poses = ctx.map.poses()
-    gt_poses = ctx.map.ground_truth()
+    poses = ctx.map.poses
+    gt_poses = ctx.map.ground_truth
 
     frames = ctx.map.keyframes
     poses = np.array([f.pose for f in list(frames.values())])

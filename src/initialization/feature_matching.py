@@ -1,4 +1,3 @@
-from typing import List
 import cv2
 import numpy as np
 import src.utils as utils
@@ -8,8 +7,8 @@ from config import results_dir, SETTINGS, log
 
 
 debug = SETTINGS["generic"]["debug"]
-MIN_MATCHES = SETTINGS["initialization"]["matches"]["min"]
-LOWE_RATIO = SETTINGS["initialization"]["matches"]["lowe_ratio"]
+MIN_MATCHES = SETTINGS["initialization"]["min_matches"]
+LOWE_RATIO = SETTINGS["initialization"]["lowe_ratio"]
 
 
 ############################### Feature Matching ##########################################
@@ -26,26 +25,25 @@ def matchFeatures(q_frame: utils.Frame, t_frame: utils.Frame):
         imgIdx: The index of the image (if multiple images are being used).
     """
     if debug:
-        log.info(f"[Initialization] Matching features between frames: {q_frame.id} & {t_frame.id}...")
+        log.info(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
 
     # Create BFMatcher object
     matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
     
-    # 1) Match descriptors (KNN)
+    # Match descriptors
     matches = matcher.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
     if len(matches) < MIN_MATCHES:
         return None
-
-    # # 2) Filter matches with your custom filter (lowe ratio, distance threshold, etc.)
-    matches = utils.filterMatches(matches, LOWE_RATIO)
-    if len(matches) < MIN_MATCHES:
+    filtered_matches = utils.ratio_filter(matches, LOWE_RATIO)
+    if len(filtered_matches) < MIN_MATCHES:
         return None
-    if debug:
-        log.info(f"\t {len(matches)} matches left!")
+    filtered_matches = utils.unique_filter(filtered_matches)
+    if len(filtered_matches) < MIN_MATCHES:
+        return None
 
     # Save the matches
     if debug:
         match_save_path = results_dir / f"initialization/0-raw" / f"{q_frame.id}_{t_frame.id}.png"
-        vis.plot_matches(matches, q_frame, t_frame, save_path=match_save_path)
+        vis.plot_matches(filtered_matches, q_frame, t_frame, save_path=match_save_path)
 
-    return np.array(matches, dtype=object)
+    return np.array(filtered_matches, dtype=object)

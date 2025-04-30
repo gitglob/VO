@@ -23,8 +23,6 @@ Important notes:
 
 
 debug = SETTINGS["generic"]["debug"]
-MIN_ASSOCIATIONS = SETTINGS["point_association"]["num_matches"]
-SEARCH_WINDOW_SIZE = SETTINGS["point_association"]["search_window"]
 
 
 def main():
@@ -145,8 +143,8 @@ def main():
                 # Plots
                 # plot_BA()
                 if debug:
-                    vis.plot_BA2d(results_dir / "ba" / f"{i}_global.png")
-                    vis.plot_trajectory(results_dir / "trajectory" / f"{i}.png")
+                    vis.plot_BA2d(results_dir / "ba/global" / f"{i}.png")
+                    vis.plot_trajectory(results_dir / "trajectory/a" / f"{i}.png")
                     utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 q_frame = t_frame
@@ -156,7 +154,7 @@ def main():
                 log.info("")
                 log.info("~~~~Tracking~~~~")
 
-                num_matches = track.map_search(t_frame, save_path=results_dir / "tracking/matches" / f"map_{t_frame.id}.png")
+                num_matches = track.map_search(t_frame)
                 if num_matches < 20:
                     log.error(f"Tracking failed! {num_matches} (<20) matches found!")
                     is_initialized = False
@@ -178,8 +176,8 @@ def main():
                 # Plot the BA
                 # plot_BA()
                 if debug:
-                    vis.plot_BA2d(results_dir / "ba" / f"{i}_pose.png")
-                vis.plot_trajectory(results_dir / "trajectory" / f"{i}_a.png")
+                    vis.plot_BA2d(results_dir / "ba/single_pose" / f"{i}.png")
+                vis.plot_trajectory(results_dir / "trajectory/a" / f"{i}.png")
                 
                 # ########### Track Local Map ###########
                 log.info("")
@@ -199,6 +197,7 @@ def main():
                 log.info("~~~~Keyframe Check~~~~")
                 # Check if this t_frame is a keyframe
                 if not t_frame.is_keyframe():
+                    ctx.map.remove_keyframe(t_frame.id)
                     continue
 
                 # Save the keyframe
@@ -223,8 +222,8 @@ def main():
                 # Plot the BA
                 # plot_BA()
                 if debug:
-                    vis.plot_BA2d(results_dir / "ba" / f"{i}_local.png")
-                vis.plot_trajectory(results_dir / "trajectory" / f"{i}_b.png")
+                    vis.plot_BA2d(results_dir / "ba/local" / f"{i}.png")
+                vis.plot_trajectory(results_dir / "trajectory/b" / f"{i}.png")
 
                 # Clean up redundant frames
                 ctx.map.cull_keyframes(t_frame)
@@ -237,27 +236,33 @@ def main():
                     # Find candidates for loop closure
                     candidate_kfs = pr.detect_candidates(t_frame)
                     if candidate_kfs is not None:
-                        breakpoint()
                         # Iterate over all possible candidates
                         for cand_kf in candidate_kfs:
                             # Search for matches with current frame
-                            matches = pr.frame_search(cand_kf, t_frame)
-                            if len(matches) < 20:
+                            num_matches = pr.frame_search(cand_kf, t_frame)
+                            if num_matches < 20:
                                 continue
                             
                             # Estimate the new world pose using PnP (3d-2d)
-                            T_q2t = pr.estimate_relative_pose(q_frame, t_frame)
+                            T_q2t = pr.estimate_relative_pose(cand_kf, t_frame)
                             if T_q2t is None:
                                 continue
 
                             # Add loop edge to the convisibility graph
-                            ctx.map.add_loop_closure(t_frame.id)
-                            ctx.cgraph.add_loop_edge(cand_kf.id, t_frame.id, len(matches))
+                            ctx.map.add_loop_closure(cand_kf, t_frame)
+                            ctx.cgraph.add_loop_edge(cand_kf.id, t_frame.id, num_matches)
 
                             # Perform pose optimization
                             ba = backend.poseBA()
                             ba.add_loop_edge(cand_kf, t_frame, T_q2t)
                             ba.optimize()
+
+                            # Plot the BA
+                            # plot_BA()
+                            if debug:
+                                vis.plot_BA2d(results_dir / "ba/pose" / f"{i}.png")
+                            vis.plot_trajectory(results_dir / "trajectory/c" / f"{i}.png")
+
                             break
 
                 # Advance to the next iteration

@@ -42,20 +42,15 @@ class poseBA(BA):
         if DEBUG:
             log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
-        # Extract the frame <-> map feature matches
-        feat_mp_matches = self.frame.get_map_matches()
-
-        # Iterate over all matches
-        for feat, point in feat_mp_matches:
-            # Add the landmark observation
-            self._add_landmark(point.id, deepcopy(point.pos), fixed=True)
-
-            # Extract the frame feature
-            kpt = feat.kpt
-            pt = deepcopy(kpt.pt)
-            octave = kpt.octave
-            # Add the observation
-            self._add_observation(point.id, self.frame, pt, octave, level=0)
+        # Iterate over all map points
+        for pid, mp in ctx.map.points.items():
+            self._add_landmark(mp.id, mp.pos, fixed=True)
+            # Iterate over all the point observations
+            for obs in mp.observations:
+                kf_id = obs.kf_id  # id of keyframe that observed the landmark
+                kf = ctx.map.keyframes[kf_id]
+                kpt = obs.kpt # keypoint of the observation
+                self._add_observation(pid, kf, kpt.pt, kpt.octave)
 
     def optimize(self):
         """

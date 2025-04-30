@@ -33,7 +33,7 @@ def estimate_relative_pose(t_frame: utils.Frame):
         image_pxs,
         cameraMatrix=K,
         distCoeffs=None,
-        reprojectionError=SETTINGS["tracking"]["PnP"]["reprojection_threshold"],
+        reprojectionError=SETTINGS["tracking"]["PnP"]["max_reprojection"],
         confidence=SETTINGS["tracking"]["PnP"]["confidence"],
         iterationsCount=SETTINGS["tracking"]["PnP"]["iterations"]
     )
@@ -75,7 +75,7 @@ def estimate_relative_pose(t_frame: utils.Frame):
     errors = np.sqrt(np.sum((image_pxs[inliers_mask] - projected_world_pxs[inliers_mask])**2, axis=1))
     
     ## Create a mask for points with error less than the threshold
-    reproj_mask = errors < SETTINGS["tracking"]["PnP"]["reprojection_threshold"]
+    reproj_mask = errors < SETTINGS["tracking"]["PnP"]["max_reprojection"]
     if debug:
         log.info(f"\t Reprojection:")
         log.info(f"\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})")

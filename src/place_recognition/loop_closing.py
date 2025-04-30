@@ -8,6 +8,8 @@ from .bow import query_recognition_candidate
 from config import SETTINGS, log, K, results_dir
 
 
+LOWE_RATIO = SETTINGS["loop"]["lowe_ratio"]
+MIN_MATCHES = SETTINGS["loop"]["min_matches"]
 DEBUG = SETTINGS["generic"]["debug"]
 
 
@@ -42,6 +44,8 @@ def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
 
     # Keep only candidates that have better similarity than the minimum score of the neighbors, and aren't neighbors
     good_candidates = [(kf_id, score) for kf_id, score in candidates if (score >= min_score) and (kf_id not in neighbor_frame_ids)]
+    if DEBUG:
+        log.info(f"\t Kept {len(candidates)} non-neighbor candidates!")
     if len(good_candidates) == 0:
         log.warning("\t No candidates found!")
         return None
@@ -55,7 +59,7 @@ def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
 
     return candidate_kfs
     
-def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constraint: bool = False):
+def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constraint: bool = True):
     """
     Matches the map points seen in a previous frame with the current frame.
 
@@ -73,56 +77,36 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
     
     # Match descriptors
     points, q_features = q_frame.get_map_points_and_features()
-    q_descriptors = [f.desc for f in q_features]
+    q_descriptors = np.uint8([f.desc for f in q_features])
     matches = bf.knnMatch(q_descriptors, t_frame.descriptors, k=2)
-    if len(matches) < 10:
-        return []
+    if len(matches) < MIN_MATCHES: return -1
 
     # Filter matches
-    # Apply Lowe's ratio test to filter out false matches
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.9 * n.distance:
-            good_matches.append(m)
-    if DEBUG:
-        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
-
-    if len(good_matches) < 10:
-        return []
-    
-    # Next, ensure uniqueness by keeping only the best match per train descriptor.
-    unique_matches = {}
-    for m in good_matches:
-        # If this train descriptor is not seen yet, or if the current match is better, update.
-        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
-            unique_matches[m.trainIdx] = m
-
-    # Convert the dictionary values to a list of unique matches
-    unique_matches = list(unique_matches.values())
-    if DEBUG:
-        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
-
-    if len(unique_matches) < 10:
-        return []
+    filtered_matches = utils.ratio_filter(matches, LOWE_RATIO)
+    if len(filtered_matches) < MIN_MATCHES: return -1
+    filtered_matches = utils.unique_filter(filtered_matches)
+    if len(filtered_matches) < MIN_MATCHES: return -1
     
     # Finally, filter using the epipolar constraint
     if use_epipolar_constraint:
-        q_pixels = np.array([q_features[m.queryIdx].kpt.pt for m in unique_matches], dtype=np.float64)
-        t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
+        q_pixels = np.array([q_features[m.queryIdx].kpt.pt for m in filtered_matches], dtype=np.float64)
+        t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
 
         epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
         if epipolar_constraint_mask is None:
             log.warning("Failed to apply epipolar constraint..")
             return []
-        unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
+        filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask].tolist()
+        if len(filtered_matches) < MIN_MATCHES:
+            return -1
     
     # Prepare results
     cv2_matches = []
     m: cv2.DMatch
-    for m in unique_matches:
+    for m in filtered_matches:
         q_feat = q_features[m.queryIdx]
         point = points[m.queryIdx]
-        t_feat = t_frame.features[m.trainIdx]
+        t_feat = t_frame.features[t_frame.keypoints[m.trainIdx].class_id]
 
         t_feat.match_map_point(point, m.distance)
         point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
@@ -165,16 +149,16 @@ def estimate_relative_pose(q_frame: utils.Frame, t_frame: utils.Frame):
         t_img_pxs,
         cameraMatrix=K,
         distCoeffs=None,
-        reprojectionError=SETTINGS["tracking"]["PnP"]["reprojection_threshold"],
+        reprojectionError=SETTINGS["tracking"]["PnP"]["max_reprojection"],
         confidence=SETTINGS["tracking"]["PnP"]["confidence"],
         iterationsCount=SETTINGS["tracking"]["PnP"]["iterations"]
     )
     if not success or inliers is None:
         log.warning("\t solvePnP failed!")
-        return False
-    if len(inliers) < SETTINGS["loop"]["pnp_inliers"]:
+        return None
+    if len(inliers) < SETTINGS["tracking"]["PnP"]["min_inliers"]:
         log.warning("\t solvePnP did not find enough inliers!")
-        return False
+        return None
     inliers = inliers.flatten()
 
     # Build an inliers mask
@@ -207,7 +191,7 @@ def estimate_relative_pose(q_frame: utils.Frame, t_frame: utils.Frame):
     errors = np.sqrt(np.sum((t_img_pxs[inliers_mask] - projected_world_pxs[inliers_mask])**2, axis=1))
     
     ## Create a mask for points with error less than the threshold
-    reproj_mask = errors < SETTINGS["tracking"]["PnP"]["reprojection_threshold"]
+    reproj_mask = errors < SETTINGS["tracking"]["PnP"]["max_reprojection"]
     if DEBUG:
         log.info(f"\t Reprojection:")
         log.info(f"\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})")

@@ -8,8 +8,8 @@ from config import results_dir, SETTINGS, K, log
 
 
 debug = SETTINGS["generic"]["debug"]
-MIN_NUM_TRIANG_POINTS = SETTINGS["initialization"]["min_num_triang_points"]
-REPROJECTION_THREHSOLD = SETTINGS["initialization"]["reprojection_threshold"]
+MIN_NUM_TRIANG_POINTS = SETTINGS["initialization"]["min_triang_points"]
+REPROJECTION_THREHSOLD = SETTINGS["initialization"]["max_reprojection"]
 MIN_PARALLAX = SETTINGS["initialization"]["min_parallax"]
 
 
@@ -34,7 +34,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
             - A boolean indicating whether the initialization was successful.
     """
     if debug:
-        log.info(f"[Initialization] Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
+        log.info(f"Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
@@ -78,7 +78,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
         if debug:
-            log.info(f"\t\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
+            log.info(f"\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
         matches = matches[mask_pose]        
 
         # Reprojection filter
@@ -164,7 +164,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
       
 def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: utils.Frame, t_frame: utils.Frame, scale: int):
     if debug:
-        log.info(f"[Initialization] Triangulating points between frames {q_frame.id} & {t_frame.id}...")
+        log.info(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
 
     # ------------------------------------------------------------------------
     # 6. Triangulate 3D points

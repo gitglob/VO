@@ -12,29 +12,27 @@ min_observations = SETTINGS["orb"]["level_pyramid"]
 
 ############################### Matches ###############################
 
-def filterMatches(matches, lowe_ratio):
+def ratio_filter(matches, lowe_ratio):
     """Filter out matches using Lowe's Ratio Test"""
     good_matches = []
     for m, n in matches:
         if m.distance < lowe_ratio * n.distance:
             good_matches.append(m)
-
     if debug:
-        log.info(f"\t\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+    return good_matches
 
-    # Next, ensure uniqueness by keeping only the best match per train descriptor.
+def unique_filter(matches):
+    """Filter out matches to ensure uniqueness"""
     unique_matches = {}
-    for m in good_matches:
+    for m in matches:
         # If this train descriptor is not seen yet, or if the current match is better, update.
         if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
             unique_matches[m.trainIdx] = m
-
     # Convert the dictionary values to a list of unique matches
     unique_matches = list(unique_matches.values())
-
     if debug:
-        log.info(f"\t\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
-
+        log.info(f"\t Uniqueness filtered {len(matches) - len(unique_matches)}/{len(matches)} matches!")
     return unique_matches
 
 ############################### Keypoints ###############################
@@ -45,31 +43,33 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     ## Compute the Essential Matrix
     E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, 
                                      cameraMatrix=K, method=cv2.RANSAC, 
-                                     prob=0.999, threshold=1.0)
+                                     prob=0.999, threshold=2.0)
     mask_E = mask_E.ravel().astype(bool)
+
+    ## Compute symmetric transfer error for Essential Matrix
+    score_F = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E')
 
     ## Compute the Homography Matrix
     H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels,
                                    method=cv2.RANSAC, 
-                                   ransacReprojThreshold=1.0)
+                                   ransacReprojThreshold=2.0)
     mask_H = mask_H.ravel().astype(bool)
-
-    # Compute symmetric transfer errors & decide which model to use
-
-    ## Compute symmetric transfer error for Essential Matrix
-    score_F = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E')
 
     ## Compute symmetric transfer error for Homography Matrix
     score_H = compute_symmetric_transfer_error(H, q_kpt_pixels, t_kpt_pixels, 'H')
     
     ## Decide which matrix to use based on the ratio of inliers
-    ratio_H = score_H / (score_H + score_F)
-    use_homography = (ratio_H > 0.45)
+    if score_H + score_F != 0:
+        ratio_H = score_H / (score_H + score_F)
+        use_homography = (ratio_H > 0.45)
+    else:
+        ratio_H = 0
+        use_homography = False
+
     epipolar_constraint_mask = mask_H if use_homography else mask_E
     M = H if use_homography else E
     if debug:
-        log.info(f"\t\t Ratio: {ratio_H:.2f}. Using {'Homography' if use_homography else 'Essential'} Matrix...")
-        log.info(f"\t\t Epipolar Constraint filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches!")
+        log.info(f"\t Epipolar Constraint: Ratio: {ratio_H:.2f}. Using: {'Homography' if use_homography else 'Essential'}. Filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches!")
 
     return epipolar_constraint_mask, M, use_homography
 
@@ -192,7 +192,7 @@ def filter_cheirality(q_points: np.ndarray, t_points: np.ndarray):
     cheirality_mask = (Z1 > 0) & (Z2 > 0)
 
     if debug:
-        log.info(f"\t\t Cheirality check filtered {sum(~cheirality_mask)}/{num_points} points!")
+        log.info(f"\t Cheirality check filtered {sum(~cheirality_mask)}/{num_points} points!")
     if cheirality_mask.sum() == 0:
         return None
     
@@ -243,8 +243,8 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray, m
 
     # Check conditions to decide whether to discard
     if debug:
-        log.info(f"\t\t Median Angle: {np.median(angles):.2f}")
-        log.info(f"\t\t Low Angles check filtered {sum(~valid_angles_mask)}/{num_points} points!")
+        log.info(f"\t Median Angle: {np.median(angles):.2f}")
+        log.info(f"\t Low Angles check filtered {sum(~valid_angles_mask)}/{num_points} points!")
 
     return valid_angles_mask # (N,)
 
@@ -286,7 +286,7 @@ def filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold, save_path
 
     num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
     if debug:
-        log.info(f"\t\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
+        log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
 
     # Debugging visualization
     if debug:
@@ -318,6 +318,6 @@ def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
 
     # Check conditions to decide whether to discard
     if debug:
-        log.info(f"\t\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
+        log.info(f"\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
 
     return scale_mask

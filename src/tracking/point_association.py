@@ -12,21 +12,20 @@ from config import SETTINGS, results_dir, K, log
 scale_factor = SETTINGS["orb"]["scale_factor"]
 n_levels = SETTINGS["orb"]["level_pyramid"]
 
+LOWE_RATIO = SETTINGS["tracking"]["lowe_ratio"]
+MIN_MATCHES = SETTINGS["tracking"]["min_matches"]
+
 DEBUG = SETTINGS["generic"]["debug"]
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
-HAMMING_THRESHOLD = SETTINGS["point_association"]["hamming_threshold"]
 
 
-def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=True):
+def map_search(t_frame: utils.Frame):
     """
     Matches the map points seen in previous frames with the current frame.
 
     Args:
-        map: The local map
         t_frame: The current t_frame, which has .keypoints and .descriptors
-        T_wc: The predicted camera pose
-        search_window: half-size of the bounding box (in pixels) around (u,v).
 
     Returns:
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
@@ -53,48 +52,26 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
     
     # Match descriptors
     matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
-    if len(matches) < 20:
-        return -1
-
-    # Filter matches
-    # Apply Lowe's ratio test to filter out false matches
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.7 * n.distance:
-            good_matches.append(m)
     if DEBUG:
-        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
-
-    if len(good_matches) < 20:
+        log.info(f"\t Found {len(matches)} matches!")
+    if len(matches) < MIN_MATCHES:
         return -1
-    
-    # Next, ensure uniqueness by keeping only the best match per train descriptor.
-    unique_matches = {}
-    for m in good_matches:
-        # If this train descriptor is not seen yet, or if the current match is better, update.
-        if m.trainIdx not in unique_matches or m.distance < unique_matches[m.trainIdx].distance:
-            unique_matches[m.trainIdx] = m
-
-    # Convert the dictionary values to a list of unique matches
-    unique_matches = list(unique_matches.values())
-    if DEBUG:
-        log.info(f"\t Uniqueness filtered {len(good_matches) - len(unique_matches)}/{len(good_matches)} matches!")
-
-    if len(unique_matches) < 20:
-        return -1
+    filtered_matches = utils.ratio_filter(matches, LOWE_RATIO)
+    if len(filtered_matches) < MIN_MATCHES: return -1
+    filtered_matches = utils.unique_filter(filtered_matches)
+    if len(filtered_matches) < MIN_MATCHES: return -1
     
     # Finally, filter using the epipolar constraint
-    if use_epipolar_constraint:
-        q_pixels = np.array([map_pixels[m.queryIdx] for m in unique_matches], dtype=np.float64)
-        t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
-        epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
-        if epipolar_constraint_mask is None:
-            log.warning("Failed to apply epipolar constraint..")
-            return -1
-        unique_matches = np.array(unique_matches)[epipolar_constraint_mask].tolist()
+    q_pixels = np.array([map_pixels[m.queryIdx] for m in filtered_matches], dtype=np.float64)
+    t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
+    epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
+    if epipolar_constraint_mask is None:
+        log.warning("Failed to apply epipolar constraint..")
+        return -1
+    filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask]
     
     # Prepare results
-    for m in unique_matches:
+    for m in filtered_matches:
         pid = map_point_ids[m.queryIdx]
         point = ctx.map.points[pid]
 
@@ -106,12 +83,13 @@ def map_search(t_frame: utils.Frame, save_path: str, use_epipolar_constraint=Tru
 
     # Save the matches
     if DEBUG:
-        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in unique_matches], dtype=np.float64)
+        save_path=results_dir / "tracking/matches" / f"map_{t_frame.id}.png"
+        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
         vis.plot_pixels(t_frame.img, t_pxs, save_path=save_path)
 
     if DEBUG:
-        log.info(f"\t Found {len(unique_matches)} Point Associations!")
-    return len(unique_matches)
+        log.info(f"\t Found {len(filtered_matches)} Point Associations!")
+    return len(filtered_matches)
 
 def search_for_triangulation(q_frame: utils.Frame, t_frame: utils.Frame):
     """Matches the visual words between 2 frames and returns the matches between their features."""

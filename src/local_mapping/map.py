@@ -11,13 +11,14 @@ from config import SETTINGS, K, log, fx, fy, cx, cy, results_dir
 scale_factor = SETTINGS["orb"]["scale_factor"]
 n_levels = SETTINGS["orb"]["level_pyramid"]
 
-MIN_OBSERVATIONS = SETTINGS["map"]["min_observations"]
-MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
-
-DIST_THRESH = SETTINGS["point_association"]["hamming_threshold"]
-
 W = SETTINGS["camera"]["width"]
 H = SETTINGS["camera"]["height"]
+
+LOWE_RATIO = SETTINGS["map"]["lowe_ratio"]
+MIN_PARALLAX = SETTINGS["map"]["min_parallax"]
+MAX_REPROJECTION = SETTINGS["map"]["max_reprojection"]
+
+MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
 
 DEBUG = SETTINGS["generic"]["debug"]
 
@@ -233,6 +234,9 @@ class Map():
         self.keyframes: dict = {} # Dictionary with id <-> keyframe pairs
         self.points: dict = {}    # Dictionary with id <-> mapPoint pairs
 
+        self.last_loop = None   # The last loop closure frame id
+        self.loop_closures = [] # List of loop closures (loop_closure_frame, frame)
+
         # Masks that show which of the current points were visible/tracked
         self._in_view_mask = None
         self._tracking_mask = None
@@ -243,9 +247,6 @@ class Map():
 
         # Frame counter
         self._kf_counter = 0
-
-        # ID of last relocalization keyframe
-        self.last_loop = 0
 
         # Reference frame
         if ref_frame_id is not None:
@@ -261,6 +262,22 @@ class Map():
     def ground_truth(self) -> np.ndarray:
         gt = np.array(list(self.gt_trajectory.values()))
         return gt
+
+    def keyframe_positions(self) -> np.ndarray:
+        """Returns the keyframes xyz positions"""
+        positions = np.empty((len(self.keyframes.keys()), 3), dtype=np.float64)
+        for i, v in enumerate(self.keyframes.values()):
+            positions[i] = v.pose[:3, 3]
+        return positions
+    
+    def loop_closure_positions(self) -> tuple[np.ndarray, np.ndarray]:
+        """Returns the loop closure xyz positions"""
+        lc_poses = np.empty((len(self.loop_closures), 3), dtype=np.float64)
+        lc_kf_poses = np.empty((len(self.loop_closures), 3), dtype=np.float64)
+        for i, (lc_frame, frame) in enumerate(self.loop_closures):
+            lc_poses[i] = lc_frame.pose[:3, 3]
+            lc_kf_poses[i] = frame.pose[:3, 3]
+        return lc_poses, lc_kf_poses
 
     def point_positions(self, ba: bool):
         """Returns the points xyz positions"""
@@ -434,9 +451,18 @@ class Map():
 
             # Match descriptors with ratio test
             matches_knn = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
-            filtered_matches = utils.filterMatches(matches_knn, 0.7)
+            filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+            filtered_matches = utils.unique_filter(filtered_matches)
+            filtered_matches = np.array(filtered_matches, dtype=object)
             if DEBUG:
                 log.info(f"\t Connected frame #{q_frame_id}: Found {len(filtered_matches)} potential new points!") 
+
+            # Enforce epipolar constraint
+            q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in filtered_matches])
+            t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches])
+            epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
+            if epipolar_constraint_mask is None: continue
+            filtered_matches = filtered_matches[epipolar_constraint_mask]
 
             # For every formed pair, utils.triangulate new points and add them to the map
             T_q2t = utils.invert_transform(t_frame.pose) @ q_frame.pose
@@ -462,13 +488,13 @@ class Map():
 
                 # 2) sufficient parallax, 
                 angle = utils.triangulation_angles(new_q_point, new_t_point, T_q2t)
-                if angle < 2.0:
+                if angle < MIN_PARALLAX:
                     parallax_counter += 1
                     continue
                 
                 # 3) reprojection error
                 error = utils.triang_points_reprojection_error(new_q_point, t_kpt.pt, T_q2t)
-                if error > 2.0:
+                if error > MAX_REPROJECTION:
                     reprojection_counter += 1
                     continue
                 
@@ -636,7 +662,7 @@ class Map():
                 # Skip points with too few observations
                 if point.num_observations < 4:
                     continue
-                # Extract the scale of their observation
+                # Extract the neighbor frame observation
                 obs = point.get_observation(kf_id)
                 
                 # Iterate over all other point observations
@@ -670,9 +696,14 @@ class Map():
                 point.tracked_counter += 1
 
 
-    def add_loop_closure(self, frame_id: int):
-        self.last_loop = frame_id
+    def add_loop_closure(self, lc_frame: int, frame: int):
+        self.loop_closures.append((lc_frame, frame))
+        self.last_loop = (lc_frame, frame)
 
     @property
     def num_keyframes_since_last_loop(self) -> int:
-        return self._kf_counter - self.last_loop
+        if len(self.loop_closures) == 0:
+            return self._kf_counter
+        else:
+            last_lc_frame_id = self.last_loop[1].id
+            return self._kf_counter - last_lc_frame_id

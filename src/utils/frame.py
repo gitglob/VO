@@ -241,25 +241,36 @@ class Frame():
         """
         keyframes = ctx.map.keyframes
         local_map = ctx.local_map
+        last_frame = list(keyframes.values())[-2]
 
-        c3 = self.num_tracked_points > 30
+        # dt = np.linalg.norm(self.t - last_frame.t)
+        # c1 = dt > SETTINGS["keyframe"]["t"] # Translation change
+
+        # dr = abs(utils.get_yaw(self.R) - utils.get_yaw(last_frame.R))
+        # c2 = dr > SETTINGS["keyframe"]["r"] # Rotation change
+
+        c3 = self.num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
 
         ref_frame = keyframes[local_map.ref]
         A = ref_frame.tracked_points
         B = self.tracked_points
         common_features_ratio = len(A.intersection(B)) / len(A)
-        c4 = common_features_ratio < 0.9
+        c4 = common_features_ratio < SETTINGS["keyframe"]["common_feat_ratio"]
         
-        is_keyframe = c3 and c4
+        is_keyframe = c3 and c4 #and (c1 or c2) 
         if DEBUG:
             if is_keyframe:
                 log.info("\t\t Keyframe!")
             else:
                 log.warning("\t\t Not a keyframe!")
+                # if not c1:
+                #     log.warning(f"\t\t Translation: {dt:.2f} < 2 !")
+                # if not c2:
+                #     log.warning(f"\t\t Rotation: {dr:.2f} < 5 !")
                 if not c3:
-                    log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50!")
+                    log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50 !")
                 if not c4:
-                    log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9!")
+                    log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9 !")
 
         return is_keyframe
 
@@ -295,8 +306,11 @@ class Frame():
         """Returns all feature <-> map matches with a specific keyframe"""
         map_matches = set()
         for feat in self.features.values():
-            if feat.in_map and feat.mp.kf_id == kf_id:
-                map_matches.add((feat, feat.mp))
+            if feat.in_map:
+                point = feat.mp
+                obs = point.get_observation(kf_id)
+                if obs is not None:
+                    map_matches.add((feat, point))
         return map_matches
 
 
@@ -328,11 +342,11 @@ class Frame():
             so the total size of descriptors will be numel(keypoints) * obj.descriptorSize(), i.e a matrix of size N-by-32 of class uint8, one row per keypoint.
         """
 
-        if self.id == 0:
-            n_levels = 1
-            log.warning(f"\t Extracting ORB features only at level {n_levels} for frame {self.id}!")
-        else:
-            n_levels = ORB_SETTINGS["level_pyramid"]
+        # if self.id == 0:
+        #     n_levels = 1
+        #     log.warning(f"\t Extracting ORB features only at level {n_levels} for frame {self.id}!")
+        # else:
+        n_levels = ORB_SETTINGS["level_pyramid"]
         self._calc_scale_factors(n_levels)
 
         self._detector = cv2.ORB_create(
