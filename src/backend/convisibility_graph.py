@@ -1,6 +1,4 @@
 from itertools import combinations
-import src.utils as utils
-import src.local_mapping as mapping
 import src.globals as ctx
 from config import SETTINGS, log
 
@@ -73,18 +71,18 @@ class ConvisibilityGraph(Graph):
 
         self._first_keyframe_id = None
 
-    def add_first_keyframe(self, keyframe: utils.Frame):
+    def add_first_keyframe(self, kf_id: int):
         """Adds the first keyframe to the graph."""
         if DEBUG:
-            log.info(f"[Graph] Buffering keyframe #{keyframe.id}")
+            log.info(f"[Graph] Buffering keyframe #{kf_id}")
 
-        if keyframe.id in self.nodes.keys():
-            log.warning(f"\t Keyframe {keyframe.id} already exists!")
+        if kf_id in self.nodes.keys():
+            log.warning(f"\t Keyframe {kf_id} already exists!")
             return
         
-        self._first_keyframe_id = keyframe.id
+        self._first_keyframe_id = kf_id
 
-    def add_init_keyframe(self, keyframe: utils.Frame):
+    def add_init_keyframe(self, kf_id: int, kf_mp_ids: set[int]):
         """
         Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
 
@@ -93,50 +91,62 @@ class ConvisibilityGraph(Graph):
             pairs: Dictionary matching a feature to a map point with a distance
         """
         if DEBUG:
-            log.info(f"[Graph] Adding keyframe #{keyframe.id}")
+            log.info(f"[Graph] Adding keyframe #{kf_id} with {len(kf_mp_ids)} map point observations!")
 
-        if keyframe.id in self.nodes.keys():
-            log.warning(f"\t Keyframe {keyframe.id} already exists!")
+        if kf_id in self.nodes.keys():
+            log.warning(f"\t Keyframe {kf_id} already exists!")
             return
-        
-        # Extract map point matches
-        kf_map_pt_ids = keyframe.get_map_point_ids()
-        if DEBUG:
-            log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
 
         # Add the first keyframe if hanging
         if self._first_keyframe_id is not None:
-            self._add_node(self._first_keyframe_id, kf_map_pt_ids)
-            self.spanning_tree._add_node(self._first_keyframe_id, kf_map_pt_ids)
+            self._add_node(self._first_keyframe_id, kf_mp_ids)
+            self.spanning_tree._add_node(self._first_keyframe_id, kf_mp_ids)
             self._first_keyframe_id = None
 
         # Add the current keyframe
-        self._add_node(keyframe.id, kf_map_pt_ids)
-        self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
+        self._add_node(kf_id, kf_mp_ids)
+        self.spanning_tree._add_node(kf_id, kf_mp_ids)
 
-        self._update_edges_on_new_frame(keyframe.id, kf_map_pt_ids)
+        self._update_edges_on_new_frame(kf_id, kf_mp_ids)
 
-    def add_track_keyframe(self, keyframe: utils.Frame):
+    def add_track_keyframe(self, kf_id: int, kf_mp_ids: set[int]):
         """Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree."""
-        kf_map_pt_ids = keyframe.get_map_point_ids()
-
         if DEBUG:
-            log.info(f"[Graph] Adding keyframe #{keyframe.id}")
-        if keyframe.id in self.nodes.keys():
-            log.warning(f"\t Keyframe {keyframe.id} already exists!")
+            log.info(f"[Graph] Adding keyframe #{kf_id}")
+        if kf_id in self.nodes.keys():
+            log.warning(f"\t Keyframe {kf_id} already exists!")
             return
         
         # Store the new keyframe observations
         if DEBUG:
-            log.info(f"\t Keyframe {keyframe.id} observes {len(kf_map_pt_ids)} map points!")
-        self._add_node(keyframe.id, kf_map_pt_ids)
-        self.spanning_tree._add_node(keyframe.id, kf_map_pt_ids)
+            log.info(f"\t Keyframe {kf_id} observes {len(kf_mp_ids)} map points!")
+        self._add_node(kf_id, kf_mp_ids)
+        self.spanning_tree._add_node(kf_id, kf_mp_ids)
 
-        self._update_edges_on_new_frame(keyframe.id, kf_map_pt_ids)
+        self._update_edges_on_new_frame(kf_id, kf_mp_ids)
 
     def add_observation(self, kf_id: int, pid: int):
         """Adds a point observation to a node"""
         self.nodes[kf_id].add(pid)
+
+    def add_loop_edge(self, keyframe_id1: int, keyframe_id2: int, weight: int):
+        """
+        Adds an edge corresponding to a loop closure.
+
+        Args:
+            keyframe_id1: First keyframe identifier.
+            keyframe_id2: Second keyframe identifier.
+            weight (int): The weight (e.g., number of common observations) for the loop closure edge.
+        """
+        if keyframe_id1 not in self.nodes or keyframe_id2 not in self.nodes:
+            log.warning("[Graph] One or both keyframes do not exist.")
+            return
+        
+        edge_id = tuple(sorted((keyframe_id1, keyframe_id2)))
+        self.loop_closure_edges[edge_id] = weight
+
+        # Add it to the essential graph
+        self.essential_graph._add_edge(keyframe_id1, keyframe_id2, weight)
 
 
     def _update_edges_on_new_frame(self, kf_id: int, map_pt_ids: set):
@@ -216,37 +226,14 @@ class ConvisibilityGraph(Graph):
             # All the spanning tree edges go to the Essential Graph too
             self.essential_graph._add_edge(best_parent_id, kf_id, max_shared)
 
-
-    def get_frustum_point_ids(self, kf_id: int):
-        """Returns the map points seen by a keyframe"""
-        return self.nodes[kf_id]
     
-    def get_frustum_points(self, frame_id: int):
+    def get_frame_points(self, frame_id: int):
         """Returns the points that are in the view of a given frame"""
         points = set()
         for pid in self.nodes[frame_id]:
             points.add(ctx.map.points[pid])
         return points
-    
-
-    def get_reference_frame(self, kf_id: int) -> int:
-        """Returns the keyframe connected to a given keyframe that shares the most map points"""
-        ref_frame_id = -1
-        max_weight = -1
-        # Iterate over all the edges
-        for (kf1_id, kf2_id), weight in self.edges.items():
-            # Check if this node is part of this edge
-            if kf1_id == kf_id:
-                if weight > max_weight:
-                    max_weight = weight
-                    ref_frame_id = kf1_id
-            elif kf2_id == kf_id:
-                if weight > max_weight:
-                    max_weight = weight
-                    ref_frame_id = kf2_id
-
-        return ref_frame_id
-    
+        
     def get_connected_frames(self, kf_id: int, num_edges: int = None) -> set[int]:
         """Returns the keyframes connected to a specific keyframe.
         If num_edges is specified, only the num_edges strongest connections (highest weight) are returned.
@@ -284,17 +271,7 @@ class ConvisibilityGraph(Graph):
                     connected_frame_ids.add(kf1_id)
 
         return connected_frame_ids
-
-
-    def get_frames_that_observe_point(self, pid: int) -> set[int]:
-        """Returns the keyframes that observe a specific point"""
-        observing_kf_ids = set()
-        for kf_id, point_ids in self.nodes.items():
-            if pid in point_ids:
-                observing_kf_ids.add(kf_id)
-
-        return observing_kf_ids
-    
+ 
     def get_frames_that_observe_points(self, pids: set[int]) -> set[int]:
         """Returns the keyframes that observe a set of points"""
         observing_kf_ids = set()
@@ -304,7 +281,6 @@ class ConvisibilityGraph(Graph):
                     observing_kf_ids.add(kf_id)
 
         return observing_kf_ids
-
 
     def get_connected_frames_and_their_points(self, kf_id: int) -> tuple[set[int], set[int]]:
         """Returns the keyframes connected to a specific keyframe and the map points seen by them."""
@@ -325,7 +301,7 @@ class ConvisibilityGraph(Graph):
 
         return connected_kf_ids, connected_kf_point_ids
     
-    def _get_neighbor_frames_and_their_points(self, kf_ids: set) -> tuple[set[int], set[int]]:
+    def get_neighbor_frames_and_their_points(self, kf_ids: set) -> tuple[set[int], set[int]]:
         """Returns all the neighboring keyframes K2 of a set of keyframes K1, along with their points"""
         neighbors = set()
         neighbor_points = set()
@@ -343,12 +319,7 @@ class ConvisibilityGraph(Graph):
     
 
     def remove_keyframe(self, kf_id: int):
-        """
-        Removes a keyframe from the graph and updates any edges associated with it.
-
-        Args:
-            keyframe.id: The identifier of the keyframe to be removed.
-        """
+        """Removes a keyframe from the graph and updates any edges associated with it."""
         if kf_id not in self.nodes:
             log.warning(f"[Graph] Keyframe {kf_id} does not exist.")
             return
@@ -371,88 +342,15 @@ class ConvisibilityGraph(Graph):
         # to ensure full connectivity, but for simplicity we are only removing associated edges here.
 
     def remove_matches(self, matches: set[int, int]):
-        """Remove a point from a node"""
+        """Remove a set of point <-> node observations"""
         for (pid, kf_id) in matches:
             self.nodes[kf_id].remove(pid)
-        self.update_edges()
 
     def remove_points(self, pids: set[int]):
         """Removes points from graph"""
         for kf_id in self.nodes.keys():
             self.nodes[kf_id] = self.nodes[kf_id] - pids
 
-        # Update edges
-        self.update_edges()
-
-
-    def create_local_map(self, frame: utils.Frame):
-        """
-        Projects the map into a given frame and returns a local map.
-        This local map contains: 
-        - The frames that share map points with the current frame -> K1
-        - The neighboring frames of K1 in the convisibility graph -> K2
-        - A reference frame Kref in K1 which shares the most points with the current frame
-        """
-        if DEBUG:
-            log.info("[Graph] Creating local map...")
-            
-        frame_map_point_ids = frame.get_map_point_ids()
-
-        # Find the frames that share map points and their points
-        K1_frame_ids = set()
-        K1_frame_counts = {}
-        # Iterate over all the matched map points
-        for pid in frame_map_point_ids:
-            point = ctx.map.points[pid]
-            # Iterate over all the point observations
-            for obs in point.observations:
-                # Keep the frame ids that are different than the current frame and exist in the graph
-                frame_id = obs.kf_id
-                if frame_id != frame.id and frame_id in self.nodes.keys():
-                    K1_frame_ids.add(frame_id)
-                    # Increase the counter of the shared map points
-                    if frame_id not in K1_frame_counts.keys():
-                        K1_frame_counts[frame_id] = 1
-                    else:
-                        K1_frame_counts[frame_id] += 1
-
-        # Find the points of the K1 frames
-        K1_point_ids = set()
-        for frame_id in K1_frame_ids:
-            K1_point_ids.update(self.nodes[frame_id])
-
-        # Find neighboring frames to K1 and their points
-        K2_frame_ids, K2_point_ids = self._get_neighbor_frames_and_their_points(K1_frame_ids)
-
-        # Find the frame(s) that shares the most map points
-        max_shared_count = max(K1_frame_counts.values())
-        ref_frame_ids = [k for k, v in K1_frame_counts.items() if v == max_shared_count]
-        ref_frame_id = ref_frame_ids[0]
-
-        # Create the local map
-        local_map = mapping.localMap(ref_frame_id, K1_frame_ids, K1_point_ids, K2_frame_ids, K2_point_ids)
-
-        return local_map
-
-
-    def add_loop_edge(self, keyframe_id1: int, keyframe_id2: int, weight: int):
-        """
-        Adds an edge corresponding to a loop closure.
-
-        Args:
-            keyframe_id1: First keyframe identifier.
-            keyframe_id2: Second keyframe identifier.
-            weight (int): The weight (e.g., number of common observations) for the loop closure edge.
-        """
-        if keyframe_id1 not in self.nodes or keyframe_id2 not in self.nodes:
-            log.warning("[Graph] One or both keyframes do not exist.")
-            return
-        
-        edge_id = tuple(sorted((keyframe_id1, keyframe_id2)))
-        self.loop_closure_edges[edge_id] = weight
-
-        # Add it to the essential graph
-        self.essential_graph._add_edge(keyframe_id1, keyframe_id2, weight)
 
 
     def print_graphs(self):

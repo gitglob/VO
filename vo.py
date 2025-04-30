@@ -77,7 +77,7 @@ def main():
 
             # Bookkeping
             t_frame.set_pose(gt_pose)
-            ctx.cgraph.add_first_keyframe(t_frame)
+            ctx.cgraph.add_first_keyframe(t_frame.id)
 
             if debug:
                 utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
@@ -131,7 +131,8 @@ def main():
                                     t_frame, t_kpts, t_descriptors)
 
                 # Add the keyframe to the convisibility graph
-                ctx.cgraph.add_init_keyframe(t_frame)
+                kf_map_pt_ids = t_frame.get_map_point_ids()
+                ctx.cgraph.add_init_keyframe(t_frame.id, kf_map_pt_ids)
 
                 # Validate the scale
                 utils.validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
@@ -169,7 +170,8 @@ def main():
 
                 # Perform pose optimization
                 ctx.map.add_keyframe(t_frame)
-                ctx.cgraph.add_track_keyframe(t_frame)
+                kf_mp_ids = t_frame.get_map_point_ids()
+                ctx.cgraph.add_track_keyframe(t_frame.id, kf_mp_ids)
                 ba = backend.singlePoseBA(t_frame)
                 ba.optimize()
 
@@ -187,7 +189,7 @@ def main():
                 ctx.map.view(t_frame)
 
                 # Extract a local map from the map
-                ctx.local_map = ctx.cgraph.create_local_map(t_frame)
+                ctx.local_map = ctx.map.create_local_map(t_frame)
                 
                 # Set the found mask
                 ctx.map.tracked(t_frame)
@@ -198,6 +200,7 @@ def main():
                 # Check if this t_frame is a keyframe
                 if not t_frame.is_keyframe():
                     ctx.map.remove_keyframe(t_frame.id)
+                    ctx.graph.remove_keyframe(t_frame.id)
                     continue
 
                 # Save the keyframe

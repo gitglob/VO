@@ -97,22 +97,18 @@ class Frame():
         self.pose = pose
 
 
-    def reset_pose(self):
-        self.pose = None
-
-    def remove_matches(self, pids: set[int]):
+    def remove_matches_with(self, pids: set[int] | int):
         """Removes matches with the given map points"""
-        for feat in self.features.values():
-            if feat.matched:
-                if feat.mp.id in pids:
-                    feat.reset_mp_match()
-
-    def remove_mp_match(self, pid: int):
-        """Removes matches with the given map point"""
-        for feat in self.features.values():
-            if feat.matched:
-                if feat.mp.id == pid:
-                    feat.reset_mp_match()
+        if isinstance(pids, int):
+            for feat in self.features.values():
+                if feat.matched:
+                    if feat.mp.id == pids:
+                        feat.reset_mp_match()
+        else:
+            for feat in self.features.values():
+                if feat.matched:
+                    if feat.mp.id in pids:
+                        feat.reset_mp_match()
 
 
     def get_features_at_level(self, level: int) -> tuple[list, list]:

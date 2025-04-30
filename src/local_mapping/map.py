@@ -544,6 +544,54 @@ class Map():
             log.info(f"\t\t Scale: {scale_counter}")
             log.info(f"\t Total points: {self.num_points}!")
 
+    def create_local_map(self, frame: utils.Frame):
+        """
+        Projects the map into a given frame and returns a local map.
+        This local map contains: 
+        - The frames that share map points with the current frame -> K1
+        - The neighboring frames of K1 in the convisibility graph -> K2
+        - A reference frame Kref in K1 which shares the most points with the current frame
+        """
+        if DEBUG:
+            log.info("[Graph] Creating local map...")
+            
+        frame_map_point_ids = frame.get_map_point_ids()
+
+        # Find the frames that share map points and their points
+        K1_frame_ids = set()
+        K1_frame_counts = {}
+        # Iterate over all the matched map points
+        for pid in frame_map_point_ids:
+            point = ctx.map.points[pid]
+            # Iterate over all the point observations
+            for obs in point.observations:
+                # Keep the frame ids that are different than the current frame and exist in the graph
+                frame_id = obs.kf_id
+                if frame_id != frame.id and frame_id in ctx.cgraph.nodes.keys():
+                    K1_frame_ids.add(frame_id)
+                    # Increase the counter of the shared map points
+                    if frame_id not in K1_frame_counts.keys():
+                        K1_frame_counts[frame_id] = 1
+                    else:
+                        K1_frame_counts[frame_id] += 1
+
+        # Find the points of the K1 frames
+        K1_point_ids = set()
+        for frame_id in K1_frame_ids:
+            K1_point_ids.update(ctx.cgraph.nodes[frame_id])
+
+        # Find neighboring frames to K1 and their points
+        K2_frame_ids, K2_point_ids = ctx.cgraph.get_neighbor_frames_and_their_points(K1_frame_ids)
+
+        # Find the frame(s) that shares the most map points
+        max_shared_count = max(K1_frame_counts.values())
+        ref_frame_ids = [k for k, v in K1_frame_counts.items() if v == max_shared_count]
+        ref_frame_id = ref_frame_ids[0]
+
+        # Create the local map
+        local_map = localMap(ref_frame_id, K1_frame_ids, K1_point_ids, K2_frame_ids, K2_point_ids)
+
+        return local_map
 
     def optimize_pose(self, kf_id: int, pose: np.ndarray):
         self.ba_trajectory[kf_id] = pose.copy()
@@ -558,12 +606,10 @@ class Map():
         Removes a match completely:
             1) Remove the match from the feature
             2) Remove the observation from the map point
-            3) Remove the point form the convisibility graph
         """
         for pid, kf_id in matches:
-            self.keyframes[kf_id].remove_mp_match(pid)
+            self.keyframes[kf_id].remove_matches_with(pid)
             self.points[pid].remove_observation(kf_id)
-        ctx.cgraph.remove_matches(matches)
 
     def remove_keyframe(self, kf_id: int):
         """
@@ -577,13 +623,12 @@ class Map():
             p.remove_observation(kf_id)
         if DEBUG:
             log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes} left!")
-        ctx.cgraph.remove_keyframe(kf_id)
 
     def remove_points(self, pids: set[int]):
         for pid in pids:
             del self.points[pid]
         for kf in self.keyframes.values():
-            kf.remove_matches(pids)
+            kf.remove_matches_with(pids)
 
 
     def cull_points(self):
@@ -620,7 +665,7 @@ class Map():
 
             # The point must always be observed during the first 2 keyframes
             num_kf_passed_since_creation = self._kf_counter - p.kf_number
-            if num_kf_passed_since_creation <= 2 and p.num_observations < 2:
+            if (num_kf_passed_since_creation <= 2) and (p.num_observations-1 != num_kf_passed_since_creation):
                 removed_point_ids.add(pid)
                 continue
             
@@ -631,6 +676,7 @@ class Map():
 
         self.remove_points(removed_point_ids)
         ctx.cgraph.remove_points(removed_point_ids)
+        ctx.cgraph.update_edges()
 
         if DEBUG:
             log.info(f"\t Removed {len(removed_point_ids)} points. {self.num_points} left!")
@@ -651,10 +697,10 @@ class Map():
         # Iterate over all connected keyframes
         for kf_id in neighbor_kf_ids:
             # Extract their map points
-            kf_points = ctx.cgraph.get_frustum_points(kf_id)
+            kf_points = ctx.cgraph.get_frame_points(kf_id)
             num_points = len(kf_points)
             
-            # Count the number of co-observing points
+            # Count the number of points that are observed in at least 3 other keyframes
             count_coobserving_points = 0
             
             # Iterate over all their map points
@@ -666,12 +712,20 @@ class Map():
                 obs = point.get_observation(kf_id)
                 
                 # Iterate over all other point observations
+                count_point_observations = 0
                 for other_obs in point.observations:
+                    # Ignore observation from the same keyframe
                     if other_obs.kf_id == kf_id:
                         continue
+
                     # Check if the other observation is in the same or finer scale
                     if other_obs.kpt.octave <= obs.kpt.octave:
+                        count_point_observations += 1
+
+                    # Check if the point is observed at least 3 times
+                    if count_point_observations >= 3:
                         count_coobserving_points += 1
+                        break
 
             # Calculate the percentage of co-observing points
             if count_coobserving_points / num_points > 0.9:
@@ -680,6 +734,8 @@ class Map():
 
         for kf_id in removed_kf_ids:
             self.remove_keyframe(kf_id)
+            ctx.cgraph.remove_keyframe(kf_id)
+        ctx.cgraph.update_edges()
 
 
     def view(self, frame: utils.Frame):

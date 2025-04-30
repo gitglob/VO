@@ -64,10 +64,8 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
     Matches the map points seen in a previous frame with the current frame.
 
     Args:
-        map: The local map
-        t_frame: The current t_frame, which has .keypoints and .descriptors
-        T_wc: The predicted camera pose
-        search_window: half-size of the bounding box (in pixels) around (u,v).
+        q_frame: The past (loop candidate) frame
+        t_frame: The current t_frame
 
     Returns:
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
@@ -76,8 +74,8 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # Match descriptors
-    points, q_features = q_frame.get_map_points_and_features()
-    q_descriptors = np.uint8([f.desc for f in q_features])
+    points, q_mp_features = q_frame.get_map_points_and_features()
+    q_descriptors = np.uint8([f.desc for f in q_mp_features])
     matches = bf.knnMatch(q_descriptors, t_frame.descriptors, k=2)
     if len(matches) < MIN_MATCHES: return -1
 
@@ -89,7 +87,7 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
     
     # Finally, filter using the epipolar constraint
     if use_epipolar_constraint:
-        q_pixels = np.array([q_features[m.queryIdx].kpt.pt for m in filtered_matches], dtype=np.float64)
+        q_pixels = np.array([q_mp_features[m.queryIdx].kpt.pt for m in filtered_matches], dtype=np.float64)
         t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
 
         epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
@@ -104,16 +102,19 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
     cv2_matches = []
     m: cv2.DMatch
     for m in filtered_matches:
-        q_feat = q_features[m.queryIdx]
+        q_feat = q_mp_features[m.queryIdx]
         point = points[m.queryIdx]
         t_feat = t_frame.features[t_frame.keypoints[m.trainIdx].class_id]
 
-        t_feat.match_map_point(point, m.distance)
-        point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
-        ctx.cgraph.add_observation(t_frame.id, point.id)
-
-        cv2_matches.append(cv2.DMatch(q_feat.idx, t_feat.idx, m.distance))
+        # Accept matches with points if they are new or the distance is better than the previous match
+        if not t_feat.in_map() or m.distance < t_feat.mp_dist:
+            t_feat.match_map_point(point, m.distance)
+            point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
+            ctx.cgraph.add_observation(t_frame.id, point.id)
+            cv2_matches.append(cv2.DMatch(q_feat.idx, t_feat.idx, m.distance))
     ctx.cgraph.update_edges()
+    if len(cv2_matches) < MIN_MATCHES:
+        return -1
 
     # Save the matches
     if DEBUG:

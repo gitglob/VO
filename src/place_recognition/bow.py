@@ -43,6 +43,9 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
     all_db_frames.discard(frame.id)
     map_frames = ctx.map.keyframe_ids
     frames_that_share_words = all_db_frames & map_frames
+    if len(frames_that_share_words) == 0:
+        log.warning("\t Recognition candidates not found!")
+        return []
 
     # Iterate over the keyframes that share words with the current frame
     clusters = []

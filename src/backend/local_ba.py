@@ -82,61 +82,62 @@ class localBA(BA):
 
         # Optimize with the outliers
         num_edges = len(self.optimizer.edges())
-        if DEBUG:
-            log.info(f"\t Optimizing {num_edges} edges...")
-
+        if DEBUG: log.info(f"\t Optimizing {num_edges} edges...")
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(5)
-
-        # 95% CI
-        chi2_threshold = 9.21
-
-        # Iterate over all the edges
-        removed_edges = set()
-        for e in self.optimizer.edges():
-            # Extract edge info
-            kf_id, pid, depth = self.edge_info(e)
-            # Check the chi2 value
-            if e.chi2() > chi2_threshold or depth <= 0:
-                removed_edges.add((pid, kf_id))
-                # Remove edge from the graph
-                self.optimizer.remove_edge(e)
+        removed_edges = self.prune_bad_edges()
 
         # Remove feature<->map point match and map point observation
         ctx.map.remove_matches(removed_edges)
+        ctx.cgraph.remove_matches(removed_edges)
 
-        if DEBUG:
-            log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
+        if DEBUG: log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
         num_edges = len(self.optimizer.edges())
 
         self.update_poses_and_landmarks()
-        e2 = e = ctx.map.get_mean_projection_error()
+        e2 = ctx.map.get_mean_projection_error()
 
         # Optimize again without the outliers
-        if DEBUG:
-            log.info(f"\t Optimizing {num_edges} edges...")
+        if DEBUG: log.info(f"\t Optimizing {num_edges} edges...")
         self.optimizer.initialize_optimization()
-        self.optimizer.optimize(10) # TODO: this crashes
-
-        # Iterate over all the edges
-        removed_edges = set()
-        for e in self.optimizer.edges():
-            # Extract edge info
-            kf_id, pid, depth = self.edge_info(e)
-            if e.chi2() > chi2_threshold or depth <= 0:
-                removed_edges.add((pid, kf_id))
+        self.optimizer.optimize(10)
+        removed_edges = self.prune_bad_edges()
 
         # Remove feature<->map point match and map point observation
         ctx.map.remove_matches(removed_edges)
+        ctx.cgraph.remove_matches(removed_edges)
+        ctx.cgraph.update_edges()
 
-        if DEBUG:
-            log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
+        if DEBUG: log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
 
         self.update_poses_and_landmarks()
         e3 = ctx.map.get_mean_projection_error()
 
         if DEBUG:
             log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f}")
+
+    def prune_bad_edges(self, chi2_threshold=9.21) -> set[tuple[int, int]]:
+        """
+        Remove any edges whose chi2 is above threshold (95% CI) or whose depth≤0.
+        Returns a set of (point_id, keyframe_id) tuples that were removed.
+        """
+        # 1) Snapshot all edges up-front
+        all_edges = list(self.optimizer.edges())
+        removed = set()
+
+        # 2) Identify the ones to drop
+        for e in all_edges:
+            kf_id, pid, depth = self.edge_info(e)
+            if e.chi2() > chi2_threshold or depth <= 0:
+                removed.add((pid, kf_id))
+        
+        # 3) Now do the removals in a separate loop
+        for e in all_edges:
+            kf_id, pid, depth = self.edge_info(e)
+            if (pid, kf_id) in removed:
+                self.optimizer.remove_edge(e)
+
+        return removed
 
     def edge_info(self, edge: g2o.EdgeProjectXYZ2UV) -> tuple[int, int, float]:
         """Using an g2o edge extracts the landmark's Z position (depth) in the camera's frame"""
