@@ -41,9 +41,13 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     # Compute Essential & Homography matrices
 
     ## Compute the Essential Matrix
-    E, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, 
+    E_candidates, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, 
                                      cameraMatrix=K, method=cv2.RANSAC, 
                                      prob=0.999, threshold=2.0)
+    if E_candidates.shape == (3, 3):
+        E = E_candidates
+    else:
+        E = select_best_E(E_candidates, q_kpt_pixels, t_kpt_pixels, K, mask_E)
     mask_E = mask_E.ravel().astype(bool)
 
     ## Compute symmetric transfer error for Essential Matrix
@@ -73,6 +77,38 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
 
     return epipolar_constraint_mask, M, use_homography
 
+def select_best_E(E_raw, pts1, pts2, K, mask_E):
+    """
+    Pick the best Essential matrix from the candidates in E_raw by
+    running cv2.recoverPose on each and choosing the one with max inliers.
+    """
+    # 1. reshape into (M,3,3) if needed
+    E = np.asarray(E_raw)
+    if E.ndim == 2 and E.shape[0] > 3:
+        Es = E.reshape(-1, 3, 3)
+    elif E.ndim == 3 and E.shape[1:] == (3, 3):
+        Es = E
+    else:
+        raise ValueError("E_raw must be either (3M,3) or (M,3,3)")
+
+    best_E = None
+    best_inliers = -1
+
+    # 2. test each candidate
+    for Ei in Es:
+        # recoverPose signature: retval, R, t, mask_pose
+        retval, R, t, mask_pose = cv2.recoverPose(
+            Ei, pts1, pts2, K, mask=mask_E
+        )
+        if retval > best_inliers:
+            best_inliers = int(retval)
+            best_E = Ei
+
+    if best_E is None:
+        raise RuntimeError("No valid Essential matrix found")
+
+    return best_E
+
 def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_type='E', T_H = 5.99, T_F = 3.84):
     """
     Computes the symmetric transfer error (in pixels) for a set of corresponding keypoints using
@@ -83,7 +119,7 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
     the function performs the following steps:
       - Computes the Fundamental matrix F from the provided Essential/Homography matrix and
         the camera intrinsic matrix K. For an Essential matrix, F is computed as:
-            F = inv(K.T) @ E_or_H @ inv(K)
+            F = inv(K).T @ E_or_H @ inv(K)
         For a Homography, it is computed as:
             F = inv(K) @ E_or_H @ K
       - Converts the keypoints to homogeneous coordinates.

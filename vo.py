@@ -232,7 +232,7 @@ def main():
                 ctx.map.cull_keyframes(t_frame)
 
                 # ########### Loop Closing ###########
-                if (i > 20) and (ctx.map.num_keyframes_since_last_loop > 20):
+                if (i > 5) and (ctx.map.num_keyframes_since_last_loop > 5):
                     log.info("")
                     log.info("~~~~Loop Closing~~~~")
 

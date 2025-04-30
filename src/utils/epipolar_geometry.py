@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from src.utils.linalg import invert_transform
-from src.utils.linalg import skew_symmetric
+from src.utils.linalg import skew
 from config import K, log
 
 
@@ -142,7 +142,7 @@ def compute_F12(frame1, frame2):
     t12 = t2 - R12 @ t1
 
     # 3) essential matrix
-    E12 = skew_symmetric(t12) @ R12
+    E12 = skew(t12) @ R12
 
     # 4) fundamental matrix
     F12 = np.linalg.inv(K).T @ E12 @ np.linalg.inv(K)

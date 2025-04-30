@@ -12,82 +12,6 @@ DIST_THRESH = SETTINGS["point_association"]["hamming_threshold"]
 use_epipolar_constraint = False
 
 
-def track_map_points(t_frame: utils.Frame, theta: int = 15):
-    """Projects all un-matched map points to a frame and searches more correspondances."""
-    # Extract the already matched features and map points
-    matched_point_ids = t_frame.get_map_point_ids()
-    new_matched_features = {}
-
-    # Iterate over all the map points
-    for point, pid in ctx.local_map.points.items():
-        # Skip matched map points
-        if pid in matched_point_ids:
-            continue
-
-        # Check if the point is in the current camera's frustum
-        result = t_frame.is_in_frustum(point)
-        if result is False:
-            continue
-        u, v, scale = result
-
-        # Compare the representative descriptor D of the map point with the 
-        # still unmatched ORB features in the frame, at the predicted scale, 
-        # and near x, and associate the map point with the best match.
-        D = point.best_descriptor
-
-        # Collect candidate current frame un-matched keypoints whose pixel coordinates 
-        # fall within a window around the predicted pixel
-        octave_idx = np.abs(t_frame.scale_factors - scale).argmin()
-        radius = theta * t_frame.scale_factors[octave_idx]
-        candidates = []
-        for feat_id, feat in t_frame.features.items():
-            # Skip already matched features
-            if feat.matched:
-                continue
-            feat_px = feat.kpt.pt
-            if (abs(feat_px[0] - u) <= radius and
-                abs(feat_px[1] - v) <= radius):
-                candidates.append(feat_id)
-        
-        # If no keypoints are found in the window, skip to the next map point.
-        if len(candidates) == 0:
-            continue
-        
-        # For each candidate, compute the descriptor distance using the Hamming norm.
-        best_dist = np.inf
-        best_feature_id = None
-        for feat_id in candidates:
-            candidate_desc = t_frame.features[feat_id].desc
-            # Compute Hamming distance.
-            d = cv2.norm(np.array(D), np.array(candidate_desc), cv2.NORM_HAMMING)
-            if d < best_dist:
-                best_dist = d
-                best_feature_id = feat_id
-        
-        # Accept the match only if the best distance is below the threshold.
-        if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
-            # Make sure that we only keep 1 match per frame pixel
-            if best_feature_id not in new_matched_features.keys() or best_dist < new_matched_features[best_feature_id][1]:
-                new_matched_features[best_feature_id] = (pid, best_dist)
-    
-    if debug:
-        log.info(f"\t Found {len(new_matched_features)} Point Associations!")
-
-    # Update the frame<->map matches
-    for feat_id, (pid, dist) in new_matched_features.items():
-        feat = t_frame.features[feat_id]
-        feat.match_map_point(pid, dist)
-        point = ctx.map.points[pid]
-        ctx.map.add_observation(t_frame, feat, point)
-    
-    if debug and len(new_matched_features.keys()) > 0:
-        match_save_path = results_dir / "matches/tracking/map" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in new_matched_features.keys()], dtype=np.float64)        
-        vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
-
-    return len(new_matched_features)
-
-
 def window_search(q_keyframe: utils.Frame, t_frame: utils.Frame, radius: int, 
                   min_scale_level: int = -1, max_scale_level: int = -1 , save_path: str = None) -> int:
     """
@@ -253,6 +177,83 @@ def search_by_projection(q_frame: utils.Frame, t_frame: utils.Frame, theta: int 
 
     return len(matched_features)
 
+# This compares the best descriptor of every map point with the descriptors of the unmatched features in the frame
+def track_map_points(t_frame: utils.Frame, theta: int = 15):
+    """Projects all un-matched map points to a frame and searches more correspondances."""
+    # Extract the already matched features and map points
+    matched_point_ids = t_frame.get_map_point_ids()
+    new_matched_features = {}
+
+    # Iterate over all the map points
+    for point, pid in ctx.local_map.points.items():
+        # Skip matched map points
+        if pid in matched_point_ids:
+            continue
+
+        # Check if the point is in the current camera's frustum
+        result = t_frame.is_in_frustum(point)
+        if result is False:
+            continue
+        u, v, scale = result
+
+        # Compare the representative descriptor D of the map point with the 
+        # still unmatched ORB features in the frame, at the predicted scale, 
+        # and near x, and associate the map point with the best match.
+        D = point.best_descriptor
+
+        # Collect candidate current frame un-matched keypoints whose pixel coordinates 
+        # fall within a window around the predicted pixel
+        octave_idx = np.abs(t_frame.scale_factors - scale).argmin()
+        radius = theta * t_frame.scale_factors[octave_idx]
+        candidates = []
+        for feat_id, feat in t_frame.features.items():
+            # Skip already matched features
+            if feat.matched:
+                continue
+            feat_px = feat.kpt.pt
+            if (abs(feat_px[0] - u) <= radius and
+                abs(feat_px[1] - v) <= radius):
+                candidates.append(feat_id)
+        
+        # If no keypoints are found in the window, skip to the next map point.
+        if len(candidates) == 0:
+            continue
+        
+        # For each candidate, compute the descriptor distance using the Hamming norm.
+        best_dist = np.inf
+        best_feature_id = None
+        for feat_id in candidates:
+            candidate_desc = t_frame.features[feat_id].desc
+            # Compute Hamming distance.
+            d = cv2.norm(np.array(D), np.array(candidate_desc), cv2.NORM_HAMMING)
+            if d < best_dist:
+                best_dist = d
+                best_feature_id = feat_id
+        
+        # Accept the match only if the best distance is below the threshold.
+        if best_feature_id is not None and best_dist < HAMMING_THRESHOLD:
+            # Make sure that we only keep 1 match per frame pixel
+            if best_feature_id not in new_matched_features.keys() or best_dist < new_matched_features[best_feature_id][1]:
+                new_matched_features[best_feature_id] = (pid, best_dist)
+    
+    if debug:
+        log.info(f"\t Found {len(new_matched_features)} Point Associations!")
+
+    # Update the frame<->map matches
+    for feat_id, (pid, dist) in new_matched_features.items():
+        feat = t_frame.features[feat_id]
+        feat.match_map_point(pid, dist)
+        point = ctx.map.points[pid]
+        ctx.map.add_observation(t_frame, feat, point)
+    
+    if debug and len(new_matched_features.keys()) > 0:
+        match_save_path = results_dir / "matches/tracking/map" / f"map_{t_frame.id}.png"
+        t_pxs = np.array([t_frame.features[feat_id].kpt.pt for feat_id in new_matched_features.keys()], dtype=np.float64)        
+        vis.plot_pixels(t_frame.img, t_pxs, save_path=match_save_path)
+
+    return len(new_matched_features)
+
+# This is similar to search_for_triangulation, but uses Lowe's ratio test
 def search_by_bow(q_keyframe: utils.Frame, t_frame: utils.Frame, save_path: str):
     """
     Matches the visual words that exist in the map in a previous keyframe with the visual words in the current frame.

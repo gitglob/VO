@@ -58,7 +58,7 @@ def transform_points(points_3d: np.ndarray, T: np.ndarray):
 
     return transformed_3d
 
-def skew_symmetric(v):
+def skew(v):
     """
     Creates a skew-symmetric matrix from a 3-element vector.
     
