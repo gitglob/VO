@@ -556,6 +556,8 @@ class Map():
     def remove_points(self, pids: set[int]):
         for pid in pids:
             del self.points[pid]
+        for kf in self.keyframes.values():
+            kf.remove_matches(pids)
 
 
     def cull_points(self):

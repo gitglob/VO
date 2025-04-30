@@ -35,10 +35,6 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
         log.warning("\t No BoW descriptor computed for the new image.")
         return None
 
-    candidates = []
-    best_match_id = None
-    best_similarity = 0.0
-
     # Gather unique keyframe IDs from the BoW DB
     all_db_frames = {kf_id 
                      for kf_list in ctx.bow_db.values() 
@@ -88,6 +84,7 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
     best_match_id, best_score = best_cluster[best_score_idx]
 
     # Keep all the candidates in the best cluster whose score is > 0.75 * best_score
+    candidates = []
     for other_kf_id, score in best_cluster:
         if score > 0.75*best_score:
             candidates.append((other_kf_id, score))

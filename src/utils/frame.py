@@ -100,6 +100,13 @@ class Frame():
     def reset_pose(self):
         self.pose = None
 
+    def remove_matches(self, pids: set[int]):
+        """Removes matches with the given map points"""
+        for feat in self.features.values():
+            if feat.matched:
+                if feat.mp.id in pids:
+                    feat.reset_mp_match()
+
     def remove_mp_match(self, pid: int):
         """Removes matches with the given map point"""
         for feat in self.features.values():
