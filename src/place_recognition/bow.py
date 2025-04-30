@@ -49,22 +49,47 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
     frames_that_share_words = all_db_frames & map_frames
 
     # Iterate over the keyframes that share words with the current frame
+    clusters = []
+    cluster_scores = []
     for other_kf_id in frames_that_share_words:
         assert other_kf_id != frame.id
         assert other_kf_id in ctx.map.keyframe_ids
-        other_kf = ctx.map.keyframes[other_kf_id]
 
-        # Compare the histograms of the 2 frames
-        # Use cosine similarity: higher score indicates greater similarity.
-        score = cosine_similarity(frame.bow_hist, other_kf.bow_hist)[0][0]
-        if DEBUG:
-            log.info(f"\t Comparing to frame {other_kf_id}, similarity score: {score:.3f}")
-        if score > best_similarity:
-            best_similarity = score
-            best_match_id = other_kf_id
+        # Extract the neighbors of every keyframe
+        other_kf_neighbors = ctx.cgraph.get_connected_frames(other_kf_id, 30)
 
-        # Find recognition candidates
-        if score > SIM_THRESHOLD:
+        # Merge the other keyframe and its neighbors in 1 cluster and remove the current frame
+        other_kf_ids = other_kf_neighbors.union({other_kf_id}) - {frame.id}
+
+        # Iterate over the cluster
+        cluster_score = 0.0
+        cluster = []
+        for other_kf_id in other_kf_ids:
+            other_kf = ctx.map.keyframes[other_kf_id]
+
+            # Compare the histograms of the 2 frames
+            # Use cosine similarity: higher score indicates greater similarity.
+            score = cosine_similarity(frame.bow_hist, other_kf.bow_hist)[0][0]
+            cluster_score += score
+
+            # Keep the cluster score and keyframe ids
+            cluster.append((other_kf_id, score))
+
+        # Keep the clusters and their scores
+        clusters.append(cluster)
+        cluster_scores.append(cluster_score)
+
+    # Find the best cluster idx
+    best_cluster_idx = np.argmax(cluster_scores)
+
+    # Find the best match in the best cluster
+    best_cluster = clusters[best_cluster_idx]
+    best_score_idx = np.argmax([score for _, score in best_cluster])
+    best_match_id, best_score = best_cluster[best_score_idx]
+
+    # Keep all the candidates in the best cluster whose score is > 0.75 * best_score
+    for other_kf_id, score in best_cluster:
+        if score > 0.75*best_score:
             candidates.append((other_kf_id, score))
 
     if len(candidates) == 0:
@@ -73,6 +98,6 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
 
     if DEBUG:
         log.info(f"\t Found {len(candidates)} relocalization candidates.")
-        log.info(f"\t Best match: Keyframe #{best_match_id} with similarity: {best_similarity:.3f}")
+        log.info(f"\t Best match: Keyframe #{best_match_id} with similarity: {best_score:.3f}")
 
     return candidates

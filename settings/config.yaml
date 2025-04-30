@@ -1,5 +1,5 @@
 generic:
-    debug: True
+    debug: False
 
 camera:
     fx: 718.86

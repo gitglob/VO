@@ -230,7 +230,7 @@ def main():
                 ctx.map.cull_keyframes(t_frame)
 
                 # ########### Loop Closing ###########
-                if i > 5:
+                if (i > 20) and (ctx.map.num_keyframes_since_last_loop > 20):
                     log.info("")
                     log.info("~~~~Loop Closing~~~~")
 
@@ -249,6 +249,10 @@ def main():
                             T_q2t = pr.estimate_relative_pose(q_frame, t_frame)
                             if T_q2t is None:
                                 continue
+
+                            # Add loop edge to the convisibility graph
+                            ctx.map.add_loop_closure(t_frame.id)
+                            ctx.cgraph.add_loop_edge(cand_kf.id, t_frame.id, len(matches))
 
                             # Perform pose optimization
                             ba = backend.poseBA()

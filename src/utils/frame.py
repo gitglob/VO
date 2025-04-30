@@ -235,7 +235,7 @@ class Frame():
         keyframes = ctx.map.keyframes
         local_map = ctx.local_map
 
-        c3 = self.num_tracked_points > 50
+        c3 = self.num_tracked_points > 30
 
         ref_frame = keyframes[local_map.ref]
         A = ref_frame.tracked_points

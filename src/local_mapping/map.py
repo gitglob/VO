@@ -245,7 +245,7 @@ class Map():
         self._kf_counter = 0
 
         # ID of last relocalization keyframe
-        self.last_reloc = 0
+        self.last_loop = 0
 
         # Reference frame
         if ref_frame_id is not None:
@@ -667,6 +667,10 @@ class Map():
                 point = feat.mp
                 point.tracked_counter += 1
 
-    def relocalize(self, frame_id: int):
-        self.last_reloc = frame_id
 
+    def add_loop_closure(self, frame_id: int):
+        self.last_loop = frame_id
+
+    @property
+    def num_keyframes_since_last_loop(self) -> int:
+        return self._kf_counter - self.last_loop
