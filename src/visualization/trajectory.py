@@ -7,7 +7,7 @@ from src.utils.utils import get_yaw
 import src.globals as ctx
 
 from config import results_dir
-matplotlib.use('tkAgg')
+matplotlib.use('Agg')
 
 
 def plot_trajectory(save_path: str, ba=True, map=False):

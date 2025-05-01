@@ -6,7 +6,7 @@ import matplotlib
 import src.globals as ctx
 
 from config import results_dir
-matplotlib.use('tkAgg')
+matplotlib.use('Agg')
 
 
 def plot_BA():

@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation as R
 from src.utils.utils import get_yaw
 
 from config import results_dir
-matplotlib.use('tkAgg')
+matplotlib.use('Agg')
 
 
 
