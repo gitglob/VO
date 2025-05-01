@@ -38,6 +38,8 @@ def map_search(t_frame: utils.Frame):
     map_point_ids = []
     map_pixels = []
     for p in ctx.map.points.values():
+        if p.num_observations == 0:
+            continue
         # Get the descriptors from every observation of a point
         # an alternative would be to get the best point descriptor!
         desc, kpt = p.best_descriptor()

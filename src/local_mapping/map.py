@@ -19,7 +19,7 @@ LOWE_RATIO = SETTINGS["map"]["lowe_ratio"]
 MIN_PARALLAX = SETTINGS["map"]["min_parallax"]
 MAX_REPROJECTION = SETTINGS["map"]["max_reprojection"]
 
-MATCH_VIEW_RATIO = SETTINGS["map"]["match_view_ratio"]
+MATCH_VIEW_RATIO = SETTINGS["map"]["point_culling_ratio"]
 KF_CULLING_RATIO = SETTINGS["map"]["kf_culling_ratio"]
 
 DEBUG = SETTINGS["generic"]["debug"]
@@ -435,6 +435,7 @@ class Map():
             log.info(f"[Map] Creating new map points using frame {t_frame.id} and {len(neighbor_kf_ids)} neighbors!")
 
         # Iterate over all neighbor frames
+        epipolar_counter = 0
         cheirality_counter = 0
         reprojection_counter = 0
         parallax_counter = 0
@@ -475,6 +476,7 @@ class Map():
             ret = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
             if ret is None: continue
             epipolar_constraint_mask, _, _ = ret
+            epipolar_counter += np.sum(~epipolar_constraint_mask)
             if epipolar_constraint_mask.sum() == 0: continue
             matches = np.array(matches)[epipolar_constraint_mask]
             q_kpts = q_kpts[epipolar_constraint_mask]
@@ -492,8 +494,8 @@ class Map():
 
             # Cheirality filter
             cheirality_mask = utils.filter_cheirality(q_points, t_points)
-            if cheirality_mask is None or cheirality_mask.sum() == 0: continue
             cheirality_counter += np.sum(~cheirality_mask)
+            if cheirality_mask is None or cheirality_mask.sum() == 0: continue
             matches = matches[cheirality_mask]
             q_points = q_points[cheirality_mask]
             t_points = t_points[cheirality_mask]
@@ -502,8 +504,8 @@ class Map():
 
             # Low parallax filter
             parallax_mask = utils.filter_parallax(q_points, t_points, T_q2t, MIN_PARALLAX)
-            if parallax_mask is None or parallax_mask.sum() == 0: continue
             parallax_counter += np.sum(~parallax_mask)
+            if parallax_mask is None or parallax_mask.sum() == 0: continue
             matches = matches[parallax_mask]
             q_points = q_points[parallax_mask]
             t_points = t_points[parallax_mask]
@@ -515,8 +517,8 @@ class Map():
             reproj_mask = utils.filter_by_reprojection(q_points, t_kpt_pixels, 
                                                        T_q2t, MAX_REPROJECTION, 
                                                        t_frame)
-            if reproj_mask is None or reproj_mask.sum() == 0: continue
             reprojection_counter += np.sum(~reproj_mask)
+            if reproj_mask is None or reproj_mask.sum() == 0: continue
             matches = matches[reproj_mask]
             q_points = q_points[reproj_mask]
             t_points = t_points[reproj_mask]
@@ -581,6 +583,7 @@ class Map():
 
         if DEBUG:
             log.info(f"\t Created {num_created_points} points! Filtered the following...")
+            log.info(f"\t\t Epipolar: {epipolar_counter}")
             log.info(f"\t\t Cheirality: {cheirality_counter}")
             log.info(f"\t\t Reprojection: {reprojection_counter}")
             log.info(f"\t\t Parallax: {parallax_counter}")
@@ -653,11 +656,14 @@ class Map():
             1) Remove the match from the feature
             2) Remove the observation from the map point
         """
+        removed_pids = set()
         for pid, kf_id in matches:
             self.keyframes[kf_id].remove_matches_with(pid)
             num_obs = self.points[pid].remove_observation(kf_id)
             if num_obs == 0:
-                del ctx.map.points[pid]
+                removed_pids.add(pid)
+
+        # self.remove_points(removed_pids)
 
 
     def remove_keyframe(self, kf_id: int):
@@ -673,8 +679,7 @@ class Map():
             num_obs = p.remove_observation(kf_id)
             if num_obs == 0:
                 removed_pids.add(p.id)
-        for pid in removed_pids:
-            del self.points[pid]
+        # self.remove_points(removed_pids)
         if DEBUG:
             log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes} left!")
 
@@ -683,7 +688,6 @@ class Map():
             del self.points[pid]
         for kf in self.keyframes.values():
             kf.remove_matches_with(pids)
-
 
     def cull_points(self):
         """

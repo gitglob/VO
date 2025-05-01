@@ -251,7 +251,8 @@ class Frame():
         # dr = abs(utils.get_yaw(self.R) - utils.get_yaw(last_frame.R))
         # c2 = dr > SETTINGS["keyframe"]["r"] # Rotation change
 
-        c3 = self.num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
+        NTP = SETTINGS["keyframe"]["num_tracked_points"]
+        c3 = self.num_tracked_points > NTP
 
         # This criterion ensures visual change
         # Basically we want the new frame to tracl less than 90% of the
@@ -260,7 +261,8 @@ class Frame():
         A = ref_frame.tracked_points
         B = self.tracked_points
         common_features_ratio = len(B.intersection(A)) / len(A)
-        c4 = common_features_ratio < SETTINGS["keyframe"]["common_feat_ratio"]
+        CFR = SETTINGS["keyframe"]["common_feat_ratio"]
+        c4 = common_features_ratio < CFR
         
         is_keyframe = c3 and c4 #and (c1 or c2) 
         # if DEBUG:
@@ -273,9 +275,9 @@ class Frame():
             # if not c2:
             #     log.warning(f"\t\t Rotation: {dr:.2f} < 5 !")
             if not c3:
-                log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50 !")
+                log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= {NTP} !")
             if not c4:
-                log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9 !")
+                log.warning(f"\t\t Common features ratio: {common_features_ratio} > {CFR} !")
 
         return is_keyframe
 

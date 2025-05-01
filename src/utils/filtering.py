@@ -234,8 +234,6 @@ def filter_cheirality(q_points: np.ndarray, t_points: np.ndarray):
 
     if debug:
         log.info(f"\t Cheirality check filtered {sum(~cheirality_mask)}/{num_points} points!")
-    if cheirality_mask.sum() == 0:
-        return None
     
     return cheirality_mask
     
@@ -313,11 +311,13 @@ def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray,
 
     # Compute reprojection errors
     errors = np.linalg.norm(points_proj_px - t_pxs, axis=1)
+    e1 = np.mean(errors)
     reproj_mask = errors < threshold
+    e2 = np.mean(errors[reproj_mask]) if reproj_mask.sum() > 0 else 0
 
     num_removed_matches = len(q_points_3d) - reproj_mask.sum()
     if debug:
-        log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_points_3d)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
+        log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_points_3d)}. E: {e1:.2f} -> {e2:.2f}")
 
     # Debugging visualization
     if debug and save_path is not None:
@@ -363,6 +363,8 @@ def triang_and_filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold
     # Compute reprojection errors
     errors = np.linalg.norm(points_proj_px - t_pxs, axis=1)
     reproj_mask = errors < threshold
+    if reproj_mask.sum() == 0:
+        return None
 
     num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
     if debug:

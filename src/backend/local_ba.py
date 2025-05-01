@@ -90,10 +90,12 @@ class localBA(BA):
         ctx.map.remove_matches(removed_edges)
         ctx.cgraph.remove_matches(removed_edges)
 
+        # Update the poses and landmarks
+        self.update_poses_and_landmarks()
+
         if DEBUG: log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
         num_edges = len(self.optimizer.edges())
 
-        self.update_poses_and_landmarks()
         e2 = ctx.map.get_mean_projection_error()
 
         # Optimize again without the outliers
@@ -106,9 +108,11 @@ class localBA(BA):
         ctx.map.remove_matches(removed_edges)
         ctx.cgraph.remove_matches(removed_edges)
 
+        # Update the poses and landmarks
+        self.update_poses_and_landmarks()
+
         if DEBUG: log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
 
-        self.update_poses_and_landmarks()
         e3 = ctx.map.get_mean_projection_error()
 
         if DEBUG:
@@ -172,5 +176,9 @@ class localBA(BA):
             elif isinstance(vertex, g2o.VertexPointXYZ):
                 pid = backend.L_inv(vertex.id())
                 new_pos = vertex.estimate().copy()
-                ctx.map.optimize_point(pid, new_pos)
+                # Check if the point is still in the map
+                # (it may have been removed after removing edges because it was
+                # left with no observations)
+                if pid in ctx.map.points:
+                    ctx.map.optimize_point(pid, new_pos)
     

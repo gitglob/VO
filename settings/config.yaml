@@ -1,5 +1,5 @@
 generic:
-    debug: False
+    debug: True
 
 camera:
     fx: 718.86
@@ -34,7 +34,7 @@ initialization:
 
 tracking:
     min_matches: 20
-    lowe_ratio: 0.75
+    lowe_ratio: 0.9
     PnP:
         max_reprojection: 4.0
         confidence: 0.99
@@ -43,9 +43,9 @@ tracking:
 
 map:
     lowe_ratio: 0.9
-    min_parallax: 4.0
+    min_parallax: 2.0
     max_reprojection: 4.0
-    match_view_ratio: 0.25
+    point_culling_ratio: 0.25
     kf_culling_ratio: 0.9
 
 loop:
@@ -57,21 +57,13 @@ loop:
         iterations: 3000
         min_inliers: 4
 
-
-
-
 keyframe:
     t: 2
     r: 5
-    num_tracked_points: 30
+    num_tracked_points: 20
     common_feat_ratio: 0.9
 
 convisibility:
     min_common_edges: 15
     essential_common_edges: 100
 
-
-point_association:
-    num_matches: 10
-    search_window: 200
-    hamming_threshold: 50
