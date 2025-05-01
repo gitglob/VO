@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import cv2
 import src.utils as utils
@@ -208,14 +209,17 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
 
     # Reprojection error filter
     t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
-    reproj_mask = utils.filter_by_reprojection(
-            q_points, t_kpt_pixels, 
-            T_q2t, REPROJECTION_THREHSOLD, t_frame, 
-            save_path=results_dir / f"initialization/4-reprojection/{q_frame.id}_{t_frame.id}.png"
+    reproj_mask, t_proj_pxs = utils.filter_by_reprojection(q_points, t_kpt_pixels, T_q2t, REPROJECTION_THREHSOLD
     )
     if reproj_mask is None: 
         log.warning("\t Discarding frame due to insufficient parallax.")
         return None          
+    if debug:
+        save_path = results_dir / f"initialization/4-reprojection/{q_frame.id}_{t_frame.id}.png"
+        s1 = Path(str(save_path.with_suffix("")) + "-a" + save_path.suffix)
+        s2 = Path(str(save_path.with_suffix("")) + "-b" + save_path.suffix)
+        vis.plot_reprojection(t_frame.img, t_kpt_pixels[~reproj_mask], t_proj_pxs[~reproj_mask], path=s1)
+        vis.plot_reprojection(t_frame.img, t_kpt_pixels[reproj_mask], t_proj_pxs[reproj_mask], path=s2)
     log.info(f"\t Reprojection filtered: {sum(~reproj_mask)}/{len(q_points)} matches!")
        
 

@@ -513,9 +513,7 @@ class Map():
 
             # Reprojection error filter
             t_kpt_pixels = np.float64([kpt.pt for kpt in t_kpts])
-            reproj_mask = utils.filter_by_reprojection(q_points, t_kpt_pixels, 
-                                                       T_q2t, MAX_REPROJECTION, 
-                                                       t_frame)
+            reproj_mask, _ = utils.filter_by_reprojection(q_points, t_kpt_pixels, T_q2t, MAX_REPROJECTION)
             reprojection_counter += np.sum(~reproj_mask)
             if reproj_mask is None or reproj_mask.sum() == 0: continue
             log.info(f"\t Reprojection filtered: {sum(~reproj_mask)}/{len(q_points)} matches!")

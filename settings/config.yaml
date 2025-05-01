@@ -1,5 +1,6 @@
 generic:
     debug: True
+    parallel: True
 
 camera:
     fx: 718.86

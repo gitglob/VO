@@ -87,12 +87,11 @@ def process_neighbor(args) -> tuple[list, dict]:
         return local_results, counters
 
     # i) Reprojection
-    reproj_mask = utils.filter_by_reprojection(
+    reproj_mask, _ = utils.filter_by_reprojection(
         q_pts,
         np.float64([kp.pt for kp in t_kpts]),
         T_q2t,
-        MAX_REPROJECTION,
-        t_frame
+        MAX_REPROJECTION
     )
     counters['reprojection'] += np.sum(~reproj_mask)
     matches, q_pts, t_pts, q_kpts, t_kpts = (

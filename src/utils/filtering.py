@@ -1,4 +1,3 @@
-from pathlib import Path
 import numpy as np
 import cv2
 import src.utils as utils
@@ -273,8 +272,7 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray, m
     return valid_angles_mask # (N,)
 
 def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray, 
-                           T: np.ndarray, threshold: float, 
-                           t_frame: utils.Frame, save_path: str = None):
+                           T: np.ndarray, threshold: float):
     """
     Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
 
@@ -301,14 +299,7 @@ def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray,
     reproj_mask = errors < threshold
     # e2 = np.mean(errors[reproj_mask]) if reproj_mask.sum() > 0 else 0
 
-    # Debugging visualization
-    if debug and save_path is not None:
-        s1 = Path(str(save_path.with_suffix("")) + "-a" + save_path.suffix)
-        s2 = Path(str(save_path.with_suffix("")) + "-b" + save_path.suffix)
-        vis.plot_reprojection(t_frame.img, t_pxs[~reproj_mask], points_proj_px[~reproj_mask], path=s1)
-        vis.plot_reprojection(t_frame.img, t_pxs[reproj_mask], points_proj_px[reproj_mask], path=s2)
-
-    return reproj_mask
+    return reproj_mask, points_proj_px
 
 def triang_and_filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold, save_path):
     """
