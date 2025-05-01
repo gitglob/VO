@@ -10,8 +10,7 @@ import src.local_mapping as mapping
 import src.backend as backend
 import src.globals as ctx
 
-from config import main_dir, data_dir, scene, results_dir, SETTINGS, log
-log.info(f"\t\tUsing dataset: `{scene}` ...")
+from config import main_dir, data_dir, results_dir, SETTINGS, log
 
 
 """
@@ -25,6 +24,8 @@ Important notes:
 
 debug = SETTINGS["generic"]["debug"]
 parallel = SETTINGS["generic"]["parallel"]
+scene = SETTINGS["generic"]["scene"]
+log.info(f"\t\tUsing dataset: `{scene}` ...")
 
 
 def main():
@@ -163,14 +164,12 @@ def main():
                 if num_matches < 20:
                     log.error(f"Tracking failed! {num_matches} (<20) matches found!")
                     is_initialized = False
-                    breakpoint()
                     continue
 
                 # Estimate the new pose using PnP
                 pnp_success = track.estimate_relative_pose(t_frame)
                 if not pnp_success:
                     is_initialized = False
-                    breakpoint()
                     continue
                 
                 # Add the new frame to the map and convisibility graph, along with the new edges
@@ -248,7 +247,7 @@ def main():
                 log.info(f"\t\t\t ... took {time.perf_counter() - t2:.2f} seconds!")
 
                 # ########### Loop Closing ###########
-                if (i > 5) and (ctx.map.num_keyframes_since_last_loop > 5):
+                if (i > 10) and (ctx.map.num_keyframes_since_last_loop > 10):
                     log.info("")
                     log.info("~~~~Loop Closing~~~~")
                     t3 = time.perf_counter()
@@ -257,7 +256,10 @@ def main():
                     candidate_kfs = pr.detect_candidates(t_frame)
                     if candidate_kfs is not None:
                         # Iterate over all possible candidates
+                        utils.save_image(t_frame.img, results_dir / f"loop/{t_frame.id}/{t_frame.id}.png")
                         for cand_kf in candidate_kfs:
+                            utils.save_image(cand_kf.img, results_dir / f"loop/{t_frame.id}/frames/{cand_kf.id}.png")
+
                             # Search for matches with current frame
                             num_matches = pr.frame_search(cand_kf, t_frame)
                             ctx.cgraph.update_edges()

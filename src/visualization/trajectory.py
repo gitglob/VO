@@ -34,10 +34,17 @@ def plot_trajectory(save_path: str, ba=True, map=False):
                         marker='o', s=20, alpha=0.4, label='Points')
 
     # Keyframes
-    ax1.scatter(keyframe_positions[:, 0], keyframe_positions[:, 2], 
-                    facecolors='none',
-                    edgecolors='black',
-                    marker='p', s=120, alpha=1, label='Keyframes')
+    ax1.plot(
+        keyframe_positions[:, 0],
+        keyframe_positions[:, 2],
+        linestyle='-',
+        color='black',
+        marker='p',
+        markersize=20,
+        markerfacecolor='none',
+        markeredgecolor='black',
+        label='Keyframes',
+    )
     
     # Loop closures - add a single line between the two points
     l1, l2 = loop_closures
@@ -109,13 +116,10 @@ def plot_trajectory(save_path: str, ba=True, map=False):
     plt.close(fig)
 
 def plot_trajectory_3d(save_path=results_dir / "vo" / "final_trajectory.png"):
-    frames = ctx.map.keyframes
+    matplotlib.use('TkAgg')
+    poses = ctx.map.poses(ba=True)
+    gt_poses = ctx.map.ground_truth()
 
-    poses = ctx.map.poses
-    gt_poses = ctx.map.ground_truth
-
-    frames = ctx.map.keyframes
-    poses = np.array([f.pose for f in list(frames.values())])
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     

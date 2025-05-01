@@ -1,6 +1,7 @@
 generic:
     debug: True
     parallel: True
+    scene: "00"
 
 camera:
     fx: 718.86
@@ -28,14 +29,14 @@ place_recognition:
 
 initialization:
     min_matches: 200
-    lowe_ratio: 0.9
+    lowe_ratio: 0.75
     min_triang_points: 100 
-    min_parallax: 1.0
+    min_parallax: 2.0
     max_reprojection: 4.0
 
 tracking:
     min_matches: 20
-    lowe_ratio: 0.9
+    lowe_ratio: 0.75
     PnP:
         max_reprojection: 4.0
         confidence: 0.99
@@ -43,7 +44,7 @@ tracking:
         min_inliers: 4
 
 map:
-    lowe_ratio: 0.9
+    lowe_ratio: 0.75
     min_parallax: 2.0
     max_reprojection: 4.0
     point_culling_ratio: 0.25

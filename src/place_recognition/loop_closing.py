@@ -74,15 +74,17 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
     points, q_mp_features = q_frame.get_map_points_and_features()
     q_descriptors = np.uint8([f.desc for f in q_mp_features])
     matches_knn = bf.knnMatch(q_descriptors, t_frame.descriptors, k=2)
-    if len(matches_knn) < MIN_MATCHES: return -1
 
     # Filter matches
     filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
     log.info(f"\t Lowe's Test filtered {len(matches_knn) - len(filtered_matches)}/{len(matches_knn)} matches!")
-    if len(filtered_matches) < MIN_MATCHES: return -1
     matches = utils.unique_filter(filtered_matches)
     log.info(f"\t Uniqueness filtered {len(matches) - len(filtered_matches)}/{len(matches)} matches!")
-    if len(matches) < MIN_MATCHES: return -1
+    
+    # Saves matches plot
+    save_path=results_dir / f"loop/{t_frame.id}/matches/{q_frame.id}/0_raw.png"
+    vis.plot_matches(matches, q_frame, t_frame, save_path = save_path)
+    if len(matches) < MIN_MATCHES: return len(matches)
     
     # Finally, filter using the epipolar constraint
     q_pixels = np.array([q_mp_features[m.queryIdx].kpt.pt for m in matches], dtype=np.float64)
@@ -95,8 +97,11 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
     epi_mask, _, use_homography = ret
     log.info(f"\t Epipolar Constraint: Filtered {sum(~epi_mask)}/{len(q_pixels)} matches! (Using: {'Homography' if use_homography else 'Essential'}.)")
     matches = np.array(matches)[epi_mask].tolist()
-    if len(matches) < MIN_MATCHES:
-        return -1
+
+    # Save matches after epipolar filtering
+    save_path=results_dir / f"loop/{t_frame.id}/matches/{q_frame.id}/1_epipolar.png"
+    vis.plot_matches(matches, q_frame, t_frame, save_path = save_path)
+    if len(matches) < MIN_MATCHES: return len(matches)
     
     # Prepare results
     cv2_matches = []
@@ -112,13 +117,12 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
             point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
             ctx.cgraph.add_observation(t_frame.id, point.id)
             cv2_matches.append(cv2.DMatch(q_feat.idx, t_feat.idx, m.distance))
-    if len(cv2_matches) < MIN_MATCHES:
-        return -1
-
-    # Save the matches
-    if DEBUG:
-        save_path=results_dir / "loop/matches" / f"{q_frame.id}_{t_frame.id}.png"
-        vis.plot_matches(cv2_matches, q_frame, t_frame, save_path = save_path)
+            
+    # Save the final matches, after removing matches that included
+    # points in the current frame that are already in the map
+    save_path=results_dir / f"loop/{t_frame.id}/matches/{q_frame.id}/2_final.png"
+    vis.plot_matches(cv2_matches, q_frame, t_frame, save_path = save_path)
+    if len(cv2_matches) < MIN_MATCHES: return len(cv2_matches)
 
     log.info(f"\t Found {len(cv2_matches)} Point Associations!")
     return len(cv2_matches)
@@ -195,9 +199,9 @@ def estimate_relative_pose(q_frame: utils.Frame, t_frame: utils.Frame):
 
     ## Visualization
     if DEBUG:
-        img_path = results_dir / f"loop/pnp/{q_frame.id}_{t_frame.id}a.png"
+        img_path = results_dir / f"loop/{t_frame.id}/pnp/{q_frame.id}_{t_frame.id}a.png"
         vis.plot_reprojection(t_frame.img, t_img_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
-        img_path = results_dir / f"loop/pnp/{q_frame.id}_{t_frame.id}b.png"
+        img_path = results_dir / f"loop/{t_frame.id}/pnp/{q_frame.id}_{t_frame.id}b.png"
         vis.plot_reprojection(t_frame.img, t_img_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
     # 6) Construct T_{q_frame->t_frame}
