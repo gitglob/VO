@@ -108,7 +108,7 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
         t_feat = t_frame.features[t_frame.keypoints[m.trainIdx].class_id]
 
         # Accept matches with points if they are new or the distance is better than the previous match
-        if not t_feat.in_map() or m.distance < t_feat.mp_dist:
+        if not t_feat.in_map or m.distance < t_feat.mp_dist:
             t_feat.match_map_point(point, m.distance)
             point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
             ctx.cgraph.add_observation(t_frame.id, point.id)
