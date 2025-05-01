@@ -34,7 +34,7 @@ initialization:
 
 tracking:
     min_matches: 20
-    lowe_ratio: 0.9
+    lowe_ratio: 0.75
     PnP:
         max_reprojection: 4.0
         confidence: 0.99

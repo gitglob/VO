@@ -27,7 +27,10 @@ class Graph:
         self.nodes = {} # Dictionary keyframe_id -> observed map_point_ids
         self.edges = {} # Dictionary (kf_id1, kf_id2) -> weight (common map points)
 
-    def _add_node(self, kf_id: int, mp_ids: set):
+    def _add_node(self, kf_id: int):
+        self.nodes[kf_id] = set()
+
+    def _add_node_with_points(self, kf_id: int, mp_ids: set):
         self.nodes[kf_id] = mp_ids
 
     def _add_edge(self, kf_id1: int, kf_id2: int, weight: int):
@@ -82,6 +85,21 @@ class ConvisibilityGraph(Graph):
         
         self._first_keyframe_id = kf_id
 
+    def add_keyframe(self, kf_id: int):
+        """Adds a new keyframe to the graph.
+        """
+        if DEBUG:
+            log.info(f"[Graph] Adding keyframe #{kf_id}!")
+
+        if kf_id in self.nodes.keys():
+            log.warning(f"\t Keyframe {kf_id} already exists!")
+            return
+
+        # Add the current keyframe
+        self._add_node(kf_id)
+        self.spanning_tree._add_node(kf_id)
+
+
     def add_init_keyframe(self, kf_id: int, kf_mp_ids: set[int]):
         """
         Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree.
@@ -99,17 +117,17 @@ class ConvisibilityGraph(Graph):
 
         # Add the first keyframe if hanging
         if self._first_keyframe_id is not None:
-            self._add_node(self._first_keyframe_id, kf_mp_ids)
-            self.spanning_tree._add_node(self._first_keyframe_id, kf_mp_ids)
+            self._add_node_with_points(self._first_keyframe_id, kf_mp_ids)
+            self.spanning_tree._add_node_with_points(self._first_keyframe_id, kf_mp_ids)
             self._first_keyframe_id = None
 
         # Add the current keyframe
-        self._add_node(kf_id, kf_mp_ids)
-        self.spanning_tree._add_node(kf_id, kf_mp_ids)
+        self._add_node_with_points(kf_id, kf_mp_ids)
+        self.spanning_tree._add_node_with_points(kf_id, kf_mp_ids)
 
         self._update_edges_on_new_frame(kf_id, kf_mp_ids)
 
-    def add_track_keyframe(self, kf_id: int, kf_mp_ids: set[int]):
+    def add_keyframe_with_points(self, kf_id: int, kf_mp_ids: set[int]):
         """Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree."""
         if DEBUG:
             log.info(f"[Graph] Adding keyframe #{kf_id}")
@@ -120,8 +138,8 @@ class ConvisibilityGraph(Graph):
         # Store the new keyframe observations
         if DEBUG:
             log.info(f"\t Keyframe {kf_id} observes {len(kf_mp_ids)} map points!")
-        self._add_node(kf_id, kf_mp_ids)
-        self.spanning_tree._add_node(kf_id, kf_mp_ids)
+        self._add_node_with_points(kf_id, kf_mp_ids)
+        self.spanning_tree._add_node_with_points(kf_id, kf_mp_ids)
 
         self._update_edges_on_new_frame(kf_id, kf_mp_ids)
 
@@ -226,6 +244,13 @@ class ConvisibilityGraph(Graph):
             # All the spanning tree edges go to the Essential Graph too
             self.essential_graph._add_edge(best_parent_id, kf_id, max_shared)
 
+    
+    def get_frame_point_ids(self, frame_id: int):
+        """Returns the point ids that are in the view of a given frame"""
+        points_ids = set()
+        for pid in self.nodes[frame_id]:
+            points_ids.add(pid)
+        return points_ids    
     
     def get_frame_points(self, frame_id: int):
         """Returns the points that are in the view of a given frame"""

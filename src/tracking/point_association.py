@@ -40,10 +40,12 @@ def map_search(t_frame: utils.Frame):
     for p in ctx.map.points.values():
         # Get the descriptors from every observation of a point
         # an alternative would be to get the best point descriptor!
-        for obs in p.observations:
-            map_descriptors.append(obs.desc)
-            map_point_ids.append(p.id)
-            map_pixels.append(obs.kpt.pt)
+        desc, kpt = p.best_descriptor()
+
+        map_descriptors.append(desc)
+        map_point_ids.append(p.id)
+        map_pixels.append(kpt.pt)
+        
     map_descriptors = np.array(map_descriptors)
     map_point_ids = np.array(map_point_ids)
     map_pixels = np.array(map_pixels)

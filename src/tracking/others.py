@@ -199,7 +199,7 @@ def track_map_points(t_frame: utils.Frame, theta: int = 15):
         # Compare the representative descriptor D of the map point with the 
         # still unmatched ORB features in the frame, at the predicted scale, 
         # and near x, and associate the map point with the best match.
-        D = point.best_descriptor
+        D, _ = point.best_descriptor
 
         # Collect candidate current frame un-matched keypoints whose pixel coordinates 
         # fall within a window around the predicted pixel
@@ -253,78 +253,4 @@ def track_map_points(t_frame: utils.Frame, theta: int = 15):
 
     return len(new_matched_features)
 
-# This is similar to search_for_triangulation, but uses Lowe's ratio test
-def search_by_bow(q_keyframe: utils.Frame, t_frame: utils.Frame, save_path: str):
-    """
-    Matches the visual words that exist in the map in a previous keyframe with the visual words in the current frame.
-    
-    Args:
-        q_keyframe: Keyframe that already exists in the map
-        t_frame: Current frame
-    """
-    # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
-    match_distances = {} # t_feature_id: (map_point_id, distance)
-    matched_features = []
-
-    # Iterate over all visual words of the previous keyframe
-    for word_id in q_keyframe.feature_vector.keys():
-        # Extract the features from the frames, if the word exists
-        q_features = q_keyframe.get_features_for_word(word_id)
-        if q_features is None:
-            continue
-        t_features = t_frame.get_features_for_word(word_id)
-        if t_features is None:
-            continue
-        # log.info(f"\t Word #{word_id}: {len(t_features)} x {len(q_features)} candidates!") 
-
-        # Iterate over features that match this word in the previous keyframe
-        for q_feat in q_features:
-            # Skip features that don't match a map point
-            if not q_feat.in_map: 
-                break
-
-            # Find best and second best descriptor matched_features
-            best_dist = 99999
-            best_dist2 = 99999
-            best_pid = -1
-
-            # Iterate over features for the same word in the neighbor frame
-            for t_feat in t_features:
-                # Make sure every feature is only matched once
-                if t_feat.id in match_distances.keys():
-                    continue
-
-                # Extract their distance
-                dist = cv2.norm(q_feat.desc, t_feat.desc, cv2.NORM_HAMMING)
-
-                # Check if it is the best or second best distance
-                if dist < best_dist:
-                    best_dist2 = best_dist
-                    best_dist = dist
-                    best_pid = q_feat.mp.id
-                elif dist < best_dist2:
-                    best_dist2 = dist
-
-            # Check if the best distance is good enough
-            if (best_dist < 50) and (best_dist < 0.75 * best_dist2):
-                match_distances[t_feat.id] = best_dist
-                point = ctx.map.point[best_pid]
-                matched_features.append(point, q_feat, t_feat, best_dist)
-
-    # Update the frame<->map matched_features
-    matches = []
-    for point, q_feat, t_feat, dist in matched_features:
-        t_feat.match_map_point(point, dist)
-        ctx.map.add_observation(t_frame, t_feat, point)
-        matches.append((q_feat.idx, t_feat.idx, dist))    
-
-    # Save the matched points
-    if debug and len(matches) > 0:
-        cv2_matches = [cv2.DMatch(t, n, d) for (t,n,d) in matched_features]
-        vis.plot_matches(cv2_matches, q_keyframe, t_frame, save_path=save_path)
-    
-    if debug:
-        log.info(f"\t Found {len(matches)} Point Associations!")
-
-    return len(matches)
 

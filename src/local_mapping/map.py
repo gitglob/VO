@@ -62,7 +62,6 @@ class mapPoint():
             self.kf_number = kf_number
         self.observations.append(new_observation)
 
-    @property
     def best_descriptor(self):
         """
         The descriptor whose hamming distance is minimum with respect to all other 
@@ -93,8 +92,9 @@ class mapPoint():
 
         # Keep the descriptor of the observation with the minimum distance to the others
         best_desc = self.observations[best_obs_idx].desc
+        kpt = self.observations[best_obs_idx].kpt
         
-        return best_desc
+        return best_desc, kpt
 
     @property
     def num_observations(self):
@@ -128,6 +128,8 @@ class mapPoint():
            obs for obs in self.observations
             if obs.kf_id != kf_id
         ]
+        obs_kf_ids = [obs.kf_id for obs in self.observations]
+        assert kf_id not in obs_kf_ids
 
     def view_ray(self, pos: np.ndarray):
         v = self.pos - pos
@@ -373,29 +375,27 @@ class Map():
 
         self._kf_counter += 1
 
-    def add_init_points(self, points_pos: np.ndarray, distances: np.ndarray,
-                        q_kf: utils.Frame, q_kpts: List[cv2.KeyPoint], q_descriptors: np.ndarray, 
-                        t_kf: utils.Frame, t_kpts: List[cv2.KeyPoint], t_descriptors: np.ndarray):
-        # Iterate over the new points
-        num_new_points = len(points_pos)
-        for i in range(num_new_points):
-            # Create a point
-            pos = points_pos[i]
-            dist = distances[i]
-            assert not np.any(np.isnan(pos))
-            point = mapPoint(pos)
-            self.points[point.id] = point
+    def add_new_points(self, w_points: np.ndarray, matches: np.ndarray[cv2.DMatch], 
+                        q_frame: utils.Frame, t_frame: utils.Frame):
+        """Adds new points to the map"""
+        # Iterate over all new points
+        for i, pos in enumerate(w_points):
+            # Get the match
+            m = matches[i]
+            dist = m.distance
+            q_kpt = q_frame.keypoints[m.queryIdx]
+            t_kpt = t_frame.keypoints[m.trainIdx]
+            q_feat = q_frame.features[q_kpt.class_id]
+            t_feat = t_frame.features[t_kpt.class_id]
 
-            # Add 2 point observations (for the q_frame and t_frame that matched)
-            point.observe(self._kf_counter-1, q_kf.id, q_kpts[i], q_descriptors[i])
-            point.observe(self._kf_counter,   t_kf.id, t_kpts[i], t_descriptors[i])    
+            # Create a point
+            assert not np.any(np.isnan(pos))
             
-            # Set the feature <-> mapPoint matches
-            q_kf.features[q_kpts[i].class_id].match_map_point(point, dist)
-            t_kf.features[t_kpts[i].class_id].match_map_point(point, dist)
+            # Add the point to the map
+            self._add_new_point(pos, dist, q_frame, t_frame, q_feat, t_feat)
 
         if DEBUG:
-            log.info(f"[Map] Adding {num_new_points} points to the Map. Total: {len(self.points)} points.")
+            log.info(f"[Map] Adding {len(w_points)} points to the Map. Total: {self.num_points} points.")
 
     def _add_new_point(self, pos: np.ndarray, dist: float,
                        q_frame: utils.Frame, t_frame: utils.Frame, 
@@ -425,16 +425,15 @@ class Map():
         # For each unmatched ORB in Ki we search a match with an un-matched point in other keyframe
 
         # Prepare matcher
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
         # Get the neighbor frames in the convisibility graph
-        neighbor_kf_ids = ctx.cgraph.get_connected_frames(t_frame.id)
+        neighbor_kf_ids = ctx.cgraph.get_connected_frames(t_frame.id, num_edges=30)
         ratio_factor = 1.5 * t_frame.scale_factors[1]
         if DEBUG:
             log.info(f"[Map] Creating new map points using frame {t_frame.id} and {len(neighbor_kf_ids)} neighbors!")
 
         # Iterate over all neighbor frames
-        in_map_counter = 0
         cheirality_counter = 0
         reprojection_counter = 0
         parallax_counter = 0
@@ -454,97 +453,113 @@ class Map():
 
             # Match descriptors with ratio test
             # matches_knn = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
-            # filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
-            # filtered_matches = utils.unique_filter(filtered_matches)
+            # matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+            # matches = utils.unique_filter(matches)
 
             # Match descriptors with ratio test
-            filtered_matches = search_for_triangulation(q_frame, t_frame)
-            if len(filtered_matches) < 5:
+            matches = search_for_triangulation(q_frame, t_frame)
+            if len(matches) < 5:
                 continue # We need at least 5 matches to enforce the epipolar constraint
             if DEBUG:
-                log.info(f"\t Connected frame #{q_frame_id}: Found {len(filtered_matches)} potential new points!") 
+                log.info(f"\t Connected frame #{q_frame_id}: Found {len(matches)} potential new points!") 
+
+            # Extract kpts
+            q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
+            t_kpts = np.array([t_frame.keypoints[m.trainIdx] for m in matches])
 
             # Enforce epipolar constraint
-            q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in filtered_matches])
-            t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches])
+            q_kpt_pixels = np.float64([kpt.pt for kpt in q_kpts])
+            t_kpt_pixels = np.float64([kpt.pt for kpt in t_kpts])
             ret = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
             if ret is None: continue
             epipolar_constraint_mask, _, _ = ret
-            filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask]
+            matches = np.array(matches)[epipolar_constraint_mask]
+            q_kpts = q_kpts[epipolar_constraint_mask]
+            t_kpts = t_kpts[epipolar_constraint_mask]
 
-            # For every formed pair, utils.triangulate new points and add them to the map
+            # Compute the transformation between the 2 frames
             T_q2t = utils.invert_transform(t_frame.pose) @ q_frame.pose
-            for m in filtered_matches:
-                q_kpt = q_frame.keypoints[m.queryIdx]
-                q_feat = q_frame.features[q_kpt.class_id]
-                # Skip features that are already in the map
-                if q_feat.in_map:
-                    in_map_counter += 1
-                    continue
-                t_kpt = t_frame.keypoints[m.trainIdx]
-                t_feat = t_frame.features[t_kpt.class_id]
 
-                # Compute the transformation between the 2 frames and the new point
-                new_q_point = utils.triangulate(q_kpt.pt, t_kpt.pt, T_q2t).flatten()
-                new_t_point = T_q2t[:3, :3] @ new_q_point + T_q2t[:3, 3]
+            # Triangulate the points
+            q_kpt_pixels = np.float64([kpt.pt for kpt in q_kpts])
+            t_kpt_pixels = np.float64([kpt.pt for kpt in t_kpts])
+            q_points = utils.triangulate(q_kpt_pixels, t_kpt_pixels, T_q2t)
+            t_points = utils.transform_points(q_points, T_q2t)  # (N, 3)
+            if q_points is None or len(q_points) == 0: continue
 
-                # To accept the new points, ensure
-                # 1) positive depth in both cameras, 
-                if new_t_point[2] < 0 or new_q_point[2] < 0:
-                    cheirality_counter += 1
-                    continue
+            # Cheirality filter
+            cheirality_mask = utils.filter_cheirality(q_points, t_points)
+            if cheirality_mask is None: continue
+            cheirality_counter += np.sum(~cheirality_mask)
+            matches = matches[cheirality_mask]
+            q_points = q_points[cheirality_mask]
+            t_points = t_points[cheirality_mask]
+            q_kpts = q_kpts[cheirality_mask]
+            t_kpts = t_kpts[cheirality_mask]
 
-                # 2) sufficient parallax, 
-                angle = utils.triangulation_angles(new_q_point, new_t_point, T_q2t)
-                if angle < MIN_PARALLAX:
-                    parallax_counter += 1
-                    continue
-                
-                # 3) reprojection error
-                error = utils.triang_points_reprojection_error(new_q_point, t_kpt.pt, T_q2t)
-                if error > MAX_REPROJECTION:
-                    reprojection_counter += 1
-                    continue
-                
-                # 4) and scale consistency are checked.
-                ## Compute the distance between the point and the camera frame
-                t_dist = np.linalg.norm(new_t_point - t_frame.pose[:3, 3])
-                q_dist = np.linalg.norm(new_q_point - q_frame.pose[:3, 3])
-                if t_dist == 0 or q_dist == 0:
-                    dist_counter += 1
-                    continue
-                ratio_dist = t_dist / q_dist
-                ## Compute the ORB scale factor of every feature 
-                ## The scale factor is basically how big each feature is expected to be,
-                ## based on the pyramid level that it is detected on
-                t_scale_factor = t_frame.scale_factors[t_kpt.octave]
-                q_scale_factor = q_frame.scale_factors[q_kpt.octave] 
-                ratio_octave = t_scale_factor / q_scale_factor
-                ## Make sure that the change in point size *somewhat* agrees
-                ## with the predicted size change based on pyramid levels
-                if not (ratio_octave / ratio_factor < ratio_dist and 
-                    ratio_dist < ratio_octave * ratio_factor):
-                    scale_counter += 1
-                    continue
+            # Low parallax filter
+            parallax_mask = utils.filter_parallax(q_points, t_points, T_q2t, MIN_PARALLAX)
+            if parallax_mask is None: continue
+            parallax_counter += np.sum(~parallax_mask)
+            matches = matches[parallax_mask]
+            q_points = q_points[parallax_mask]
+            t_points = t_points[parallax_mask]
+            q_kpts = q_kpts[parallax_mask]
+            t_kpts = t_kpts[parallax_mask]
 
-                # Point was accepted
-                new_w_point = t_frame.R @ new_t_point + t_frame.pose[:3, 3]
-                self._add_new_point(new_w_point, m.distance, t_frame, q_frame, t_feat, q_feat)
+            # Reprojection error filter
+            t_kpt_pixels = np.float64([kpt.pt for kpt in t_kpts])
+            reproj_mask = utils.filter_by_reprojection(q_points, t_kpt_pixels, 
+                                                       T_q2t, MAX_REPROJECTION, 
+                                                       t_frame)
+            if reproj_mask is None: continue
+            reprojection_counter += np.sum(~reproj_mask)
+            matches = matches[reproj_mask]
+            q_points = q_points[reproj_mask]
+            t_points = t_points[reproj_mask]
+            q_kpts = q_kpts[reproj_mask]
+            t_kpts = t_kpts[reproj_mask]
 
-                matches.append((q_feat.idx, t_feat.idx, m.distance))
-                num_created_points += 1
+            # Scale consistency filter
+            ## Compute the distances between the points and the camera frames
+            q_dists = np.linalg.norm(q_points - q_frame.t, axis=1)
+            t_dists = np.linalg.norm(t_points - t_frame.t, axis=1)
+            dist_mask = np.logical_and(t_dists > 0, q_dists > 0)
+            dist_counter += np.sum(~dist_mask)
+            if dist_mask.sum() == 0: continue
+            ratio_dists = t_dists / q_dists
+            matches = matches[dist_mask]
+            q_points = q_points[dist_mask]
+            q_kpts = q_kpts[dist_mask]
+            t_kpts = t_kpts[dist_mask]
+            ## Compute the orb scale factors of every feature
+            ## The scale factor is basically how big each feature is expected to be,
+            ## based on the pyramid level that it is detected on
+            q_scale_factors = np.array([q_frame.scale_factors[kpt.octave] for kpt in q_kpts])
+            t_scale_factors = np.array([t_frame.scale_factors[kpt.octave] for kpt in t_kpts])
+            ratio_octaves = t_scale_factors / q_scale_factors
+            ## Make sure that the change in point size *somewhat* agrees
+            ## with the predicted size change based on pyramid levels
+            scale_mask = np.logical_and(ratio_octaves / ratio_factor < ratio_dists,
+                                        ratio_dists < ratio_octaves * ratio_factor)
+            scale_counter += np.sum(~scale_mask)
+            if scale_mask.sum() == 0: continue
+            matches = matches[scale_mask]
+            q_points = q_points[scale_mask]
+
+            # Transform the triangulated points to world coordinates
+            w_points = utils.transform_points(q_points, q_frame.pose)
+            num_created_points += len(w_points)
+
+            # Add the points to the map
+            self.add_new_points(w_points, matches, q_frame, t_frame)
 
             if DEBUG:
-                cv2_matches = [cv2.DMatch(q,t,d) for (q,t,d) in matches]
                 save_path = results_dir / "tracking/new_points" / f"{t_frame.id}_{q_frame.id}.png"
-                vis.plot_matches(cv2_matches, q_frame, t_frame, save_path)
-
-        # Update graph edges
-        ctx.cgraph.update_edges()
+                vis.plot_matches(matches, q_frame, t_frame, save_path)
 
         if DEBUG:
             log.info(f"\t Created {num_created_points} points! Filtered the following...")
-            log.info(f"\t\t In map: {in_map_counter}")
             log.info(f"\t\t Cheirality: {cheirality_counter}")
             log.info(f"\t\t Reprojection: {reprojection_counter}")
             log.info(f"\t\t Parallax: {parallax_counter}")
@@ -685,7 +700,6 @@ class Map():
 
         self.remove_points(removed_point_ids)
         ctx.cgraph.remove_points(removed_point_ids)
-        ctx.cgraph.update_edges()
 
         if DEBUG:
             log.info(f"\t Removed {len(removed_point_ids)} points. {self.num_points} left!")
@@ -745,7 +759,6 @@ class Map():
         for kf_id in removed_kf_ids:
             self.remove_keyframe(kf_id)
             ctx.cgraph.remove_keyframe(kf_id)
-        ctx.cgraph.update_edges()
 
 
     def view(self, frame: utils.Frame):

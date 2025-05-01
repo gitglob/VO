@@ -67,10 +67,9 @@ class localBA(BA):
             self._add_landmark(point.id, point.pos)
             # Iterate over all the landmark observations
             for obs in point.observations:
-                kf_id = obs.kf_id
-                # Skip observations from 
-                assert kf_id in all_kf_ids
-                kf = ctx.map.keyframes[kf_id]
+                kf = ctx.map.keyframes[obs.kf_id]
+                # Skip observations from
+                assert kf.id in all_kf_ids
                 kpt = obs.kpt
                 # Add the pose->landmark observations
                 assert point.id in ctx.cgraph.nodes[kf.id]
@@ -106,7 +105,6 @@ class localBA(BA):
         # Remove feature<->map point match and map point observation
         ctx.map.remove_matches(removed_edges)
         ctx.cgraph.remove_matches(removed_edges)
-        ctx.cgraph.update_edges()
 
         if DEBUG: log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
 

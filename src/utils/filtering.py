@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import cv2
 import src.utils as utils
@@ -77,7 +78,7 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     epipolar_constraint_mask = mask_H if use_homography else mask_E
     M = H if use_homography else E
     if debug:
-        log.info(f"\t Epipolar Constraint: Ratio: {ratio_H:.2f}. Using: {'Homography' if use_homography else 'Essential'}. Filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches!")
+        log.info(f"\t Epipolar Constraint: Filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches! (Ratio: {ratio_H:.2f}. Using: {'Homography' if use_homography else 'Essential'}.)")
 
     return (epipolar_constraint_mask, M, use_homography)
 
@@ -283,12 +284,51 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray, m
 
     # Check conditions to decide whether to discard
     if debug:
-        log.info(f"\t Median Angle: {np.median(angles):.2f}")
-        log.info(f"\t Low Angles check filtered {sum(~valid_angles_mask)}/{num_points} points!")
+        log.info(f"\t Parallax check filtered {sum(~valid_angles_mask)}/{num_points} points! (Median angle: {np.median(angles):.2f})")
 
     return valid_angles_mask # (N,)
 
-def filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold, save_path):
+def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray, 
+                           T: np.ndarray, threshold: float, 
+                           t_frame: utils.Frame, save_path: str = None):
+    """
+    Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
+
+    Args:
+        matches (list): list of cv2.DMatch objects.
+        frame, q_frame: Frame objects.
+        R, t: relative pose from q_frame to frame.
+        K: camera intrinsic matrix.
+        epipolar_constraint_mask (np.array): initial boolean mask for inlier matches.
+
+    Returns:
+        np.array: Updated boolean mask with matches having large reprojection errors filtered out.
+    """
+
+    # Reproject points into the second (current) camera
+    rvec, _ = cv2.Rodrigues(T[:3, :3])
+    tvec = T[:3, 3].reshape(3,1) 
+    points_proj2, _ = cv2.projectPoints(q_points_3d, rvec, tvec, K, None)
+    points_proj_px = points_proj2.reshape(-1, 2)
+
+    # Compute reprojection errors
+    errors = np.linalg.norm(points_proj_px - t_pxs, axis=1)
+    reproj_mask = errors < threshold
+
+    num_removed_matches = len(q_points_3d) - reproj_mask.sum()
+    if debug:
+        log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_points_3d)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
+
+    # Debugging visualization
+    if debug and save_path is not None:
+        s1 = Path(str(save_path.with_suffix("")) + "-a" + save_path.suffix)
+        s2 = Path(str(save_path.with_suffix("")) + "-b" + save_path.suffix)
+        vis.plot_reprojection(t_frame.img, t_pxs[~reproj_mask], points_proj_px[~reproj_mask], path=s1)
+        vis.plot_reprojection(t_frame.img, t_pxs[reproj_mask], points_proj_px[reproj_mask], path=s2)
+
+    return reproj_mask
+
+def triang_and_filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold, save_path):
     """
     Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
 

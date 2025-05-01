@@ -1,3 +1,4 @@
+import time
 import numpy as np
 
 import src.utils as utils
@@ -72,12 +73,13 @@ def main():
         # Iteration #0
         if t_frame.id == 0:
             log.info("")
-            log.info("~~~~First utils.Frame~~~~")
+            log.info("~~~~First Frame~~~~")
             assert np.all(np.eye(4) - gt_pose < 1e-6)
 
             # Bookkeping
             t_frame.set_pose(gt_pose)
-            ctx.cgraph.add_first_keyframe(t_frame.id)
+            ctx.map.add_keyframe(t_frame)
+            ctx.cgraph.add_keyframe(t_frame.id)
 
             if debug:
                 utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
@@ -88,6 +90,8 @@ def main():
             if not is_initialized:
                 log.info("")
                 log.info("~~~~Initialization~~~~")
+                t0 = time.perf_counter()
+
                 # Feature matching
                 matches = init.matchFeatures(q_frame, t_frame) # (N) : N < M
                 if matches is None:
@@ -121,18 +125,13 @@ def main():
                     is_initialized = False
                     log.info("Triangulation failed!")
                     continue
-                w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors = triang_result
+                w_points, matches = triang_result
 
                 # Push the keyframes and triangulated points to the map
-                ctx.map.add_keyframe(q_frame)
                 ctx.map.add_keyframe(t_frame)
-                ctx.map.add_init_points(w_points, distances,
-                                    q_frame, q_kpts, q_descriptors, 
-                                    t_frame, t_kpts, t_descriptors)
-
-                # Add the keyframe to the convisibility graph
-                kf_map_pt_ids = t_frame.get_map_point_ids()
-                ctx.cgraph.add_init_keyframe(t_frame.id, kf_map_pt_ids)
+                ctx.cgraph.add_keyframe(t_frame.id)
+                ctx.map.add_new_points(w_points, matches, q_frame, t_frame)
+                ctx.cgraph.update_edges()
 
                 # Validate the scale
                 utils.validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
@@ -149,11 +148,15 @@ def main():
                     utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
                 q_frame = t_frame
+                log.info(f"\t # of points: {ctx.map.num_points}")
+                log.info(f"\t # of keyframes: {ctx.map.num_keyframes}")
+                log.info(f"\t\t\t ... took {time.perf_counter() - t0:.2f} seconds!")
                     
             # ########### Tracking ###########
             else:
                 log.info("")
                 log.info("~~~~Tracking~~~~")
+                t1 = time.perf_counter()
 
                 num_matches = track.map_search(t_frame)
                 if num_matches < 20:
@@ -167,11 +170,15 @@ def main():
                 if not pnp_success:
                     is_initialized = False
                     breakpoint()
+                    continue
+                
+                # Add the new frame to the map and convisibility graph, along with the new edges
+                ctx.map.add_keyframe(t_frame)
+                t_point_ids = t_frame.get_map_point_ids()
+                ctx.cgraph.add_keyframe_with_points(t_frame.id, t_point_ids)
+                ctx.cgraph.update_edges()
 
                 # Perform pose optimization
-                ctx.map.add_keyframe(t_frame)
-                kf_mp_ids = t_frame.get_map_point_ids()
-                ctx.cgraph.add_track_keyframe(t_frame.id, kf_mp_ids)
                 ba = backend.singlePoseBA(t_frame)
                 ba.optimize()
 
@@ -182,9 +189,6 @@ def main():
                 vis.plot_trajectory(results_dir / "trajectory/a" / f"{i}.png")
                 
                 # ########### Track Local Map ###########
-                log.info("")
-                log.info("~~~~Local Mapping~~~~")
-
                 # Set the visible mask
                 ctx.map.view(t_frame)
 
@@ -195,32 +199,36 @@ def main():
                 ctx.map.tracked(t_frame)
                 
                 # ########### New Keyframe Decision ###########
-                log.info("")
-                log.info("~~~~Keyframe Check~~~~")
                 # Check if this t_frame is a keyframe
                 if not t_frame.is_keyframe():
                     ctx.map.remove_keyframe(t_frame.id)
-                    ctx.graph.remove_keyframe(t_frame.id)
+                    ctx.cgraph.remove_keyframe(t_frame.id)
                     continue
 
                 # Save the keyframe
                 if debug:
                     utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
 
+                log.info(f"\t\t\t ... took {time.perf_counter() - t1:.2f} seconds!")
+
                 # ########### Map Point/Keyframe Creating/Culling ###########
                 log.info("")
                 log.info("~~~~Updating Map~~~~")
+                t2 = time.perf_counter()
 
                 # Clean up map points that are not seen anymore
                 ctx.map.cull_points()
+                ctx.cgraph.update_edges()
 
                 # Create new map points
                 ctx.map.create_points(t_frame)
+                ctx.cgraph.update_edges()
 
                 # Perform Local Bundle Adjustment
                 # ba = backend.globalBA()
                 ba = backend.localBA(t_frame)
                 ba.optimize()
+                ctx.cgraph.update_edges()
 
                 # Plot the BA
                 # plot_BA()
@@ -230,11 +238,16 @@ def main():
 
                 # Clean up redundant frames
                 ctx.map.cull_keyframes(t_frame)
+                ctx.cgraph.update_edges()
+                log.info(f"\t # of points: {ctx.map.num_points}")
+                log.info(f"\t # of keyframes: {ctx.map.num_keyframes}")
+                log.info(f"\t\t\t ... took {time.perf_counter() - t2:.2f} seconds!")
 
                 # ########### Loop Closing ###########
                 if (i > 5) and (ctx.map.num_keyframes_since_last_loop > 5):
                     log.info("")
                     log.info("~~~~Loop Closing~~~~")
+                    t3 = time.perf_counter()
 
                     # Find candidates for loop closure
                     candidate_kfs = pr.detect_candidates(t_frame)
@@ -268,6 +281,8 @@ def main():
 
                             break
 
+                    log.info(f"\t\t\t ... took {time.perf_counter() - t3:.2f} seconds!")
+                
                 # Advance to the next iteration
                 q_frame = t_frame
 

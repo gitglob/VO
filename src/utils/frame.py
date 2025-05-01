@@ -23,6 +23,7 @@ class orbFeature():
         self.idx = idx
 
         self.mp = None
+        self.mp_dist = None
 
     @property
     def in_map(self):
@@ -38,6 +39,7 @@ class orbFeature():
 
     def reset_mp_match(self):
         self.mp = None
+        self.mp_dist = None
 
 
 class Frame():
@@ -286,7 +288,7 @@ class Frame():
         """Returns all the map points that are matched to a feature"""
         map_point_ids = set()
         for feat in self.features.values():
-            if feat.matched:
+            if feat.in_map:
                 map_point_ids.add(feat.mp.id)
         return map_point_ids
 
@@ -432,3 +434,12 @@ class Frame():
         kpts_save_path = results_dir / "keypoints" / f"{self.id}_kpts.png"
         vis.plot_keypoints(self.img, self.keypoints, kpts_save_path)
 
+    def health_check(self):
+        """Checks if all the points that are matched to a feature are also observed by the frame"""
+        for feat in self.features.values():
+            if feat.in_map:
+                point = feat.mp
+                obs_kf_ids = [obs.kf_id for obs in point.observations]
+                assert len(obs_kf_ids) == len(set(obs_kf_ids))
+                assert self.id in obs_kf_ids
+                assert point.id in ctx.cgraph.get_frame_point_ids(self.id)

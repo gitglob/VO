@@ -69,7 +69,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
     # ------------------------------------------------------------------------
 
     # Check if we will use homography
-    R, t, reproj_mask = None, None, None
+    R, t = None, None
     if not use_homography:
         # Decompose Essential Matrix
         _, R, t, mask_pose = cv2.recoverPose(M, q_kpt_pixels, t_kpt_pixels, K)
@@ -81,14 +81,6 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
         if debug:
             log.info(f"\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
         matches = matches[mask_pose]        
-
-        # Reprojection filter
-        reproj_mask = utils.filter_by_reprojection(
-            matches, q_frame, t_frame,
-            R, t,
-            REPROJECTION_THREHSOLD,
-            save_path=results_dir / f"initialization/2-reprojection"
-        )
     else:
         # Decompose Homography Matrix
         num_solutions, Rs, Ts, Ns = cv2.decomposeHomographyMat(M, K)
@@ -124,31 +116,10 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
         R = Rs[best_candidate_idx]
         t = Ts[best_candidate_idx]
 
-        # Reprojection filter
-        reproj_mask = utils.filter_by_reprojection(
-            matches,
-            q_frame, t_frame,
-            R, t,
-            REPROJECTION_THREHSOLD,
-            save_path=results_dir / f"initialization/2-reprojection/"
-        )
-
     # If we failed to recover R and t
     if R is None or t is None:
         log.warning("\t Failed to recover a valid pose from either E or H.")
         return None, False
-            
-    # Save the matches
-    if debug:
-        match_save_path = results_dir / "initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}a.png"
-        vis.plot_matches(matches[~reproj_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / "initialization/3-reprojection" / f"{q_frame.id}_{t_frame.id}b.png"
-        vis.plot_matches(matches[reproj_mask], q_frame, t_frame, save_path=match_save_path)
-
-    matches = matches[reproj_mask]
-
-    if debug:
-        log.info(f"\t {reproj_mask.sum()} matches left!")
 
     # ------------------------------------------------------------------------
     # 4. Build the 4x4 Pose matrix
@@ -189,7 +160,7 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     t_points = scale * t_points
 
     # ------------------------------------------------------------------------
-    # 7. Filter triangulated points for Z<0 and small triang. angle
+    # 7. Filter triangulated points for Z<0
     # ------------------------------------------------------------------------
 
     cheirality_mask = utils.filter_cheirality(q_points, t_points)
@@ -198,17 +169,21 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     if cheirality_mask is None or cheirality_mask.sum() < MIN_NUM_TRIANG_POINTS:
         log.warning("\t Discarding frame after cheirality check.")
         return None
-            
+
     # Save the matches
     if debug:
-        match_save_path = results_dir / "initialization/4-cheirality" / f"{q_frame.id}_{t_frame.id}a.png"
+        match_save_path = results_dir / "initialization/2-cheirality" / f"{q_frame.id}_{t_frame.id}-a.png"
         vis.plot_matches(matches[~cheirality_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / "initialization/4-cheirality" / f"{q_frame.id}_{t_frame.id}b.png"
+        match_save_path = results_dir / "initialization/2-cheirality" / f"{q_frame.id}_{t_frame.id}-b.png"
         vis.plot_matches(matches[cheirality_mask], q_frame, t_frame, save_path=match_save_path)
 
     matches = matches[cheirality_mask]
     q_points = q_points[cheirality_mask]
     t_points = t_points[cheirality_mask]
+            
+    # ------------------------------------------------------------------------
+    # 7. Filter triangulated points for small parallax
+    # ------------------------------------------------------------------------
 
     parallax_mask = utils.filter_parallax(q_points, t_points, T_q2t, MIN_PARALLAX)
 
@@ -219,27 +194,41 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
             
     # Save the matches
     if debug:
-        match_save_path = results_dir / "initialization/5-parallax" / f"{q_frame.id}_{t_frame.id}a.png"
+        match_save_path = results_dir / "initialization/3-parallax" / f"{q_frame.id}_{t_frame.id}-a.png"
         vis.plot_matches(matches[~parallax_mask], q_frame, t_frame, save_path=match_save_path)
-        match_save_path = results_dir / "initialization/5-parallax" / f"{q_frame.id}_{t_frame.id}b.png"
+        match_save_path = results_dir / "initialization/3-parallax" / f"{q_frame.id}_{t_frame.id}-b.png"
         vis.plot_matches(matches[parallax_mask], q_frame, t_frame, save_path=match_save_path)
 
     matches = matches[parallax_mask]
     q_points = q_points[parallax_mask]
-    t_points = t_points[parallax_mask]
-    w_points = utils.transform_points(t_points, t_frame.pose)
 
     # ------------------------------------------------------------------------
-    # 8. Save the triangulated points and masks to the t_frame
+    # 7. Filter triangulated points for Z<0 and small triang. angle
     # ------------------------------------------------------------------------
 
-    # Save the triangulated points keypoints and descriptors
-    distances = np.array([m.distance for m in matches])
-    q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
-    t_kpts = np.array([t_frame.keypoints[m.trainIdx] for m in matches])
-    q_descriptors = np.uint8([q_frame.descriptors[m.queryIdx] for m in matches])
-    t_descriptors = np.uint8([t_frame.descriptors[m.trainIdx] for m in matches])
+    # Reprojection error filter
+    t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
+    reproj_mask = utils.filter_by_reprojection(
+            q_points, t_kpt_pixels, 
+            T_q2t, REPROJECTION_THREHSOLD, t_frame, 
+            save_path=results_dir / f"initialization/4-reprojection/{q_frame.id}_{t_frame.id}.png"
+    )
+    if reproj_mask is None: 
+        log.warning("\t Discarding frame due to insufficient parallax.")
+        return None         
+
+    # Save the matches
+    if debug:
+        match_save_path = results_dir / "initialization/5-reprojection" / f"{q_frame.id}_{t_frame.id}-a.png"
+        vis.plot_matches(matches[~reproj_mask], q_frame, t_frame, save_path=match_save_path)
+        match_save_path = results_dir / "initialization/5-reprojection" / f"{q_frame.id}_{t_frame.id}-b.png"
+        vis.plot_matches(matches[reproj_mask], q_frame, t_frame, save_path=match_save_path)
+        
+    matches = matches[reproj_mask]
+    q_points = q_points[reproj_mask]   
 
     # Return the initial pose and filtered points
-    return w_points, distances, q_kpts, t_kpts, q_descriptors, t_descriptors
+    w_points = utils.transform_points(q_points, q_frame.pose)
+
+    return w_points, matches
       
