@@ -122,7 +122,7 @@ class mapPoint():
                 kf_ids.add(obs.kf_id)
         return kf_ids
 
-    def remove_observation(self, kf_id: int):
+    def remove_observation(self, kf_id: int) -> int:
         """Removes an observation from a specific keyframe"""
         self.observations = [
            obs for obs in self.observations
@@ -130,9 +130,7 @@ class mapPoint():
         ]
         obs_kf_ids = [obs.kf_id for obs in self.observations]
         assert kf_id not in obs_kf_ids
-
-        if len(obs_kf_ids) == 0:
-            del ctx.map.points[self.id]
+        return len(obs_kf_ids)            
 
     def view_ray(self, pos: np.ndarray):
         v = self.pos - pos
@@ -531,7 +529,8 @@ class Map():
             t_dists = np.linalg.norm(t_points - t_frame.t, axis=1)
             dist_mask = np.logical_and(t_dists > 0, q_dists > 0)
             dist_counter += np.sum(~dist_mask)
-            log.info(f"\t Dist filtered {np.sum(~dist_mask)}/{len(q_points)} points!")
+            if DEBUG:
+                log.info(f"\t Dist filtered {np.sum(~dist_mask)}/{len(q_points)} points!")
             if dist_mask.sum() == 0: continue
             ratio_dists = t_dists / q_dists
             matches = matches[dist_mask]
@@ -550,7 +549,8 @@ class Map():
             scale_mask = np.logical_and(ratio_octaves / ratio_factor < ratio_dists,
                                         ratio_dists < ratio_octaves * ratio_factor)
             scale_counter += np.sum(~scale_mask)
-            log.info(f"\t Scale filtered {np.sum(~scale_mask)}/{len(q_points)} points!")
+            if DEBUG:
+                log.info(f"\t Scale filtered {np.sum(~scale_mask)}/{len(q_points)} points!")
             if scale_mask.sum() == 0: continue
             matches = matches[scale_mask]
             q_points = q_points[scale_mask]
@@ -562,7 +562,8 @@ class Map():
             depth_mask = np.logical_and(q_points[:, 2] < 5*q_median_depth, 
                                         t_points[:, 2] < 5*t_median_depth)
             depth_counter += np.sum(~depth_mask)
-            log.info(f"\t Depth filtered {np.sum(~depth_mask)}/{len(q_points)} points!")
+            if DEBUG:
+                log.info(f"\t Depth filtered {np.sum(~depth_mask)}/{len(q_points)} points!")
             if depth_mask.sum() == 0: continue
             q_points = q_points[depth_mask]
             matches = matches[depth_mask]
@@ -654,7 +655,10 @@ class Map():
         """
         for pid, kf_id in matches:
             self.keyframes[kf_id].remove_matches_with(pid)
-            self.points[pid].remove_observation(kf_id)
+            num_obs = self.points[pid].remove_observation(kf_id)
+            if num_obs == 0:
+                del ctx.map.points[pid]
+
 
     def remove_keyframe(self, kf_id: int):
         """
@@ -664,8 +668,13 @@ class Map():
             3) Removes the keyframe from the convisibility graph
         """
         del self.keyframes[kf_id]
+        removed_pids = set()
         for p in self.points.values():
-            p.remove_observation(kf_id)
+            num_obs = p.remove_observation(kf_id)
+            if num_obs == 0:
+                removed_pids.add(p.id)
+        for pid in removed_pids:
+            del self.points[pid]
         if DEBUG:
             log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes} left!")
 
@@ -742,16 +751,17 @@ class Map():
         for kf_id in neighbor_kf_ids:
             # Extract their map points
             kf_points = ctx.cgraph.get_frame_points(kf_id)
-            num_points = len(kf_points)
+
+            # Skip points with too few observations
+            valid_pts = [p for p in kf_points if p.num_observations >= 4]
+            num_valid = len(valid_pts)
+            if num_valid == 0: continue
             
             # Count the number of points that are observed in at least 3 other keyframes
             count_coobserving_points = 0
             
             # Iterate over all their map points
             for point in kf_points:
-                # Skip points with too few observations
-                if point.num_observations < 4:
-                    continue
                 # Extract the neighbor frame observation
                 obs = point.get_observation(kf_id)
                 
@@ -772,7 +782,7 @@ class Map():
                         break
 
             # Calculate the percentage of co-observing points
-            ratio = count_coobserving_points / num_points
+            ratio = count_coobserving_points / num_valid
             if ratio > KF_CULLING_RATIO:
                 # Remove keyframe
                 removed_kf_ids.add(kf_id)

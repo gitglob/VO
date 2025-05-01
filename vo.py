@@ -256,6 +256,7 @@ def main():
                         for cand_kf in candidate_kfs:
                             # Search for matches with current frame
                             num_matches = pr.frame_search(cand_kf, t_frame)
+                            ctx.cgraph.update_edges()
                             if num_matches < 20:
                                 continue
                             

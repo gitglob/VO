@@ -59,7 +59,7 @@ def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
 
     return candidate_kfs
     
-def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constraint: bool = True):
+def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
     """
     Matches the map points seen in a previous frame with the current frame.
 
@@ -86,18 +86,17 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
     if len(filtered_matches) < MIN_MATCHES: return -1
     
     # Finally, filter using the epipolar constraint
-    if use_epipolar_constraint:
-        q_pixels = np.array([q_mp_features[m.queryIdx].kpt.pt for m in filtered_matches], dtype=np.float64)
-        t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
+    q_pixels = np.array([q_mp_features[m.queryIdx].kpt.pt for m in filtered_matches], dtype=np.float64)
+    t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
 
-        ret = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
-        if ret is None:
-            log.warning("Failed to apply epipolar constraint..")
-            return -1
-        epipolar_constraint_mask, _, _ = ret
-        filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask].tolist()
-        if len(filtered_matches) < MIN_MATCHES:
-            return -1
+    ret = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
+    if ret is None:
+        log.warning("Failed to apply epipolar constraint..")
+        return -1
+    epipolar_constraint_mask, _, _ = ret
+    filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask].tolist()
+    if len(filtered_matches) < MIN_MATCHES:
+        return -1
     
     # Prepare results
     cv2_matches = []
@@ -113,7 +112,6 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
             point.observe(ctx.map._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
             ctx.cgraph.add_observation(t_frame.id, point.id)
             cv2_matches.append(cv2.DMatch(q_feat.idx, t_feat.idx, m.distance))
-    ctx.cgraph.update_edges()
     if len(cv2_matches) < MIN_MATCHES:
         return -1
 

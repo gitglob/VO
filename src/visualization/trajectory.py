@@ -10,10 +10,9 @@ from config import results_dir
 matplotlib.use('tkAgg')
 
 
-def plot_trajectory(save_path: str, ba=True):
+def plot_trajectory(save_path: str, ba=True, map=False):
     poses = ctx.map.poses()
     gt_poses = ctx.map.ground_truth()
-    point_positions = ctx.map.point_positions()
     keyframe_positions = ctx.map.keyframe_positions()
     loop_closures = ctx.map.loop_closure_positions()
 
@@ -27,10 +26,12 @@ def plot_trajectory(save_path: str, ba=True):
     ax1.plot(gt_poses[:, 0, 3], gt_poses[:, 2, 3], 'r--', label='Ground Truth')
     
     # Points
-    ax1.scatter(point_positions[:, 0], point_positions[:, 2],
-                    facecolors='tab:brown',
-                    edgecolors='none',
-                    marker='o', s=20, alpha=0.4, label='Points')
+    if map:
+        point_positions = ctx.map.point_positions()
+        ax1.scatter(point_positions[:, 0], point_positions[:, 2],
+                        facecolors='tab:brown',
+                        edgecolors='none',
+                        marker='o', s=20, alpha=0.4, label='Points')
 
     # Keyframes
     ax1.scatter(keyframe_positions[:, 0], keyframe_positions[:, 2], 
