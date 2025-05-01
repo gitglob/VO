@@ -39,6 +39,7 @@ def map_search(t_frame: utils.Frame):
     map_pixels = []
     for p in ctx.map.points.values():
         # Get the descriptors from every observation of a point
+        # an alternative would be to get the best point descriptor!
         for obs in p.observations:
             map_descriptors.append(obs.desc)
             map_point_ids.append(p.id)
@@ -64,10 +65,11 @@ def map_search(t_frame: utils.Frame):
     # Finally, filter using the epipolar constraint
     q_pixels = np.array([map_pixels[m.queryIdx] for m in filtered_matches], dtype=np.float64)
     t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
-    epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
-    if epipolar_constraint_mask is None:
+    ret = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
+    if ret is None:
         log.warning("Failed to apply epipolar constraint..")
         return -1
+    epipolar_constraint_mask, _, _ = ret
     filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask]
     
     # Prepare results

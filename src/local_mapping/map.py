@@ -459,14 +459,17 @@ class Map():
 
             # Match descriptors with ratio test
             filtered_matches = search_for_triangulation(q_frame, t_frame)
+            if len(filtered_matches) < 5:
+                continue # We need at least 5 matches to enforce the epipolar constraint
             if DEBUG:
                 log.info(f"\t Connected frame #{q_frame_id}: Found {len(filtered_matches)} potential new points!") 
 
             # Enforce epipolar constraint
             q_kpt_pixels = np.float64([q_frame.keypoints[m.queryIdx].pt for m in filtered_matches])
             t_kpt_pixels = np.float64([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches])
-            epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
-            if epipolar_constraint_mask is None: continue
+            ret = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
+            if ret is None: continue
+            epipolar_constraint_mask, _, _ = ret
             filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask]
 
             # For every formed pair, utils.triangulate new points and add them to the map

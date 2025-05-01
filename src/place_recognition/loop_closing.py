@@ -90,10 +90,11 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame, use_epipolar_constr
         q_pixels = np.array([q_mp_features[m.queryIdx].kpt.pt for m in filtered_matches], dtype=np.float64)
         t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
 
-        epipolar_constraint_mask, _, _ = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
-        if epipolar_constraint_mask is None:
+        ret = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
+        if ret is None:
             log.warning("Failed to apply epipolar constraint..")
-            return []
+            return -1
+        epipolar_constraint_mask, _, _ = ret
         filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask].tolist()
         if len(filtered_matches) < MIN_MATCHES:
             return -1

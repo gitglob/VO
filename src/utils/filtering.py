@@ -42,8 +42,10 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
 
     ## Compute the Essential Matrix
     E_candidates, mask_E = cv2.findEssentialMat(q_kpt_pixels, t_kpt_pixels, 
-                                     cameraMatrix=K, method=cv2.RANSAC, 
-                                     prob=0.999, threshold=2.0)
+                               cameraMatrix=K, method=cv2.RANSAC, 
+                               prob=0.999, threshold=2.0)
+    if E_candidates is None:
+        return None
     if E_candidates.shape == (3, 3):
         E = E_candidates
     else:
@@ -54,9 +56,11 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     score_F = compute_symmetric_transfer_error(E, q_kpt_pixels, t_kpt_pixels, 'E')
 
     ## Compute the Homography Matrix
-    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels,
-                                   method=cv2.RANSAC, 
-                                   ransacReprojThreshold=2.0)
+    H, mask_H = cv2.findHomography(q_kpt_pixels, t_kpt_pixels, 
+                               method=cv2.RANSAC, 
+                               ransacReprojThreshold=2.0)
+    if H is None:
+        return None
     mask_H = mask_H.ravel().astype(bool)
 
     ## Compute symmetric transfer error for Homography Matrix
@@ -75,7 +79,7 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
     if debug:
         log.info(f"\t Epipolar Constraint: Ratio: {ratio_H:.2f}. Using: {'Homography' if use_homography else 'Essential'}. Filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches!")
 
-    return epipolar_constraint_mask, M, use_homography
+    return (epipolar_constraint_mask, M, use_homography)
 
 def select_best_E(E_raw, pts1, pts2, K, mask_E):
     """

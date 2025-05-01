@@ -48,10 +48,11 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
     # 2. Enforce Epipolar Constraint
     # ------------------------------------------------------------------------
 
-    epipolar_constraint_mask, M, use_homography = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
-    if epipolar_constraint_mask is None:
+    ret = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
+    if ret is None:
         log.warning("\t Failed to apply epipolar constraint..")
         return None, False
+    epipolar_constraint_mask, M, use_homography = ret
 
     # Save the matches
     if debug:
