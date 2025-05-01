@@ -55,29 +55,30 @@ def map_search(t_frame: utils.Frame):
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
     
     # Match descriptors
-    matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
-    log.info(f"\t Found {len(matches)} matches!")
-    if len(matches) < MIN_MATCHES:
-        return -1
-    filtered_matches = utils.ratio_filter(matches, LOWE_RATIO)
+    matches_knn = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
+    log.info(f"\t Found {len(matches_knn)} matches!")
+    if len(matches_knn) < MIN_MATCHES: return -1
+    filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+    log.info(f"\t Lowe's Test filtered {len(matches_knn) - len(filtered_matches)}/{len(matches_knn)} matches!")
     if len(filtered_matches) < MIN_MATCHES: return -1
-    filtered_matches = utils.unique_filter(filtered_matches)
-    if len(filtered_matches) < MIN_MATCHES: return -1
+    matches = utils.unique_filter(filtered_matches)
+    log.info(f"\t Uniqueness filtered {len(filtered_matches) - len(matches)}/{len(filtered_matches)} matches!")
+    if len(matches) < MIN_MATCHES: return -1
     
     # Finally, filter using the epipolar constraint
-    q_pixels = np.array([map_pixels[m.queryIdx] for m in filtered_matches], dtype=np.float64)
-    t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
+    q_pixels = np.array([map_pixels[m.queryIdx] for m in matches], dtype=np.float64)
+    t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in matches], dtype=np.float64)
     ret = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
     if ret is None:
         log.warning("Failed to apply epipolar constraint..")
         return -1
     epi_mask, _, use_homography = ret
     log.info(f"\t Epipolar Constraint: Filtered {sum(~epi_mask)}/{len(q_pixels)} matches! (Using: {'Homography' if use_homography else 'Essential'}.)")
-    filtered_matches = np.array(filtered_matches)[epi_mask]
-    if len(filtered_matches) < MIN_MATCHES: return -1
+    matches = np.array(matches)[epi_mask]
+    if len(matches) < MIN_MATCHES: return -1
     
     # Prepare results
-    for m in filtered_matches:
+    for m in matches:
         pid = map_point_ids[m.queryIdx]
         point = ctx.map.points[pid]
 
@@ -90,9 +91,9 @@ def map_search(t_frame: utils.Frame):
     # Save the matches
     if DEBUG:
         save_path=results_dir / "tracking/matches" / f"map_{t_frame.id}.png"
-        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
+        t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in matches], dtype=np.float64)
         vis.plot_pixels(t_frame.img, t_pxs, save_path=save_path)
 
-    log.info(f"\t Found {len(filtered_matches)} Point Associations!")
-    return len(filtered_matches)
+    log.info(f"\t Found {len(matches)} Point Associations!")
+    return len(matches)
 

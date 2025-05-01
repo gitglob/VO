@@ -1,9 +1,13 @@
 import numpy as np
+import cv2
 
 import src.globals as ctx
 import src.utils as utils
 from .point_association import search_for_triangulation
 from config import SETTINGS
+
+
+LOWE_RATIO = SETTINGS["map"]["lowe_ratio"]
 
 
 # 1) Persistent pool: one per Python process
@@ -25,13 +29,16 @@ def process_neighbor(args) -> tuple[list, dict]:
     # a) Baseline / depth check
     baseline = np.linalg.norm(t_frame.pose[:3,3] - q_frame.pose[:3,3])
     median_depth = q_frame.median_depth(ctx.map)
-    if baseline / median_depth < 0.01:
-        return local_results, counters
+    if baseline / median_depth < 0.01: return local_results, counters
 
     # b) Descriptor‐based matches
-    matches = search_for_triangulation(q_frame, t_frame)
-    if len(matches) < 5:
-        return local_results, counters
+    # matches = search_for_triangulation(q_frame, t_frame)
+    # Match descriptors with ratio test
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    matches_knn = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
+    matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+    matches = utils.unique_filter(matches)
+    if len(matches) < 5: return local_results, counters
 
     # c) Get keypoints arrays
     q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
@@ -41,8 +48,7 @@ def process_neighbor(args) -> tuple[list, dict]:
     q_pix = np.float64([kp.pt for kp in q_kpts])
     t_pix = np.float64([kp.pt for kp in t_kpts])
     ret = utils.enforce_epipolar_constraint(q_pix, t_pix)
-    if ret is None:
-        return local_results, counters
+    if ret is None: return local_results, counters
     epi_mask, _, _ = ret
     counters['epipolar'] += np.sum(~epi_mask)
     matches, q_kpts, t_kpts = (
@@ -50,8 +56,7 @@ def process_neighbor(args) -> tuple[list, dict]:
         q_kpts[epi_mask],
         t_kpts[epi_mask]
     )
-    if len(matches) == 0:
-        return local_results, counters
+    if len(matches) == 0: return local_results, counters
 
     # e) Prepare transforms
     T_q2t = utils.invert_transform(t_frame.pose) @ q_frame.pose
@@ -63,8 +68,7 @@ def process_neighbor(args) -> tuple[list, dict]:
         T_q2t
     )
     t_pts = utils.transform_points(q_pts, T_q2t)
-    if q_pts is None or len(q_pts) == 0:
-        return local_results, counters
+    if q_pts is None or len(q_pts) == 0: return local_results, counters
 
     # g) Cheirality
     che_mask = utils.filter_cheirality(q_pts, t_pts)
@@ -73,8 +77,7 @@ def process_neighbor(args) -> tuple[list, dict]:
         matches[che_mask], q_pts[che_mask], t_pts[che_mask],
         q_kpts[che_mask], t_kpts[che_mask]
     )
-    if len(matches) == 0:
-        return local_results, counters
+    if len(matches) == 0: return local_results, counters
 
     # h) Parallax
     par_mask = utils.filter_parallax(q_pts, t_pts, T_q2t, MIN_PARALLAX)
@@ -83,8 +86,7 @@ def process_neighbor(args) -> tuple[list, dict]:
         matches[par_mask], q_pts[par_mask], t_pts[par_mask],
         q_kpts[par_mask], t_kpts[par_mask]
     )
-    if len(matches) == 0:
-        return local_results, counters
+    if len(matches) == 0: return local_results, counters
 
     # i) Reprojection
     reproj_mask, _ = utils.filter_by_reprojection(
@@ -99,8 +101,7 @@ def process_neighbor(args) -> tuple[list, dict]:
         t_pts[reproj_mask], q_kpts[reproj_mask],
         t_kpts[reproj_mask]
     )
-    if len(matches) == 0:
-        return local_results, counters
+    if len(matches) == 0: return local_results, counters
 
     # j) Distance & scale consistency
     q_dists = np.linalg.norm(q_pts - q_frame.pose[:3,3], axis=1)
@@ -111,8 +112,7 @@ def process_neighbor(args) -> tuple[list, dict]:
         matches[dist_mask], q_pts[dist_mask], t_pts[dist_mask],
         q_kpts[dist_mask], t_kpts[dist_mask]
     )
-    if len(matches) == 0:
-        return local_results, counters
+    if len(matches) == 0: return local_results, counters
 
     q_scales = np.array([q_frame.scale_factors[k.octave] for k in q_kpts])
     t_scales = np.array([t_frame.scale_factors[k.octave] for k in t_kpts])
@@ -121,8 +121,7 @@ def process_neighbor(args) -> tuple[list, dict]:
     scale_mask = (ratio_o / ratio_factor < ratio_d) & (ratio_d < ratio_o * ratio_factor)
     counters['scale'] += np.sum(~scale_mask)
     matches, q_pts, t_pts = matches[scale_mask], q_pts[scale_mask], t_pts[scale_mask]
-    if len(matches) == 0:
-        return local_results, counters
+    if len(matches) == 0: return local_results, counters
 
     # k) Depth filter
     q_med = np.median(q_pts[:,2])
@@ -130,8 +129,7 @@ def process_neighbor(args) -> tuple[list, dict]:
     depth_mask = (q_pts[:,2] < 5*q_med) & (t_pts[:,2] < 5*t_med)
     counters['depth'] += np.sum(~depth_mask)
     matches, q_pts = matches[depth_mask], q_pts[depth_mask]
-    if len(matches) == 0:
-        return local_results, counters
+    if len(matches) == 0: return local_results, counters
 
     # l) Transform to world and collect
     w_pts = utils.transform_points(q_pts, q_frame.pose)

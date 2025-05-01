@@ -453,8 +453,10 @@ class Map():
 
             # Match descriptors with ratio test
             # matches_knn = bf.knnMatch(q_frame.descriptors, t_frame.descriptors, k=2)
-            # matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+            # filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+            # log.info(f"\t Lowe's Test filtered {len(matches_knn) - len(filtered_matches)}/{len(matches_knn)} matches!")
             # matches = utils.unique_filter(matches)
+            # log.info(f"\t Uniqueness filtered {len(filtered_matches) - len(matches)}/{len(filtered_matches)} matches!")
 
             # Match descriptors with ratio test
             matches = search_for_triangulation(q_frame, t_frame)

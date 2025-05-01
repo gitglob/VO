@@ -73,18 +73,20 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
     # Match descriptors
     points, q_mp_features = q_frame.get_map_points_and_features()
     q_descriptors = np.uint8([f.desc for f in q_mp_features])
-    matches = bf.knnMatch(q_descriptors, t_frame.descriptors, k=2)
-    if len(matches) < MIN_MATCHES: return -1
+    matches_knn = bf.knnMatch(q_descriptors, t_frame.descriptors, k=2)
+    if len(matches_knn) < MIN_MATCHES: return -1
 
     # Filter matches
-    filtered_matches = utils.ratio_filter(matches, LOWE_RATIO)
+    filtered_matches = utils.ratio_filter(matches_knn, LOWE_RATIO)
+    log.info(f"\t Lowe's Test filtered {len(matches_knn) - len(filtered_matches)}/{len(matches_knn)} matches!")
     if len(filtered_matches) < MIN_MATCHES: return -1
-    filtered_matches = utils.unique_filter(filtered_matches)
-    if len(filtered_matches) < MIN_MATCHES: return -1
+    matches = utils.unique_filter(filtered_matches)
+    log.info(f"\t Uniqueness filtered {len(matches) - len(filtered_matches)}/{len(matches)} matches!")
+    if len(matches) < MIN_MATCHES: return -1
     
     # Finally, filter using the epipolar constraint
-    q_pixels = np.array([q_mp_features[m.queryIdx].kpt.pt for m in filtered_matches], dtype=np.float64)
-    t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
+    q_pixels = np.array([q_mp_features[m.queryIdx].kpt.pt for m in matches], dtype=np.float64)
+    t_pixels = np.array([t_frame.keypoints[m.trainIdx].pt for m in matches], dtype=np.float64)
 
     ret = utils.enforce_epipolar_constraint(q_pixels, t_pixels)
     if ret is None:
@@ -92,14 +94,14 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
         return -1
     epi_mask, _, use_homography = ret
     log.info(f"\t Epipolar Constraint: Filtered {sum(~epi_mask)}/{len(q_pixels)} matches! (Using: {'Homography' if use_homography else 'Essential'}.)")
-    filtered_matches = np.array(filtered_matches)[epi_mask].tolist()
-    if len(filtered_matches) < MIN_MATCHES:
+    matches = np.array(matches)[epi_mask].tolist()
+    if len(matches) < MIN_MATCHES:
         return -1
     
     # Prepare results
     cv2_matches = []
     m: cv2.DMatch
-    for m in filtered_matches:
+    for m in matches:
         q_feat = q_mp_features[m.queryIdx]
         point = points[m.queryIdx]
         t_feat = t_frame.features[t_frame.keypoints[m.trainIdx].class_id]

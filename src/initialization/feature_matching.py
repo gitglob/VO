@@ -34,15 +34,17 @@ def matchFeatures(q_frame: utils.Frame, t_frame: utils.Frame):
     if len(matches) < MIN_MATCHES:
         return None
     filtered_matches = utils.ratio_filter(matches, LOWE_RATIO)
+    log.info(f"\t Lowe's Test filtered {len(matches) - len(filtered_matches)}/{len(matches)} matches!")
     if len(filtered_matches) < MIN_MATCHES:
         return None
-    filtered_matches = utils.unique_filter(filtered_matches)
-    if len(filtered_matches) < MIN_MATCHES:
+    unique_matches = utils.unique_filter(filtered_matches)
+    log.info(f"\t Uniqueness filtered {len(filtered_matches) - len(unique_matches)}/{len(filtered_matches)} matches!")
+    if len(unique_matches) < MIN_MATCHES:
         return None
 
     # Save the matches
     if debug:
         match_save_path = results_dir / f"initialization/0-raw" / f"{q_frame.id}_{t_frame.id}.png"
-        vis.plot_matches(filtered_matches, q_frame, t_frame, save_path=match_save_path)
+        vis.plot_matches(unique_matches, q_frame, t_frame, save_path=match_save_path)
 
-    return np.array(filtered_matches, dtype=object)
+    return np.array(unique_matches, dtype=object)

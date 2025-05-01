@@ -51,10 +51,10 @@ def estimate_relative_pose(t_frame: utils.Frame):
     log.info(f"\t solvePnPRansac filtered {num_matches - num_tracked_points}/{num_matches} points.")
 
     # Based on the outliers, remove the observations from the points and the point matches from the features
-    # for i, (feat, point) in enumerate(t_map_pairs):
-    #     if not inliers_mask[i]:
-    #         feat.reset_mp_match()
-    #         point.remove_observation(t_frame.id)
+    for i, (feat, point) in enumerate(t_map_pairs):
+        if not inliers_mask[i]:
+            feat.reset_mp_match()
+            point.remove_observation(t_frame.id)
     
     # 3) Refine the pose using Levenberg-Marquardt on the inlier correspondences.
     rvec, tvec = cv2.solvePnPRefineLM(

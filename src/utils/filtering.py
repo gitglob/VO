@@ -18,7 +18,6 @@ def ratio_filter(matches, lowe_ratio):
     for m, n in matches:
         if m.distance < lowe_ratio * n.distance:
             good_matches.append(m)
-    log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
     return good_matches
 
 def unique_filter(matches):
@@ -30,7 +29,6 @@ def unique_filter(matches):
             unique_matches[m.trainIdx] = m
     # Convert the dictionary values to a list of unique matches
     unique_matches = list(unique_matches.values())
-    log.info(f"\t Uniqueness filtered {len(matches) - len(unique_matches)}/{len(matches)} matches!")
     return unique_matches
 
 ############################### Keypoints ###############################
@@ -300,54 +298,6 @@ def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray,
     # e2 = np.mean(errors[reproj_mask]) if reproj_mask.sum() > 0 else 0
 
     return reproj_mask, points_proj_px
-
-def triang_and_filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold, save_path):
-    """
-    Triangulate inlier correspondences, reproject them into the current frame, and filter matches by reprojection error.
-
-    Args:
-        matches (list): list of cv2.DMatch objects.
-        frame, q_frame: Frame objects.
-        R, t: relative pose from q_frame to frame.
-        K: camera intrinsic matrix.
-        epipolar_constraint_mask (np.array): initial boolean mask for inlier matches.
-
-    Returns:
-        np.array: Updated boolean mask with matches having large reprojection errors filtered out.
-    """
-    # Extract matched keypoints
-    q_pxs = np.float64([q_frame.keypoints[m.queryIdx].pt for m in matches])
-    t_pxs = np.float64([t_frame.keypoints[m.trainIdx].pt for m in matches])
-
-    # Projection matrices
-    q_M = K @ np.eye(3,4)        # Reference frame (identity)
-    t_M = K @ np.hstack((R, t))  # Current frame
-
-    # Triangulate points
-    q_points_4d = cv2.triangulatePoints(q_M, t_M, q_pxs.T, t_pxs.T)
-    q_points_3d = (q_points_4d[:3] / q_points_4d[3]).T
-
-    # Reproject points into the second (current) camera
-    rvec, _ = cv2.Rodrigues(R)
-    tvec = t.reshape(3,1) 
-    points_proj2, _ = cv2.projectPoints(q_points_3d, rvec, tvec, K, None)
-    points_proj_px = points_proj2.reshape(-1, 2)
-
-    # Compute reprojection errors
-    errors = np.linalg.norm(points_proj_px - t_pxs, axis=1)
-    reproj_mask = errors < threshold
-    if reproj_mask.sum() == 0:
-        return None
-
-    num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
-    log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
-
-    # Debugging visualization
-    if debug:
-        vis.plot_reprojection(t_frame.img, t_pxs[~reproj_mask], points_proj_px[~reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}a.png")
-        vis.plot_reprojection(t_frame.img, t_pxs[reproj_mask], points_proj_px[reproj_mask], path=save_path / f"{q_frame.id}_{t_frame.id}b.png")
-
-    return reproj_mask
 
 def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
     """
