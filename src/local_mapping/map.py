@@ -131,6 +131,9 @@ class mapPoint():
         obs_kf_ids = [obs.kf_id for obs in self.observations]
         assert kf_id not in obs_kf_ids
 
+        if len(obs_kf_ids) == 0:
+            del ctx.map.points[self.id]
+
     def view_ray(self, pos: np.ndarray):
         v = self.pos - pos
         v = v / np.linalg.norm(v)
@@ -283,7 +286,7 @@ class Map():
             lc_kf_poses[i] = frame.pose[:3, 3]
         return lc_poses, lc_kf_poses
 
-    def point_positions(self, ba: bool):
+    def point_positions(self, ba: bool=True) -> np.ndarray:
         """Returns the points xyz positions"""
         positions = np.empty((len(self.points.keys()), 3), dtype=np.float64)
         # Positions after Bundle Adjustment
@@ -439,6 +442,7 @@ class Map():
         parallax_counter = 0
         dist_counter = 0
         scale_counter = 0
+        depth_counter = 0
         num_created_points = 0
         for q_frame_id in neighbor_kf_ids:
             matches = []
@@ -473,6 +477,7 @@ class Map():
             ret = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
             if ret is None: continue
             epipolar_constraint_mask, _, _ = ret
+            if epipolar_constraint_mask.sum() == 0: continue
             matches = np.array(matches)[epipolar_constraint_mask]
             q_kpts = q_kpts[epipolar_constraint_mask]
             t_kpts = t_kpts[epipolar_constraint_mask]
@@ -489,7 +494,7 @@ class Map():
 
             # Cheirality filter
             cheirality_mask = utils.filter_cheirality(q_points, t_points)
-            if cheirality_mask is None: continue
+            if cheirality_mask is None or cheirality_mask.sum() == 0: continue
             cheirality_counter += np.sum(~cheirality_mask)
             matches = matches[cheirality_mask]
             q_points = q_points[cheirality_mask]
@@ -499,7 +504,7 @@ class Map():
 
             # Low parallax filter
             parallax_mask = utils.filter_parallax(q_points, t_points, T_q2t, MIN_PARALLAX)
-            if parallax_mask is None: continue
+            if parallax_mask is None or parallax_mask.sum() == 0: continue
             parallax_counter += np.sum(~parallax_mask)
             matches = matches[parallax_mask]
             q_points = q_points[parallax_mask]
@@ -512,7 +517,7 @@ class Map():
             reproj_mask = utils.filter_by_reprojection(q_points, t_kpt_pixels, 
                                                        T_q2t, MAX_REPROJECTION, 
                                                        t_frame)
-            if reproj_mask is None: continue
+            if reproj_mask is None or reproj_mask.sum() == 0: continue
             reprojection_counter += np.sum(~reproj_mask)
             matches = matches[reproj_mask]
             q_points = q_points[reproj_mask]
@@ -526,10 +531,12 @@ class Map():
             t_dists = np.linalg.norm(t_points - t_frame.t, axis=1)
             dist_mask = np.logical_and(t_dists > 0, q_dists > 0)
             dist_counter += np.sum(~dist_mask)
+            log.info(f"\t Dist filtered {np.sum(~dist_mask)}/{len(q_points)} points!")
             if dist_mask.sum() == 0: continue
             ratio_dists = t_dists / q_dists
             matches = matches[dist_mask]
             q_points = q_points[dist_mask]
+            t_points = t_points[dist_mask]
             q_kpts = q_kpts[dist_mask]
             t_kpts = t_kpts[dist_mask]
             ## Compute the orb scale factors of every feature
@@ -543,9 +550,22 @@ class Map():
             scale_mask = np.logical_and(ratio_octaves / ratio_factor < ratio_dists,
                                         ratio_dists < ratio_octaves * ratio_factor)
             scale_counter += np.sum(~scale_mask)
+            log.info(f"\t Scale filtered {np.sum(~scale_mask)}/{len(q_points)} points!")
             if scale_mask.sum() == 0: continue
             matches = matches[scale_mask]
             q_points = q_points[scale_mask]
+            t_points = t_points[scale_mask]
+
+            # Depth filter
+            q_median_depth = np.median(q_points[:, 2])
+            t_median_depth = np.median(t_points[:, 2])
+            depth_mask = np.logical_and(q_points[:, 2] < 5*q_median_depth, 
+                                        t_points[:, 2] < 5*t_median_depth)
+            depth_counter += np.sum(~depth_mask)
+            log.info(f"\t Depth filtered {np.sum(~depth_mask)}/{len(q_points)} points!")
+            if depth_mask.sum() == 0: continue
+            q_points = q_points[depth_mask]
+            matches = matches[depth_mask]
 
             # Transform the triangulated points to world coordinates
             w_points = utils.transform_points(q_points, q_frame.pose)
@@ -565,6 +585,7 @@ class Map():
             log.info(f"\t\t Parallax: {parallax_counter}")
             log.info(f"\t\t Distance: {dist_counter}")
             log.info(f"\t\t Scale: {scale_counter}")
+            log.info(f"\t\t Depth: {depth_counter}")
             log.info(f"\t Total points: {self.num_points}!")
 
     def create_local_map(self, frame: utils.Frame):

@@ -73,6 +73,7 @@ def map_search(t_frame: utils.Frame):
         return -1
     epipolar_constraint_mask, _, _ = ret
     filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask]
+    if len(filtered_matches) < MIN_MATCHES: return -1
     
     # Prepare results
     for m in filtered_matches:
