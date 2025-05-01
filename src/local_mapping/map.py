@@ -227,8 +227,7 @@ class localMap():
         self.point_ids = K1_points.union(K2_points)
         self.frame_ids = K1_frames.union(K2_frames).union({ref_frame_id})
 
-        if DEBUG:
-            log.info(f"[Local Map] Created map with {len(self.frame_ids)} frames and {len(self.point_ids)} points")
+        log.info(f"[Local Map] Created map with {len(self.frame_ids)} frames and {len(self.point_ids)} points")
 
 
 class Map():
@@ -366,8 +365,7 @@ class Map():
         if kf.id in self.keyframes.keys():
             return
         
-        if DEBUG:
-            log.info(f"[Map] Adding frame #{kf.id} to the map.")
+        log.info(f"[Map] Adding frame #{kf.id} to the map.")
         
         self.keyframes[kf.id] = kf
 
@@ -396,8 +394,7 @@ class Map():
             # Add the point to the map
             self._add_new_point(pos, dist, q_frame, t_frame, q_feat, t_feat)
 
-        if DEBUG:
-            log.info(f"[Map] Adding {len(w_points)} points to the Map. Total: {self.num_points} points.")
+        log.info(f"[Map] Adding {len(w_points)} points to the Map. Total: {self.num_points} points.")
 
     def _add_new_point(self, pos: np.ndarray, dist: float,
                        q_frame: utils.Frame, t_frame: utils.Frame, 
@@ -432,8 +429,7 @@ class Map():
         # Get the neighbor frames in the convisibility graph
         neighbor_kf_ids = ctx.cgraph.get_connected_frames(t_frame.id, num_edges=30)
         ratio_factor = 1.5 * t_frame.scale_factors[1]
-        if DEBUG:
-            log.info(f"[Map] Creating new map points using frame {t_frame.id} and {len(neighbor_kf_ids)} neighbors!")
+        log.info(f"[Map] Creating new map points using frame {t_frame.id} and {len(neighbor_kf_ids)} neighbors!")
 
         # Iterate over all neighbor frames
         epipolar_counter = 0
@@ -464,8 +460,7 @@ class Map():
             matches = search_for_triangulation(q_frame, t_frame)
             if len(matches) < 5:
                 continue # We need at least 5 matches to enforce the epipolar constraint
-            if DEBUG:
-                log.info(f"\t Connected frame #{q_frame_id}: Found {len(matches)} potential new points!") 
+            log.info(f"\t Connected frame #{q_frame_id}: Found {len(matches)} potential new points!") 
 
             # Extract kpts
             q_kpts = np.array([q_frame.keypoints[m.queryIdx] for m in matches])
@@ -536,8 +531,7 @@ class Map():
             t_dists = np.linalg.norm(t_points - t_frame.t, axis=1)
             dist_mask = np.logical_and(t_dists > 0, q_dists > 0)
             dist_counter += np.sum(~dist_mask)
-            if DEBUG:
-                log.info(f"\t Dist filtered {np.sum(~dist_mask)}/{len(q_points)} points!")
+            log.info(f"\t Dist filtered {np.sum(~dist_mask)}/{len(q_points)} points!")
             if dist_mask.sum() == 0: continue
             ratio_dists = t_dists / q_dists
             matches = matches[dist_mask]
@@ -556,8 +550,7 @@ class Map():
             scale_mask = np.logical_and(ratio_octaves / ratio_factor < ratio_dists,
                                         ratio_dists < ratio_octaves * ratio_factor)
             scale_counter += np.sum(~scale_mask)
-            if DEBUG:
-                log.info(f"\t Scale filtered {np.sum(~scale_mask)}/{len(q_points)} points!")
+            log.info(f"\t Scale filtered {np.sum(~scale_mask)}/{len(q_points)} points!")
             if scale_mask.sum() == 0: continue
             matches = matches[scale_mask]
             q_points = q_points[scale_mask]
@@ -569,8 +562,7 @@ class Map():
             depth_mask = np.logical_and(q_points[:, 2] < 5*q_median_depth, 
                                         t_points[:, 2] < 5*t_median_depth)
             depth_counter += np.sum(~depth_mask)
-            if DEBUG:
-                log.info(f"\t Depth filtered {np.sum(~depth_mask)}/{len(q_points)} points!")
+            log.info(f"\t Depth filtered {np.sum(~depth_mask)}/{len(q_points)} points!")
             if depth_mask.sum() == 0: continue
             q_points = q_points[depth_mask]
             matches = matches[depth_mask]
@@ -586,16 +578,16 @@ class Map():
                 save_path = results_dir / "tracking/new_points" / f"{t_frame.id}_{q_frame.id}.png"
                 vis.plot_matches(matches, q_frame, t_frame, save_path)
 
-        if DEBUG:
-            log.info(f"\t Created {num_created_points} points! Filtered the following...")
-            log.info(f"\t\t Epipolar: {epipolar_counter}")
-            log.info(f"\t\t Cheirality: {cheirality_counter}")
-            log.info(f"\t\t Reprojection: {reprojection_counter}")
-            log.info(f"\t\t Parallax: {parallax_counter}")
-            log.info(f"\t\t Distance: {dist_counter}")
-            log.info(f"\t\t Scale: {scale_counter}")
-            log.info(f"\t\t Depth: {depth_counter}")
-            log.info(f"\t Total points: {self.num_points}!")
+        
+        log.info(f"\t Created {num_created_points} points! Filtered the following...")
+        log.info(f"\t\t Epipolar: {epipolar_counter}")
+        log.info(f"\t\t Cheirality: {cheirality_counter}")
+        log.info(f"\t\t Reprojection: {reprojection_counter}")
+        log.info(f"\t\t Parallax: {parallax_counter}")
+        log.info(f"\t\t Distance: {dist_counter}")
+        log.info(f"\t\t Scale: {scale_counter}")
+        log.info(f"\t\t Depth: {depth_counter}")
+        log.info(f"\t Total points: {self.num_points}!")
 
     def create_points_parallel(self, t_frame: utils.Frame):
         """
@@ -628,10 +620,9 @@ class Map():
             t_feat = t_frame.features[t_frame.keypoints[t_idx].class_id]
             self._add_new_point(wpt, dist, t_frame, q_frame, t_feat, q_feat)
 
-        if DEBUG:
-            log.info(f"\tCreated {len(all_new)} points! Filtered:")
-            for k,v in total_ctrs.items():
-                log.info(f"\t\t{k.capitalize()}: {v}")
+        log.info(f"\tCreated {len(all_new)} points! Filtered:")
+        for k,v in total_ctrs.items():
+            log.info(f"\t\t{k.capitalize()}: {v}")
 
     def create_local_map(self, frame: utils.Frame):
         """
@@ -641,8 +632,7 @@ class Map():
         - The neighboring frames of K1 in the convisibility graph -> K2
         - A reference frame Kref in K1 which shares the most points with the current frame
         """
-        if DEBUG:
-            log.info("[Graph] Creating local map...")
+        log.info("[Graph] Creating local map...")
             
         frame_map_point_ids = frame.get_map_point_ids()
 
@@ -721,8 +711,7 @@ class Map():
             if num_obs == 0:
                 removed_pids.add(p.id)
         # self.remove_points(removed_pids)
-        if DEBUG:
-            log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes} left!")
+        log.info(f"\t Removed Keyframe {kf_id}. {self.num_keyframes} left!")
 
     def remove_points(self, pids: set[int]):
         for pid in pids:
@@ -747,8 +736,7 @@ class Map():
             (1) rarely matched
             (2) not observed from at least 3 keyframes
         """
-        if DEBUG:
-            log.info("[Map] Culling map points...")
+        log.info("[Map] Culling map points...")
 
         removed_point_ids = set()
 
@@ -776,8 +764,7 @@ class Map():
         self.remove_points(removed_point_ids)
         ctx.cgraph.remove_points(removed_point_ids)
 
-        if DEBUG:
-            log.info(f"\t Removed {len(removed_point_ids)} points. {self.num_points} left!")
+        log.info(f"\t Removed {len(removed_point_ids)} points. {self.num_points} left!")
 
     def cull_keyframes(self, frame: utils.Frame):
         """
@@ -785,8 +772,7 @@ class Map():
         map points have been seen in at least other three keyframes in
         the same or finer scale.
         """
-        if DEBUG:
-            log.info("[Map] Culling frames...")
+        log.info("[Map] Culling frames...")
 
         # Get the neighbor keyframes in the convisibility graph
         neighbor_kf_ids = ctx.cgraph.get_connected_frames(frame.id, num_edges=30)

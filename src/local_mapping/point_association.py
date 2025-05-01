@@ -1,6 +1,10 @@
 import cv2
 import src.utils as utils
 import src.globals as ctx
+import src.visualization as vis
+from config import SETTINGS, log
+
+DEBUG = SETTINGS["generic"]["debug"]
 
 
 def search_for_triangulation(q_frame: utils.Frame, t_frame: utils.Frame):
@@ -175,11 +179,10 @@ def search_by_bow(q_keyframe: utils.Frame, t_frame: utils.Frame):
         matches.append((q_feat.idx, t_feat.idx, dist))    
 
     # Save the matched points
-    if debug and len(matches) > 0:
+    if DEBUG and len(matches) > 0:
         cv2_matches = [cv2.DMatch(t, n, d) for (t,n,d) in matched_features]
         vis.plot_matches(cv2_matches, q_keyframe, t_frame, save_path=save_path)
     
-    if debug:
-        log.info(f"\t Found {len(matches)} Point Associations!")
+    log.info(f"\t Found {len(matches)} Point Associations!")
 
     return len(matches)

@@ -14,8 +14,7 @@ def estimate_relative_pose(t_frame: utils.Frame):
     """Estimate the map <-> camera displacement using a 3D-2D PnP approach."""
     t_map_pairs = t_frame.get_map_matches()
     num_matches = len(t_map_pairs)
-    if debug:
-        log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_matches}/{ctx.map.num_points} map points...")
+    log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_matches}/{ctx.map.num_points} map points...")
 
     # 1) Build 3D <-> 2D correspondences
     map_point_positions = []
@@ -49,8 +48,7 @@ def estimate_relative_pose(t_frame: utils.Frame):
     inliers_mask = np.zeros(num_matches, dtype=bool)
     inliers_mask[inliers] = True
     num_tracked_points = inliers_mask.sum()
-    if debug:
-        log.info(f"\t solvePnPRansac filtered {num_matches - num_tracked_points}/{num_matches} points.")
+    log.info(f"\t solvePnPRansac filtered {num_matches - num_tracked_points}/{num_matches} points.")
 
     # Based on the outliers, remove the observations from the points and the point matches from the features
     # for i, (feat, point) in enumerate(t_map_pairs):
@@ -82,10 +80,9 @@ def estimate_relative_pose(t_frame: utils.Frame):
     
     ## Create a mask for points with error less than the threshold
     reproj_mask = errors < SETTINGS["tracking"]["PnP"]["max_reprojection"]
-    if debug:
-        log.info(f"\t Reprojection:")
-        log.info(f"\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})")
-        log.info(f"\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
+    log.info(f"\t Reprojection:")
+    log.info(f"\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})")
+    log.info(f"\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
 
     ## Visualization
     if debug:

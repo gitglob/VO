@@ -24,8 +24,7 @@ def matchFeatures(q_frame: utils.Frame, t_frame: utils.Frame):
         queryIdx: The index of the descriptor in the query set (first image).
         imgIdx: The index of the image (if multiple images are being used).
     """
-    if debug:
-        log.info(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
+    log.info(f"Matching features between frames: {q_frame.id} & {t_frame.id}...")
 
     # Create BFMatcher object
     matcher = cv2.BFMatcher(cv2.NORM_HAMMING)

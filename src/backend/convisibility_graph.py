@@ -76,8 +76,7 @@ class ConvisibilityGraph(Graph):
 
     def add_first_keyframe(self, kf_id: int):
         """Adds the first keyframe to the graph."""
-        if DEBUG:
-            log.info(f"[Graph] Buffering keyframe #{kf_id}")
+        log.info(f"[Graph] Buffering keyframe #{kf_id}")
 
         if kf_id in self.nodes.keys():
             log.warning(f"\t Keyframe {kf_id} already exists!")
@@ -88,8 +87,7 @@ class ConvisibilityGraph(Graph):
     def add_keyframe(self, kf_id: int):
         """Adds a new keyframe to the graph.
         """
-        if DEBUG:
-            log.info(f"[Graph] Adding keyframe #{kf_id}!")
+        log.info(f"[Graph] Adding keyframe #{kf_id}!")
 
         if kf_id in self.nodes.keys():
             log.warning(f"\t Keyframe {kf_id} already exists!")
@@ -108,8 +106,7 @@ class ConvisibilityGraph(Graph):
             keyframe: Unique identifier for the keyframe.
             pairs: Dictionary matching a feature to a map point with a distance
         """
-        if DEBUG:
-            log.info(f"[Graph] Adding keyframe #{kf_id} with {len(kf_mp_ids)} map point observations!")
+        log.info(f"[Graph] Adding keyframe #{kf_id} with {len(kf_mp_ids)} map point observations!")
 
         if kf_id in self.nodes.keys():
             log.warning(f"\t Keyframe {kf_id} already exists!")
@@ -129,15 +126,13 @@ class ConvisibilityGraph(Graph):
 
     def add_keyframe_with_points(self, kf_id: int, kf_mp_ids: set[int]):
         """Adds a new keyframe to the graph and updates the covisibility edges and the spanning tree."""
-        if DEBUG:
-            log.info(f"[Graph] Adding keyframe #{kf_id}")
+        log.info(f"[Graph] Adding keyframe #{kf_id}")
         if kf_id in self.nodes.keys():
             log.warning(f"\t Keyframe {kf_id} already exists!")
             return
         
         # Store the new keyframe observations
-        if DEBUG:
-            log.info(f"\t Keyframe {kf_id} observes {len(kf_mp_ids)} map points!")
+        log.info(f"\t Keyframe {kf_id} observes {len(kf_mp_ids)} map points!")
         self._add_node_with_points(kf_id, kf_mp_ids)
         self.spanning_tree._add_node_with_points(kf_id, kf_mp_ids)
 
@@ -204,8 +199,7 @@ class ConvisibilityGraph(Graph):
             # All the spanning tree edges go to the Essential Graph too
             self.essential_graph._add_edge(best_parent_id, kf_id, max_shared)
 
-        if DEBUG:
-            log.info(f"\t Added {num_new_edges} edges to keyframe {kf_id}!")
+        log.info(f"\t Added {num_new_edges} edges to keyframe {kf_id}!")
 
     def update_edges(self):
         """Updates the covisibility edges after points have been modified."""

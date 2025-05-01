@@ -14,8 +14,7 @@ class globalBA(BA):
     def __init__(self):
         """Performs global Bungle Adjustment fixing only the very first pose"""
         super().__init__()
-        if DEBUG:
-            log.info("[BA] Performing full BA...")
+        log.info("[BA] Performing full BA...")
 
         # The keyframes to optimize
         self._add_frames()
@@ -26,8 +25,7 @@ class globalBA(BA):
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
         """
-        if DEBUG:
-            log.info(f"\t Adding {ctx.map.num_keyframes} poses...")
+        log.info(f"\t Adding {ctx.map.num_keyframes} poses...")
         
         frames = list(ctx.map.keyframes.values())
         self._add_frame(frames[0], fixed=True)
@@ -36,8 +34,7 @@ class globalBA(BA):
 
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
-        if DEBUG:
-            log.info(f"\t Adding {ctx.map.num_points} landmarks...")
+        log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # Iterate over all map points
         for pid, mp in ctx.map.points.items():
@@ -56,8 +53,7 @@ class globalBA(BA):
         Returns:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
-        if DEBUG:
-            log.info("\t Optimizing...")
+        log.info("\t Optimizing...")
 
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(num_iterations)
@@ -66,8 +62,7 @@ class globalBA(BA):
         self.update_poses_and_landmarks()
         e2 = ctx.map.get_mean_projection_error()
         
-        if DEBUG:
-            log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
 
     def finalize(self):
         """Returns the final poses (optimized)."""
@@ -75,8 +70,7 @@ class globalBA(BA):
 
     def update_poses_and_landmarks(self):
         """Retrieves optimized pose and landmark estimates from the optimizer."""
-        if DEBUG:
-            log.info("\t Updating poses and landmark positions...")
+        log.info("\t Updating poses and landmark positions...")
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):

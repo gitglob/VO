@@ -17,8 +17,7 @@ class poseBA(BA):
     def __init__(self):
         """Initializes Single Pose Optimization with a g2o optimizer and camera intrinsics."""
         super().__init__()
-        if DEBUG:
-            log.info(f"[poseBA] Performing Pose Optimization...")
+        log.info(f"[poseBA] Performing Pose Optimization...")
 
         # The keyframes to optimize
         self._add_frames()
@@ -29,8 +28,7 @@ class poseBA(BA):
         Add a pose (4x4 transformation matrix) as a VertexSE3Expmap.
         The first pose is fixed to anchor the graph.
         """
-        if DEBUG:
-            log.info(f"\t Adding {ctx.map.num_keyframes} poses...")
+        log.info(f"\t Adding {ctx.map.num_keyframes} poses...")
         
         frames = list(ctx.map.keyframes.values())
         self._add_frame(frames[0], fixed=True)
@@ -39,8 +37,7 @@ class poseBA(BA):
 
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
-        if DEBUG:
-            log.info(f"\t Adding {ctx.map.num_points} landmarks...")
+        log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # Iterate over all map points
         for pid, mp in ctx.map.points.items():
@@ -59,8 +56,7 @@ class poseBA(BA):
         Returns:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
-        if DEBUG:
-            log.info("\t Optimizing...")
+        log.info("\t Optimizing...")
 
         # Calculate initial number of edges
         n_edges = len(self.optimizer.edges())
@@ -93,8 +89,7 @@ class poseBA(BA):
         e1 = ctx.map.get_mean_projection_error()
         self.update_poses()
         e2 = ctx.map.get_mean_projection_error()
-        if DEBUG:
-            log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
 
         return n_inlier_edges
 

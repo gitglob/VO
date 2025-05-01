@@ -30,8 +30,7 @@ def map_search(t_frame: utils.Frame):
     Returns:
         pairs: (map_idx, frame_idx) indicating which map point matched which t_frame keypoint
     """
-    if DEBUG:
-        log.info(f"Searching for map<->frame #{t_frame.id} correspondences!")
+    log.info(f"Searching for map<->frame #{t_frame.id} correspondences!")
     
     # Extract the in view descriptors
     map_descriptors = []
@@ -57,8 +56,7 @@ def map_search(t_frame: utils.Frame):
     
     # Match descriptors
     matches = bf.knnMatch(map_descriptors, t_frame.descriptors, k=2)
-    if DEBUG:
-        log.info(f"\t Found {len(matches)} matches!")
+    log.info(f"\t Found {len(matches)} matches!")
     if len(matches) < MIN_MATCHES:
         return -1
     filtered_matches = utils.ratio_filter(matches, LOWE_RATIO)
@@ -95,7 +93,6 @@ def map_search(t_frame: utils.Frame):
         t_pxs = np.array([t_frame.keypoints[m.trainIdx].pt for m in filtered_matches], dtype=np.float64)
         vis.plot_pixels(t_frame.img, t_pxs, save_path=save_path)
 
-    if DEBUG:
-        log.info(f"\t Found {len(filtered_matches)} Point Associations!")
+    log.info(f"\t Found {len(filtered_matches)} Point Associations!")
     return len(filtered_matches)
 

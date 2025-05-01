@@ -33,8 +33,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
             - The inverse 4x4 transformation matrix (q_frame -> frame) if successful, otherwise None.
             - A boolean indicating whether the initialization was successful.
     """
-    if debug:
-        log.info(f"Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
+    log.info(f"Initializing the camera pose using frames {q_frame.id} & {t_frame.id}...")
     
     # ------------------------------------------------------------------------
     # 1. Get keypoint matches
@@ -79,8 +78,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
         
         # mask_pose indicates inliers used in cv2.recoverPose (1 for inliers, 0 for outliers)
         mask_pose = mask_pose.ravel().astype(bool)
-        if debug:
-            log.info(f"\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
+        log.info(f"\t Pose Recovery filtered {epipolar_constraint_mask.sum() - mask_pose.sum()}/{epipolar_constraint_mask.sum()} matches!")
         matches = matches[mask_pose]        
     else:
         # Decompose Homography Matrix
@@ -136,8 +134,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
     return matches, T_q2t, True
       
 def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: utils.Frame, t_frame: utils.Frame, scale: int):
-    if debug:
-        log.info(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
+    log.info(f"Triangulating points between frames {q_frame.id} & {t_frame.id}...")
 
     # ------------------------------------------------------------------------
     # 6. Triangulate 3D points

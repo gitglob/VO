@@ -15,8 +15,7 @@ DEBUG = SETTINGS["generic"]["debug"]
 
 def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
     """Find suitable candidates for loop closure using the convisibility graph.""" 
-    if DEBUG:
-        log.info(f"\t Searching for loop closing candidates with frame {frame.id}")
+    log.info(f"\t Searching for loop closing candidates with frame {frame.id}")
     if frame.bow_hist is None:
         log.warning("\t No BoW descriptor computed for the current frame.")
         return None
@@ -44,8 +43,7 @@ def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
 
     # Keep only candidates that have better similarity than the minimum score of the neighbors, and aren't neighbors
     good_candidates = [(kf_id, score) for kf_id, score in candidates if (score >= min_score) and (kf_id not in neighbor_frame_ids)]
-    if DEBUG:
-        log.info(f"\t Kept {len(candidates)} non-neighbor candidates!")
+    log.info(f"\t Kept {len(candidates)} non-neighbor candidates!")
     if len(good_candidates) == 0:
         log.warning("\t No candidates found!")
         return None
@@ -53,8 +51,7 @@ def detect_candidates(frame: utils.Frame) -> set[utils.Frame]:
     
     # Find the best candidate
     best_candidate = max(good_candidates, key=lambda x: x[1])
-    if DEBUG:
-        log.info(f"\t Loop closure best candidate: {best_candidate[0]}, score: {best_candidate[1]:.2f}")
+    log.info(f"\t Loop closure best candidate: {best_candidate[0]}, score: {best_candidate[1]:.2f}")
     best_candidate_kf = ctx.map.keyframes[best_candidate[0]]
 
     return candidate_kfs
@@ -121,16 +118,14 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
         save_path=results_dir / "loop/matches" / f"{q_frame.id}_{t_frame.id}.png"
         vis.plot_matches(cv2_matches, q_frame, t_frame, save_path = save_path)
 
-    if DEBUG:
-        log.info(f"\t Found {len(cv2_matches)} Point Associations!")
+    log.info(f"\t Found {len(cv2_matches)} Point Associations!")
     return len(cv2_matches)
 
 def estimate_relative_pose(q_frame: utils.Frame, t_frame: utils.Frame):
     """Estimate the map <-> camera displacement using a 3D-2D PnP approach."""
     q_t_map_pairs = t_frame.get_map_matches_with(q_frame.id)
     num_matches = len(q_t_map_pairs)
-    if DEBUG:
-        log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_matches}/{ctx.map.num_points} map points...")
+    log.info(f"Estimating Map -> Frame #{t_frame.id} pose using {num_matches}/{ctx.map.num_points} map points...")
 
     # 1) Build 3D <-> 2D correspondences
     q_point_positions = []
@@ -166,8 +161,7 @@ def estimate_relative_pose(q_frame: utils.Frame, t_frame: utils.Frame):
     inliers_mask = np.zeros(num_matches, dtype=bool)
     inliers_mask[inliers] = True
     num_tracked_points = inliers_mask.sum()
-    if DEBUG:
-        log.info(f"\t solvePnPRansac filtered {num_matches - num_tracked_points}/{num_matches} points.")
+    log.info(f"\t solvePnPRansac filtered {num_matches - num_tracked_points}/{num_matches} points.")
     
     # 3) Refine the pose using Levenberg-Marquardt on the inlier correspondences.
     rvec, tvec = cv2.solvePnPRefineLM(
@@ -193,10 +187,9 @@ def estimate_relative_pose(q_frame: utils.Frame, t_frame: utils.Frame):
     
     ## Create a mask for points with error less than the threshold
     reproj_mask = errors < SETTINGS["tracking"]["PnP"]["max_reprojection"]
-    if DEBUG:
-        log.info(f"\t Reprojection:")
-        log.info(f"\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})")
-        log.info(f"\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
+    log.info(f"\t Reprojection:")
+    log.info(f"\t\t Median/Mean error ({np.median(errors):.2f}, {np.mean(errors):.2f})")
+    log.info(f"\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
 
     ## Visualization
     if DEBUG:

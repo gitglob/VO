@@ -265,7 +265,6 @@ class Frame():
         c4 = common_features_ratio < CFR
         
         is_keyframe = c3 and c4 #and (c1 or c2) 
-        # if DEBUG:
         if is_keyframe:
             log.info("\t\t Keyframe!")
         else:

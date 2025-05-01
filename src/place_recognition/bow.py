@@ -29,8 +29,7 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
     Returns the best matching frame id and the similarity score if the highest similarity exceeds the threshold.
     Otherwise, returns None.
     """
-    if DEBUG:
-        log.info(f"\t Querying database with frame {frame.id}")
+    log.info(f"\t Querying database with frame {frame.id}")
     if frame.bow_hist is None:
         log.warning("\t No BoW descriptor computed for the new image.")
         return None
@@ -96,8 +95,7 @@ def query_recognition_candidate(frame: utils.Frame) -> list[tuple[int, float]]:
         log.warning("\t Recognition candidates not found!")
         return candidates
 
-    if DEBUG:
-        log.info(f"\t Found {len(candidates)} relocalization candidates.")
-        log.info(f"\t Best match: Keyframe #{best_match_id} with similarity: {best_score:.3f}")
+    log.info(f"\t Found {len(candidates)} relocalization candidates.")
+    log.info(f"\t Best match: Keyframe #{best_match_id} with similarity: {best_score:.3f}")
 
     return candidates

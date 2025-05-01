@@ -29,8 +29,7 @@ def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.nd
     Returns:
         float: Estimated scale factor.
     """
-    if debug:
-        log.info(f"\tEstimating depth scale ...")
+    log.info(f"\tEstimating depth scale ...")
 
     if len(estimated_poses) != 2 or len(gt_poses) != 2:
         raise ValueError("Both input lists must contain exactly two poses.")
@@ -44,8 +43,7 @@ def estimate_depth_scale(estimated_poses: list[np.ndarray], gt_poses: list[np.nd
 
     # Compute scale
     scale_factor = gt_translation_diff / est_translation_diff
-    if debug:
-        log.info(f"\t\tScale factor: {scale_factor:.2f}")
+    log.info(f"\t\tScale factor: {scale_factor:.2f}")
 
     return scale_factor
 

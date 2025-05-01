@@ -18,8 +18,7 @@ class singlePoseBA(BA):
     def __init__(self, frame: utils.Frame):
         """Initializes Single Pose Optimization with a g2o optimizer and camera intrinsics."""
         super().__init__()
-        if DEBUG:
-            log.info(f"[singlePoseBA] Performing Pose #{frame.id} Optimization...")
+        log.info(f"[singlePoseBA] Performing Pose #{frame.id} Optimization...")
 
         # The keyframes to optimize
         self.frame = frame
@@ -28,8 +27,7 @@ class singlePoseBA(BA):
 
     def _add_observations(self):
         """Add landmarks as vertices and reprojection observations as edges."""
-        if DEBUG:
-            log.info(f"\t Adding {ctx.map.num_points} landmarks...")
+        log.info(f"\t Adding {ctx.map.num_points} landmarks...")
 
         # Extract the frame <-> map feature matches
         feat_mp_matches = self.frame.get_map_matches()
@@ -53,8 +51,7 @@ class singlePoseBA(BA):
         Returns:
             A tuple (pose_ids, poses, landmark_ids, landmarks, success)
         """
-        if DEBUG:
-            log.info("\t Optimizing...")
+        log.info("\t Optimizing...")
 
         # Calculate initial number of edges
         n_edges = len(self.optimizer.edges())
@@ -87,8 +84,7 @@ class singlePoseBA(BA):
         e1 = ctx.map.get_mean_projection_error()
         self.update_poses()
         e2 = ctx.map.get_mean_projection_error()
-        if DEBUG:
-            log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
 
         return n_inlier_edges
 
@@ -98,8 +94,7 @@ class singlePoseBA(BA):
 
     def update_poses(self):
         """Optimizes pose estimates from the optimizer."""
-        if DEBUG:
-            log.info(f"\t Updating Pose #{self.frame.id}...")
+        log.info(f"\t Updating Pose #{self.frame.id}...")
 
         frame_id = self.frame.id
         vertex = self.optimizer.vertex(backend.X(frame_id))

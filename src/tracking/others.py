@@ -100,8 +100,7 @@ def window_search(q_keyframe: utils.Frame, t_frame: utils.Frame, radius: int,
         cv2_matches = [cv2.DMatch(t, n, d) for (t,n,d) in matches]
         vis.plot_matches(cv2_matches, q_keyframe, t_frame, save_path=save_path)
     
-    if debug:
-        log.info(f"\t Found {len(matched_features)} Point Associations!")
+    log.info(f"\t Found {len(matched_features)} Point Associations!")
 
     return len(matched_features)
 
@@ -172,8 +171,7 @@ def search_by_projection(q_frame: utils.Frame, t_frame: utils.Frame, theta: int 
         cv2_matches = [cv2.DMatch(t, n, d) for (t,n,d) in matches]
         vis.plot_matches(cv2_matches, q_frame, t_frame, save_path=save_path)
     
-    if debug:
-        log.info(f"\t Found {len(matched_features)} Point Associations!")
+    log.info(f"\t Found {len(matched_features)} Point Associations!")
 
     return len(matched_features)
 
@@ -236,8 +234,7 @@ def track_map_points(t_frame: utils.Frame, theta: int = 15):
             if best_feature_id not in new_matched_features.keys() or best_dist < new_matched_features[best_feature_id][1]:
                 new_matched_features[best_feature_id] = (pid, best_dist)
     
-    if debug:
-        log.info(f"\t Found {len(new_matched_features)} Point Associations!")
+    log.info(f"\t Found {len(new_matched_features)} Point Associations!")
 
     # Update the frame<->map matches
     for feat_id, (pid, dist) in new_matched_features.items():

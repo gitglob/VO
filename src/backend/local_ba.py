@@ -45,11 +45,10 @@ class localBA(BA):
         all_kf_ids = connected_kf_ids1.copy()
         all_kf_ids.update(unconnected_kfs_ids)
 
-        if DEBUG:
-            msg = f"[localBA] Adding frame {self.keyframe.id}, {len(connected_kf_ids)} "
-            msg += f"connected frames with {len(connected_point_ids)} points, "
-            msg += f"and {len(unconnected_kfs)} unconnected frames..."
-            log.info(msg)
+        msg = f"[localBA] Adding frame {self.keyframe.id}, {len(connected_kf_ids)} "
+        msg += f"connected frames with {len(connected_point_ids)} points, "
+        msg += f"and {len(unconnected_kfs)} unconnected frames..."
+        log.info(msg)
 
         # Add the main frame and the connected ones
         for kf in connected_kfs:
@@ -81,7 +80,7 @@ class localBA(BA):
 
         # Optimize with the outliers
         num_edges = len(self.optimizer.edges())
-        if DEBUG: log.info(f"\t Optimizing {num_edges} edges...")
+        log.info(f"\t Optimizing {num_edges} edges...")
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(5)
         removed_edges = self.prune_bad_edges()
@@ -93,13 +92,13 @@ class localBA(BA):
         # Update the poses and landmarks
         self.update_poses_and_landmarks()
 
-        if DEBUG: log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
+        log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
         num_edges = len(self.optimizer.edges())
 
         e2 = ctx.map.get_mean_projection_error()
 
         # Optimize again without the outliers
-        if DEBUG: log.info(f"\t Optimizing {num_edges} edges...")
+        log.info(f"\t Optimizing {num_edges} edges...")
         self.optimizer.initialize_optimization()
         self.optimizer.optimize(10)
         removed_edges = self.prune_bad_edges()
@@ -111,12 +110,11 @@ class localBA(BA):
         # Update the poses and landmarks
         self.update_poses_and_landmarks()
 
-        if DEBUG: log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
+        log.info(f"\t Removed {num_edges - len(self.optimizer.edges())} edges...")
 
         e3 = ctx.map.get_mean_projection_error()
 
-        if DEBUG:
-            log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f}")
 
     def prune_bad_edges(self, chi2_threshold=9.21) -> set[tuple[int, int]]:
         """
@@ -165,8 +163,7 @@ class localBA(BA):
 
     def update_poses_and_landmarks(self):
         """Retrieves optimized pose and landmark estimates from the optimizer."""
-        if DEBUG:
-            log.info("\t Updating poses and landmark positions...")
+        log.info("\t Updating poses and landmark positions...")
         # Iterate over all vertices.
         for vertex in self.optimizer.vertices().values():
             if isinstance(vertex, g2o.VertexSE3Expmap):

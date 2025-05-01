@@ -19,8 +19,7 @@ def ratio_filter(matches, lowe_ratio):
     for m, n in matches:
         if m.distance < lowe_ratio * n.distance:
             good_matches.append(m)
-    if debug:
-        log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
+    log.info(f"\t Lowe's Test filtered {len(matches) - len(good_matches)}/{len(matches)} matches!")
     return good_matches
 
 def unique_filter(matches):
@@ -32,8 +31,7 @@ def unique_filter(matches):
             unique_matches[m.trainIdx] = m
     # Convert the dictionary values to a list of unique matches
     unique_matches = list(unique_matches.values())
-    if debug:
-        log.info(f"\t Uniqueness filtered {len(matches) - len(unique_matches)}/{len(matches)} matches!")
+    log.info(f"\t Uniqueness filtered {len(matches) - len(unique_matches)}/{len(matches)} matches!")
     return unique_matches
 
 ############################### Keypoints ###############################
@@ -351,8 +349,7 @@ def triang_and_filter_by_reprojection(matches, q_frame, t_frame, R, t, threshold
         return None
 
     num_removed_matches = len(q_pxs) - np.sum(reproj_mask)
-    if debug:
-        log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
+    log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_pxs)}. E: {np.mean(errors):.3f} -> {np.mean(errors[reproj_mask]):.3f}")
 
     # Debugging visualization
     if debug:
@@ -383,7 +380,6 @@ def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):
             scale_mask[i] = False
 
     # Check conditions to decide whether to discard
-    if debug:
-        log.info(f"\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
+    log.info(f"\t Scale check filtered {num_points - scale_mask.sum()}/{num_points} points!")
 
     return scale_mask

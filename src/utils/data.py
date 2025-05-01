@@ -54,7 +54,7 @@ class Dataset:
         
         # Save the image
         if debug:
-            self.log_img(image)
+            self.save_img(image)
 
         # Construct pose
         gt_pose = np.eye(4)
@@ -78,6 +78,6 @@ class Dataset:
     def length(self):
         return len(self._image_paths)
 
-    def log_img(self, img):
+    def save_img(self, img):
         img_save_path = results_dir / "img" / f"{self._current_index}_bw.png"
         utils.save_image(img, img_save_path)
