@@ -93,8 +93,9 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
     if ret is None:
         log.warning("Failed to apply epipolar constraint..")
         return -1
-    epipolar_constraint_mask, _, _ = ret
-    filtered_matches = np.array(filtered_matches)[epipolar_constraint_mask].tolist()
+    epi_mask, _, use_homography = ret
+    log.info(f"\t Epipolar Constraint: Filtered {sum(~epi_mask)}/{len(q_pixels)} matches! (Using: {'Homography' if use_homography else 'Essential'}.)")
+    filtered_matches = np.array(filtered_matches)[epi_mask].tolist()
     if len(filtered_matches) < MIN_MATCHES:
         return -1
     

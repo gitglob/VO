@@ -4,6 +4,7 @@ import numpy as np
 from src.utils.utils import setup_logger
 
 
+
 main_dir = Path(__file__).parent
 data_dir = Path.home() / "Documents" / "data" / "kitti"
 scene = "00"
@@ -24,5 +25,6 @@ settings_path = main_dir / "settings" / "config.yaml"
 with open(settings_path, "r") as file:
     SETTINGS = yaml.safe_load(file)
 
+DEBUG = SETTINGS["generic"]["debug"]
 log_dir = main_dir / "logs"
-log = setup_logger(log_dir)
+log = setup_logger(log_dir, DEBUG)

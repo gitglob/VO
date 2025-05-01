@@ -221,7 +221,7 @@ def main():
                 ctx.cgraph.update_edges()
 
                 # Create new map points
-                ctx.map.create_points(t_frame)
+                ctx.map.create_points_parallel(t_frame)
                 ctx.cgraph.update_edges()
 
                 # Perform Local Bundle Adjustment

@@ -1,11 +1,12 @@
-from typing import List
+import os
+from multiprocessing import Pool, cpu_count
 import numpy as np
 import cv2
 import src.utils as utils
-import src.tracking as track
 import src.visualization as vis
 import src.globals as ctx
 from .point_association import search_for_triangulation
+from .parallel_functions import process_neighbor
 from config import SETTINGS, K, log, fx, fy, cx, cy, results_dir
 
 
@@ -406,8 +407,8 @@ class Map():
         self.points[point.id] = point
 
         # Add 2 point observations (for the t_frame and q_frame that matched)
-        point.observe(self._kf_counter-1, q_frame.id, q_feat.kpt, q_feat.desc)    
-        point.observe(self._kf_counter,   t_frame.id, t_feat.kpt, t_feat.desc)
+        point.observe(self._kf_counter, q_frame.id, q_feat.kpt, q_feat.desc)    
+        point.observe(self._kf_counter, t_frame.id, t_feat.kpt, t_feat.desc)
         
         # Set the feature <-> mapPoint matches
         q_feat.match_map_point(point, dist)
@@ -475,12 +476,13 @@ class Map():
             t_kpt_pixels = np.float64([kpt.pt for kpt in t_kpts])
             ret = utils.enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels)
             if ret is None: continue
-            epipolar_constraint_mask, _, _ = ret
-            epipolar_counter += np.sum(~epipolar_constraint_mask)
-            if epipolar_constraint_mask.sum() == 0: continue
-            matches = np.array(matches)[epipolar_constraint_mask]
-            q_kpts = q_kpts[epipolar_constraint_mask]
-            t_kpts = t_kpts[epipolar_constraint_mask]
+            epi_mask, _, use_homography = ret
+            log.info(f"\t Epipolar Constraint: Filtered {sum(~epi_mask)}/{len(q_kpts)} matches! (Using: {'Homography' if use_homography else 'Essential'}.)")
+            epipolar_counter += np.sum(~epi_mask)
+            if epi_mask.sum() == 0: continue
+            matches = np.array(matches)[epi_mask]
+            q_kpts = q_kpts[epi_mask]
+            t_kpts = t_kpts[epi_mask]
 
             # Compute the transformation between the 2 frames
             T_q2t = utils.invert_transform(t_frame.pose) @ q_frame.pose
@@ -496,6 +498,7 @@ class Map():
             cheirality_mask = utils.filter_cheirality(q_points, t_points)
             cheirality_counter += np.sum(~cheirality_mask)
             if cheirality_mask is None or cheirality_mask.sum() == 0: continue
+            log.info(f"\t Cheirality check filtered {sum(~cheirality_mask)}/{len(q_points)} points!")
             matches = matches[cheirality_mask]
             q_points = q_points[cheirality_mask]
             t_points = t_points[cheirality_mask]
@@ -506,6 +509,7 @@ class Map():
             parallax_mask = utils.filter_parallax(q_points, t_points, T_q2t, MIN_PARALLAX)
             parallax_counter += np.sum(~parallax_mask)
             if parallax_mask is None or parallax_mask.sum() == 0: continue
+            log.info(f"\t Parallax check filtered {sum(~parallax_mask)}/{len(q_points)} points!")
             matches = matches[parallax_mask]
             q_points = q_points[parallax_mask]
             t_points = t_points[parallax_mask]
@@ -519,6 +523,7 @@ class Map():
                                                        t_frame)
             reprojection_counter += np.sum(~reproj_mask)
             if reproj_mask is None or reproj_mask.sum() == 0: continue
+            log.info(f"\t Reprojection filtered: {sum(~reproj_mask)}/{len(q_points)} matches!")
             matches = matches[reproj_mask]
             q_points = q_points[reproj_mask]
             t_points = t_points[reproj_mask]
@@ -591,6 +596,42 @@ class Map():
             log.info(f"\t\t Scale: {scale_counter}")
             log.info(f"\t\t Depth: {depth_counter}")
             log.info(f"\t Total points: {self.num_points}!")
+
+    def create_points_parallel(self, t_frame: utils.Frame):
+        """
+        Parallelized version of create_points: each neighbor is processed
+        in its own thread, results and filter‐counters are aggregated at the end.
+        """
+        neighbor_ids = ctx.cgraph.get_connected_frames(t_frame.id, num_edges=30)
+        ratio_factor = 1.5 * t_frame.scale_factors[1]
+        tasks = [(q_id, t_frame.id, ratio_factor) for q_id in neighbor_ids]
+
+        all_new = []
+        total_ctrs = {k:0 for k in [
+            'epipolar','cheirality','reprojection',
+            'parallax','distance','scale','depth'
+        ]}
+
+        # Create pool once per call
+        with Pool(processes=os.cpu_count()) as pool:
+            # map returns an iterator of (results, counters)
+            for local_results, ctrs in pool.imap_unordered(process_neighbor, tasks, chunksize=1):
+                all_new.extend(local_results)
+                for key,val in ctrs.items():
+                    total_ctrs[key] += val
+
+        # Merge back on the main process
+        for wpt_list, dist, q_idx, t_idx, qid in all_new:
+            wpt    = np.array(wpt_list)
+            q_frame= ctx.map.keyframes[qid]
+            q_feat = q_frame.features[q_frame.keypoints[q_idx].class_id]
+            t_feat = t_frame.features[t_frame.keypoints[t_idx].class_id]
+            self._add_new_point(wpt, dist, t_frame, q_frame, t_feat, q_feat)
+
+        if DEBUG:
+            log.info(f"\tCreated {len(all_new)} points! Filtered:")
+            for k,v in total_ctrs.items():
+                log.info(f"\t\t{k.capitalize()}: {v}")
 
     def create_local_map(self, frame: utils.Frame):
         """

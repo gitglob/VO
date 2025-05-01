@@ -53,6 +53,7 @@ def estimate_pose(matches: list[cv2.DMatch], q_frame: utils.Frame, t_frame: util
         log.warning("\t Failed to apply epipolar constraint..")
         return None, False
     epipolar_constraint_mask, M, use_homography = ret
+    log.info(f"\t Epipolar Constraint: Filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches! (Using: {'Homography' if use_homography else 'Essential'}.)")
 
     # Save the matches
     if debug:
@@ -169,6 +170,7 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     if cheirality_mask is None or cheirality_mask.sum() < MIN_NUM_TRIANG_POINTS:
         log.warning("\t Discarding frame after cheirality check.")
         return None
+    log.info(f"\t Cheirality check filtered {sum(~cheirality_mask)}/{len(q_points)} points!")
 
     # Save the matches
     if debug:
@@ -191,7 +193,8 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     if parallax_mask is None or parallax_mask.sum() < MIN_NUM_TRIANG_POINTS:
         log.warning("\t Discarding frame due to insufficient parallax.")
         return None
-            
+    log.info(f"\t Parallax check filtered {sum(~parallax_mask)}/{len(q_points)} points!")
+
     # Save the matches
     if debug:
         match_save_path = results_dir / "initialization/3-parallax" / f"{q_frame.id}_{t_frame.id}-a.png"
@@ -215,7 +218,9 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     )
     if reproj_mask is None: 
         log.warning("\t Discarding frame due to insufficient parallax.")
-        return None         
+        return None          
+    log.info(f"\t Reprojection filtered: {sum(~reproj_mask)}/{len(q_points)} matches!")
+       
 
     # Save the matches
     if debug:

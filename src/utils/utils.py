@@ -9,7 +9,8 @@ import numpy as np
 from PIL import Image
 
 
-def setup_logger(log_dir: str = "logs") -> logging.Logger:
+
+def setup_logger(log_dir: str = "logs", debug: bool = True) -> logging.Logger:
     # 1. Ensure log directory exists
     os.makedirs(log_dir, exist_ok=True)
 
@@ -19,6 +20,7 @@ def setup_logger(log_dir: str = "logs") -> logging.Logger:
 
     # 3. Create logger
     logger = logging.getLogger()
+    logger.disabled = not debug
     logger.setLevel(logging.INFO)  # capture INFO and above
 
     # avoid adding multiple handlers if called multiple times

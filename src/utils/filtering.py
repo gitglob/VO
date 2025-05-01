@@ -77,8 +77,6 @@ def enforce_epipolar_constraint(q_kpt_pixels, t_kpt_pixels):
 
     epipolar_constraint_mask = mask_H if use_homography else mask_E
     M = H if use_homography else E
-    if debug:
-        log.info(f"\t Epipolar Constraint: Filtered {sum(~epipolar_constraint_mask)}/{len(q_kpt_pixels)} matches! (Ratio: {ratio_H:.2f}. Using: {'Homography' if use_homography else 'Essential'}.)")
 
     return (epipolar_constraint_mask, M, use_homography)
 
@@ -223,17 +221,12 @@ def compute_symmetric_transfer_error(E_or_H, q_kpt_pixels, t_kpt_pixels, matrix_
 
 def filter_cheirality(q_points: np.ndarray, t_points: np.ndarray):
     """Filter out 3D points that lie behind the camera planes"""
-    num_points = len(t_points)
-
     # t_points is in the query and train camera => check Z > 0
     Z1 = q_points[:, 2]
     Z2 = t_points[:, 2]
 
     # We'll mark True if both Z1, Z2 > 0
     cheirality_mask = (Z1 > 0) & (Z2 > 0)
-
-    if debug:
-        log.info(f"\t Cheirality check filtered {sum(~cheirality_mask)}/{num_points} points!")
     
     return cheirality_mask
     
@@ -246,7 +239,6 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray, m
     Returns:   valid_angles_mask (bool array of shape (N,)),
                filtered_points_3d (N_filtered, 3) or (None, None)
     """
-    num_points = len(t_points)
     R = T[:3, :3]
     t = T[:3, 3]
 
@@ -280,10 +272,6 @@ def filter_parallax(q_points: np.ndarray, t_points: np.ndarray, T: np.ndarray, m
     # Filter out points with too small triangulation angle
     valid_angles_mask = angles >= min_angle
 
-    # Check conditions to decide whether to discard
-    if debug:
-        log.info(f"\t Parallax check filtered {sum(~valid_angles_mask)}/{num_points} points! (Median angle: {np.median(angles):.2f})")
-
     return valid_angles_mask # (N,)
 
 def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray, 
@@ -311,13 +299,9 @@ def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray,
 
     # Compute reprojection errors
     errors = np.linalg.norm(points_proj_px - t_pxs, axis=1)
-    e1 = np.mean(errors)
+    # e1 = np.mean(errors)
     reproj_mask = errors < threshold
-    e2 = np.mean(errors[reproj_mask]) if reproj_mask.sum() > 0 else 0
-
-    num_removed_matches = len(q_points_3d) - reproj_mask.sum()
-    if debug:
-        log.info(f"\t Reprojection filtered: {num_removed_matches}/{len(q_points_3d)}. E: {e1:.2f} -> {e2:.2f}")
+    # e2 = np.mean(errors[reproj_mask]) if reproj_mask.sum() > 0 else 0
 
     # Debugging visualization
     if debug and save_path is not None:
