@@ -29,10 +29,6 @@ class orbFeature():
     def in_map(self):
         return False if self.mp is None else True
 
-    @property
-    def matched(self):
-        return False if self.mp is None else True
-
     def match_map_point(self, point, dist: np.float64):
         self.mp = point
         self.mp_dist = dist
@@ -69,16 +65,24 @@ class Frame():
     def num_tracked_points(self):
         count = 0
         for feat_id, f in self.features.items():
-            if f.matched:
+            if f.in_map:
                 count += 1
         return count
     
     @property
+    def tracked_features(self):
+        tracked_feat_ids = set()
+        for feat in self.features.values():
+            if feat.in_map:
+                tracked_feat_ids.add(feat.id)
+        return tracked_feat_ids
+        
+    @property
     def tracked_points(self):
         tracked_point_ids = set()
-        for feat_id, f in self.features.items():
-            if f.matched:
-                tracked_point_ids.add(feat_id)
+        for feat in self.features.values():
+            if feat.in_map:
+                tracked_point_ids.add(feat.mp.id)
         return tracked_point_ids
 
     @property
@@ -103,12 +107,12 @@ class Frame():
         """Removes matches with the given map points"""
         if isinstance(pids, int):
             for feat in self.features.values():
-                if feat.matched:
+                if feat.in_map:
                     if feat.mp.id == pids:
                         feat.reset_mp_match()
         else:
             for feat in self.features.values():
-                if feat.matched:
+                if feat.in_map:
                     if feat.mp.id in pids:
                         feat.reset_mp_match()
 
@@ -249,26 +253,29 @@ class Frame():
 
         c3 = self.num_tracked_points > SETTINGS["keyframe"]["num_tracked_points"]
 
+        # This criterion ensures visual change
+        # Basically we want the new frame to tracl less than 90% of the
+        # reference frame (most common keyframe) map points
         ref_frame = keyframes[local_map.ref]
         A = ref_frame.tracked_points
         B = self.tracked_points
-        common_features_ratio = len(A.intersection(B)) / len(A)
+        common_features_ratio = len(B.intersection(A)) / len(A)
         c4 = common_features_ratio < SETTINGS["keyframe"]["common_feat_ratio"]
         
         is_keyframe = c3 and c4 #and (c1 or c2) 
-        if DEBUG:
-            if is_keyframe:
-                log.info("\t\t Keyframe!")
-            else:
-                log.warning("\t\t Not a keyframe!")
-                # if not c1:
-                #     log.warning(f"\t\t Translation: {dt:.2f} < 2 !")
-                # if not c2:
-                #     log.warning(f"\t\t Rotation: {dr:.2f} < 5 !")
-                if not c3:
-                    log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50 !")
-                if not c4:
-                    log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9 !")
+        # if DEBUG:
+        if is_keyframe:
+            log.info("\t\t Keyframe!")
+        else:
+            log.warning("\t\t Not a keyframe!")
+            # if not c1:
+            #     log.warning(f"\t\t Translation: {dt:.2f} < 2 !")
+            # if not c2:
+            #     log.warning(f"\t\t Rotation: {dr:.2f} < 5 !")
+            if not c3:
+                log.warning(f"\t\t # of tracked points: {self.num_tracked_points} <= 50 !")
+            if not c4:
+                log.warning(f"\t\t Common features ratio: {common_features_ratio} > 0.9 !")
 
         return is_keyframe
 
@@ -278,7 +285,7 @@ class Frame():
         map_points = []
         mp_features = []
         for feat in self.features.values():
-            if feat.matched:
+            if feat.in_map:
                 pid = feat.mp.id
                 mp_features.append(feat)
                 map_points.append(ctx.map.points[pid])

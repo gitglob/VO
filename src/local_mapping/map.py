@@ -770,7 +770,7 @@ class Map():
     def tracked(self, frame: utils.Frame):
         """Increases the counter that shows how many times a point was tracked"""
         for feat in frame.features.values():
-            if feat.matched:
+            if feat.in_map:
                 point = feat.mp
                 point.tracked_counter += 1
 

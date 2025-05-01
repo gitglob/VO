@@ -144,7 +144,7 @@ def search_by_projection(q_frame: utils.Frame, t_frame: utils.Frame, theta: int 
         best_feature_id = None
         for t_feat in candidates:
             # Check if the candidate feature is already matched to a map point
-            if t_feat.matched:
+            if t_feat.in_map:
                 continue
             candidate_desc = t_feat.desc
             # Compute Hamming distance.
@@ -208,7 +208,7 @@ def track_map_points(t_frame: utils.Frame, theta: int = 15):
         candidates = []
         for feat_id, feat in t_frame.features.items():
             # Skip already matched features
-            if feat.matched:
+            if feat.in_map:
                 continue
             feat_px = feat.kpt.pt
             if (abs(feat_px[0] - u) <= radius and
