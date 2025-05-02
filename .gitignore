@@ -31,4 +31,10 @@ gtsam
 g2o
 g2opy
 
+# logs
+logs
+
+# BoW vocabulary
+vocabulary
+
 **/.gitkeep
