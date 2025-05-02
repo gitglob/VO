@@ -11,9 +11,8 @@ debug = SETTINGS["generic"]["debug"]
 
 
 class Dataset:
-    def __init__(self, data_dir, scene, use_dist=False):
+    def __init__(self, data_dir, scene):
         self.data_dir = data_dir
-        self.use_dist = use_dist
         self.scene = scene
 
         self._current_index = 0 

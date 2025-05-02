@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 import src.utils as utils
 import src.globals as ctx
 import src.visualization as vis
@@ -111,6 +112,66 @@ def dedupe_pairs(pairs):
         used_n.add(q_feat_id)
     
     return new_pairs
+
+def window_search(points, keyframe_ids: set[int], r: int = 10) -> int:
+    """
+    Projects the given map points to the given frames.
+    Then, searches the corresponding feature in a window of size r
+    around the projected point.
+    Args:
+        points: Map points to be projected
+        point_features: Features in the given frames
+        keyframe_ids: Set of frame ids to search in
+        r: Search radius
+    """
+    num_matches = 0
+
+    # Iterate over all map points
+    for point in points:
+        # Extract their best feature
+        point_desc, point_kpt = point.best_feature()
+        # Iterate over all frames
+        for frame_id in keyframe_ids:
+            kf = ctx.map.keyframes[frame_id]
+            # Project point into the current frame
+            ret = kf.project(point.pos)
+            if ret is None: continue
+            u, v = ret
+            # Define the search radius based on the keypoint scale
+            octave = point_kpt.octave
+            radius = r * kf.scale_factors[octave]
+            # Search for the best match in the window
+            best_dist = 99999
+            best_feat = None
+            for feat in kf.features.values():
+                # Skip features that are already in the map
+                if feat.in_map: 
+                    continue
+                # Check if the feature is within the search window
+                if abs(feat.kpt.pt[0] - u) < radius and abs(feat.kpt.pt[1] - v) < radius:
+                    # Extract their distance
+                    dist = cv2.norm(point_desc, feat.desc, cv2.NORM_HAMMING)
+                    # Check if it is the best distance
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_feat = feat
+
+            # Check if the best distance is good enough
+            if best_dist < 50:
+                num_matches += 1
+                # Store the match
+                point.observe(ctx.map._kf_counter, kf.id, best_feat.kpt, best_feat.desc)
+                # Mark the feature as matched
+                best_feat.match_map_point(point, best_dist)
+                # Add the feature to the map
+                ctx.cgraph.add_observation(kf.id, point.id)
+
+    return num_matches
+
+
+
+##################### UNUSED #####################
+
 
 # This is similar to search_for_triangulation, but uses Lowe's ratio test 
 # and accepts matches immediately if they are good enough.

@@ -83,7 +83,8 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
     
     # Saves matches plot
     save_path=results_dir / f"loop/{t_frame.id}/matches/{q_frame.id}/0_raw.png"
-    vis.plot_matches(matches, q_frame, t_frame, save_path = save_path)
+    if DEBUG:
+        vis.plot_matches(matches, q_frame, t_frame, save_path = save_path)
     if len(matches) < MIN_MATCHES: return len(matches)
     
     # Finally, filter using the epipolar constraint
@@ -100,7 +101,8 @@ def frame_search(q_frame: utils.Frame, t_frame: utils.Frame):
 
     # Save matches after epipolar filtering
     save_path=results_dir / f"loop/{t_frame.id}/matches/{q_frame.id}/1_epipolar.png"
-    vis.plot_matches(matches, q_frame, t_frame, save_path = save_path)
+    if DEBUG:
+        vis.plot_matches(matches, q_frame, t_frame, save_path = save_path)
     if len(matches) < MIN_MATCHES: return len(matches)
     
     # Prepare results
@@ -198,11 +200,10 @@ def estimate_relative_pose(q_frame: utils.Frame, t_frame: utils.Frame):
     log.info(f"\t\t Outliers {len(errors) - reproj_mask.sum()}/{len(errors)} points.")
 
     ## Visualization
-    if DEBUG:
-        img_path = results_dir / f"loop/{t_frame.id}/pnp/{q_frame.id}_{t_frame.id}a.png"
-        vis.plot_reprojection(t_frame.img, t_img_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
-        img_path = results_dir / f"loop/{t_frame.id}/pnp/{q_frame.id}_{t_frame.id}b.png"
-        vis.plot_reprojection(t_frame.img, t_img_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
+    img_path = results_dir / f"loop/{t_frame.id}/pnp/{q_frame.id}_{t_frame.id}a.png"
+    vis.plot_reprojection(t_frame.img, t_img_pxs[~inliers_mask], projected_world_pxs[~inliers_mask], path=img_path)
+    img_path = results_dir / f"loop/{t_frame.id}/pnp/{q_frame.id}_{t_frame.id}b.png"
+    vis.plot_reprojection(t_frame.img, t_img_pxs[inliers_mask], projected_world_pxs[inliers_mask], path=img_path)
 
     # 6) Construct T_{q_frame->t_frame}
     T_q2t = np.eye(4, dtype=np.float64)

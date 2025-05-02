@@ -1,4 +1,5 @@
 generic:
+    cleanup: True
     debug: True
     parallel: True
     scene: "00"
@@ -26,26 +27,27 @@ place_recognition:
     vocab_size: 1000
     similarity_threshold: 0.8
 
-
+# This has been fine-tuned!
 initialization:
     min_matches: 200
-    lowe_ratio: 0.75
+    lowe_ratio: 0.95
     min_triang_points: 100 
-    min_parallax: 2.0
+    min_parallax: 1.0
     max_reprojection: 4.0
 
+# This has been fine-tuned!
 tracking:
     min_matches: 20
-    lowe_ratio: 0.75
+    lowe_ratio: 0.95
     PnP:
-        max_reprojection: 4.0
-        confidence: 0.99
-        iterations: 3000
-        min_inliers: 4
+        max_reprojection: 1.0
+        confidence: 0.999
+        iterations: 1000
+        min_inliers: 20
 
 map:
     lowe_ratio: 0.75
-    min_parallax: 2.0
+    min_parallax: 1.0
     max_reprojection: 4.0
     point_culling_ratio: 0.25
     kf_culling_ratio: 0.9
@@ -54,7 +56,7 @@ loop:
     lowe_ratio: 0.9
     min_matches: 20
     PnP:
-        max_reprojection: 4.0
+        max_reprojection: 2.0
         confidence: 0.99
         iterations: 3000
         min_inliers: 4

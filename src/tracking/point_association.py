@@ -41,7 +41,7 @@ def map_search(t_frame: utils.Frame):
             continue
         # Get the descriptors from every observation of a point
         # an alternative would be to get the best point descriptor!
-        desc, kpt = p.best_descriptor()
+        desc, kpt = p.best_feature()
 
         map_descriptors.append(desc)
         map_point_ids.append(p.id)

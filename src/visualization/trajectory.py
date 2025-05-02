@@ -107,7 +107,10 @@ def plot_trajectory(save_path: str, ba=True, map=False):
 
     last_gt = gt_poses[-1]
     last_pose = poses[-1]
-    fig.suptitle(f'2D Trajectory, RMSE:{np.linalg.norm(last_gt[:3, 3] - last_pose[:3, 3]):.2f}')
+
+    RMSE = np.linalg.norm(last_gt[:3, 3] - last_pose[:3, 3])
+
+    fig.suptitle(f'2D Trajectory, RMSE:{RMSE:.2f}, #{ctx.map.num_points} points, #{ctx.map.num_keyframes} keyframes')
 
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)

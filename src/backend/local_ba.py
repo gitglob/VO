@@ -114,7 +114,7 @@ class localBA(BA):
 
         e3 = ctx.map.get_mean_projection_error()
 
-        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} -> {e3:.2f} pixels")
 
     def prune_bad_edges(self, chi2_threshold=9.21) -> set[tuple[int, int]]:
         """

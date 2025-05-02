@@ -34,7 +34,8 @@ def estimate_relative_pose(t_frame: utils.Frame):
         distCoeffs=None,
         reprojectionError=SETTINGS["tracking"]["PnP"]["max_reprojection"],
         confidence=SETTINGS["tracking"]["PnP"]["confidence"],
-        iterationsCount=SETTINGS["tracking"]["PnP"]["iterations"]
+        iterationsCount=SETTINGS["tracking"]["PnP"]["iterations"],
+        flags=cv2.SOLVEPNP_ITERATIVE # SOLVEPNP_EPNP
     )
     if not success or inliers is None:
         log.warning("\t solvePnP failed!")
@@ -57,7 +58,7 @@ def estimate_relative_pose(t_frame: utils.Frame):
             point.remove_observation(t_frame.id)
     
     # 3) Refine the pose using Levenberg-Marquardt on the inlier correspondences.
-    rvec, tvec = cv2.solvePnPRefineLM(
+    rvec, tvec = cv2.solvePnPRefineLM( #solvePnPRefineVVS( 
         map_point_positions[inliers],
         image_pxs[inliers],
         cameraMatrix=K,

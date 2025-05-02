@@ -55,6 +55,8 @@ def plot_BA2d(save_path):
     
     # Plot the pre-BA point positions in red
     prev_pts = ctx.map.point_positions(ba=False)
+    if len(prev_pts) == 0:
+        return
     ax.scatter(prev_pts[:, 0], prev_pts[:, 1],
             facecolors='none', edgecolors='r', marker='o', label='Landmarks')
     
@@ -71,12 +73,13 @@ def plot_BA2d(save_path):
     ax.legend()
     errors = pts - prev_pts
     errors_norm = np.linalg.norm(errors, axis=1)
-    ax.set_title("Map Points <-> Error" + 
-                    f"\nTotal: {np.sum(errors):.2f}" +
-                    f", Mean: {np.mean(errors_norm):.2f}" +
-                    f", Median: {np.median(errors_norm):.2f}" +
-                    f"\nMin: {np.min(errors_norm):.2f}" +
-                    f", Max: {np.max(errors_norm):.2f}")
+    title = "Map Points <-> Error" + \
+        f"\nTotal: {np.sum(errors):.2f}" + \
+        f", Mean: {np.mean(errors_norm):.2f}" + \
+        f", Median: {np.median(errors_norm):.2f}" + \
+        f"\nMin: {np.min(errors_norm):.2f}" + \
+        f", Max: {np.max(errors_norm):.2f}"
+    ax.set_title(title)
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)

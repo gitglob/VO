@@ -22,6 +22,7 @@ Important notes:
 """
 
 
+CLEANUP = SETTINGS["generic"]["cleanup"]
 debug = SETTINGS["generic"]["debug"]
 parallel = SETTINGS["generic"]["parallel"]
 scene = SETTINGS["generic"]["scene"]
@@ -29,15 +30,12 @@ log.info(f"\t\tUsing dataset: `{scene}` ...")
 
 
 def main():
-    use_dist = False
-    cleanup = True
-
     # Clean previous results
-    if cleanup:
+    if CLEANUP:
         utils.delete_subdirectories(results_dir)
 
     # Read the data
-    data = utils.Dataset(data_dir, scene, use_dist)
+    data = utils.Dataset(data_dir, scene)
 
     # Plot the ground truth trajectory
     gt = data.ground_truth()
@@ -139,15 +137,16 @@ def main():
                 utils.validate_scale([q_frame.pose, t_frame.pose], [q_frame.gt, t_frame.gt])
 
                 # Perform Bundle Adjustment
-                ba = backend.globalBA()
+                ba = backend.poseBA()
+                # ba = backend.globalBA()
                 ba.optimize()
 
                 # Plots
                 # plot_BA()
                 if debug:
                     vis.plot_BA2d(results_dir / "ba/global" / f"{i}.png")
-                    vis.plot_trajectory(results_dir / "trajectory/a" / f"{i}.png")
                     utils.save_image(t_frame.img, results_dir / "keyframes" / f"{i}_bw.png")
+                vis.plot_trajectory(results_dir / "trajectory/" / f"{i}_a.png")
 
                 q_frame = t_frame
                 log.info(f"\t # of points: {ctx.map.num_points}")
@@ -178,15 +177,16 @@ def main():
                 ctx.cgraph.add_keyframe_with_points(t_frame.id, t_point_ids)
                 ctx.cgraph.update_edges()
 
-                # Perform pose optimization
-                ba = backend.singlePoseBA(t_frame)
+                # Perform pose optimization - ORB uses singlePoseBA, but poseBA gives better results
+                # ba = backend.singlePoseBA(t_frame)
+                ba = backend.poseBA()
                 ba.optimize()
 
                 # Plot the BA
                 # plot_BA()
                 if debug:
                     vis.plot_BA2d(results_dir / "ba/single_pose" / f"{i}.png")
-                vis.plot_trajectory(results_dir / "trajectory/a" / f"{i}.png")
+                vis.plot_trajectory(results_dir / "trajectory/" / f"{i}_b.png")
                 
                 # ########### Track Local Map ###########
                 # Set the visible mask
@@ -237,7 +237,7 @@ def main():
                 # plot_BA()
                 if debug:
                     vis.plot_BA2d(results_dir / "ba/local" / f"{i}.png")
-                vis.plot_trajectory(results_dir / "trajectory/b" / f"{i}.png")
+                vis.plot_trajectory(results_dir / "trajectory/" / f"{i}_c.png")
 
                 # Clean up redundant frames
                 ctx.map.cull_keyframes(t_frame)
@@ -256,20 +256,21 @@ def main():
                     candidate_kfs = pr.detect_candidates(t_frame)
                     if candidate_kfs is not None:
                         # Iterate over all possible candidates
-                        utils.save_image(t_frame.img, results_dir / f"loop/{t_frame.id}/{t_frame.id}.png")
+                        if debug:
+                            utils.save_image(t_frame.img, results_dir / f"loop/{t_frame.id}/{t_frame.id}.png")
                         for cand_kf in candidate_kfs:
-                            utils.save_image(cand_kf.img, results_dir / f"loop/{t_frame.id}/frames/{cand_kf.id}.png")
+                            if debug:
+                                utils.save_image(cand_kf.img, results_dir / f"loop/{t_frame.id}/frames/{cand_kf.id}.png")
 
                             # Search for matches with current frame
                             num_matches = pr.frame_search(cand_kf, t_frame)
                             ctx.cgraph.update_edges()
-                            if num_matches < 20:
-                                continue
+                            if num_matches < 20: continue
                             
                             # Estimate the new world pose using PnP (3d-2d)
                             T_q2t = pr.estimate_relative_pose(cand_kf, t_frame)
-                            if T_q2t is None:
-                                continue
+                            if T_q2t is None: continue
+                            log.info(f"Found loop closure between {t_frame.id} and {cand_kf.id} with {num_matches} matches!")
 
                             # Add loop edge to the convisibility graph
                             ctx.map.add_loop_closure(cand_kf, t_frame)

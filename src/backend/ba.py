@@ -100,6 +100,7 @@ class BA:
         edge.set_measurement([u, v])
         
         # Add the information matrix based on the octave's uncertainty
+        # This basically means that the further the keypoint is from the camera, the less certain we are
         measurement_uncertainty = kf.scale_uncertainties[octave]
         measurement_information = np.eye(2) * (1.0 / measurement_uncertainty)
         edge.set_information(measurement_information)

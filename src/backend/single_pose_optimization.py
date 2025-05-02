@@ -84,7 +84,7 @@ class singlePoseBA(BA):
         e1 = ctx.map.get_mean_projection_error()
         self.update_poses()
         e2 = ctx.map.get_mean_projection_error()
-        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f}")
+        log.info(f"\t RMS Re-Projection Error: {e1:.2f} -> {e2:.2f} pixels")
 
         return n_inlier_edges
 

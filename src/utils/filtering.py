@@ -291,12 +291,13 @@ def filter_by_reprojection(q_points_3d: np.ndarray, t_pxs: np.ndarray,
     points_proj2, _ = cv2.projectPoints(q_points_3d, rvec, tvec, K, None)
     points_proj_px = points_proj2.reshape(-1, 2)
 
-    # Compute reprojection errors
-    errors = np.linalg.norm(points_proj_px - t_pxs, axis=1)
-    # e1 = np.mean(errors)
-    reproj_mask = errors < threshold
-    # e2 = np.mean(errors[reproj_mask]) if reproj_mask.sum() > 0 else 0
+    # Compute per-axis absolute errors
+    abs_offsets = np.abs(points_proj_px - t_pxs)    # shape (N, 2): [|Δu|, |Δv|]
+    errors_l1 = abs_offsets.sum(axis=1)             # shape (N,): |Δu| + |Δv|
 
+    # Threshold on L₁ error
+    reproj_mask = errors_l1 < threshold
+    
     return reproj_mask, points_proj_px
 
 def filter_scale(points: np.ndarray, kpts: np.ndarray, T_cw: np.ndarray):

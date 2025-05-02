@@ -5,7 +5,7 @@ import cv2
 import src.utils as utils
 import src.visualization as vis
 import src.globals as ctx
-from .point_association import search_for_triangulation
+from .point_association import search_for_triangulation, window_search
 from .parallel_functions import process_neighbor
 from config import SETTINGS, K, log, fx, fy, cx, cy, results_dir
 
@@ -63,7 +63,7 @@ class mapPoint():
             self.kf_number = kf_number
         self.observations.append(new_observation)
 
-    def best_descriptor(self):
+    def best_feature(self):
         """
         The descriptor whose hamming distance is minimum with respect to all other 
         associated descriptors in the keyframes in which the point is observed.
@@ -336,15 +336,14 @@ class Map():
                 # Project the point in the frame
                 proj_px = frame.project(pos)
                 # Skip points that lie behind the camera
-                if proj_px is None:
-                    continue
+                if proj_px is None: continue
                 # Calculate the error
-                e = np.linalg.norm(px - np.array(proj_px))
+                e = e = abs(px[0] - proj_px[0]) + abs(px[1] - proj_px[1])
                 assert not np.isnan(e)
                 
                 errors.append(e)
 
-        mean_error = np.sqrt( np.mean( np.square(errors) ) )
+        mean_error = np.mean(errors)
         return mean_error
 
 
@@ -379,6 +378,7 @@ class Map():
                         q_frame: utils.Frame, t_frame: utils.Frame):
         """Adds new points to the map"""
         # Iterate over all new points
+        created_points = np.empty((len(w_points),), dtype=mapPoint)
         for i, pos in enumerate(w_points):
             # Get the match
             m = matches[i]
@@ -392,9 +392,11 @@ class Map():
             assert not np.any(np.isnan(pos))
             
             # Add the point to the map
-            self._add_new_point(pos, dist, q_frame, t_frame, q_feat, t_feat)
+            p = self._add_new_point(pos, dist, q_frame, t_frame, q_feat, t_feat)
+            created_points[i] = p
 
         log.info(f"[Map] Adding {len(w_points)} points to the Map. Total: {self.num_points} points.")
+        return created_points
 
     def _add_new_point(self, pos: np.ndarray, dist: float,
                        q_frame: utils.Frame, t_frame: utils.Frame, 
@@ -414,6 +416,8 @@ class Map():
         # Add the point to the convisibility graph too
         ctx.cgraph.add_observation(q_frame.id, point.id)
         ctx.cgraph.add_observation(t_frame.id, point.id)
+
+        return point
 
 
     def create_points(self, t_frame: utils.Frame):
@@ -440,6 +444,7 @@ class Map():
         scale_counter = 0
         depth_counter = 0
         num_created_points = 0
+        all_matches = {}
         for q_frame_id in neighbor_kf_ids:
             matches = []
             q_frame: utils.Frame = ctx.map.keyframes[q_frame_id]
@@ -571,14 +576,25 @@ class Map():
             w_points = utils.transform_points(q_points, q_frame.pose)
             num_created_points += len(w_points)
 
-            # Add the points to the map
-            self.add_new_points(w_points, matches, q_frame, t_frame)
+            # Gather all the matches
+            all_matches[q_frame.id] = (matches, w_points)
 
+        # Iterate over the matches with all the connected keyframes
+        num_projection_matches = 0
+        for q_frame_id, (matches, w_points) in all_matches.items():
+            # Add the points to the map
+            q_frame = ctx.map.keyframes[q_frame_id]
+            points: np.ndarray[mapPoint] = self.add_new_points(w_points, matches, q_frame, t_frame)
+
+            # The created points also need to be projected to the rest of the keyframes
+            # and correspondences to be added if they are matched
+            rest_kf_ids = neighbor_kf_ids - {q_frame_id}
+            num_projection_matches += window_search(points, rest_kf_ids)
+            
             if DEBUG:
                 save_path = results_dir / "tracking/new_points" / f"{t_frame.id}_{q_frame.id}.png"
                 vis.plot_matches(matches, q_frame, t_frame, save_path)
 
-        
         log.info(f"\t Created {num_created_points} points! Filtered the following...")
         log.info(f"\t\t Epipolar: {epipolar_counter}")
         log.info(f"\t\t Cheirality: {cheirality_counter}")
@@ -588,6 +604,8 @@ class Map():
         log.info(f"\t\t Scale: {scale_counter}")
         log.info(f"\t\t Depth: {depth_counter}")
         log.info(f"\t Total points: {self.num_points}!")
+        
+        log.info(f"\t The created points generated an additional {num_projection_matches} edges!")
 
     def create_points_parallel(self, t_frame: utils.Frame):
         """
@@ -613,16 +631,29 @@ class Map():
                     total_ctrs[key] += val
 
         # Merge back on the main process
+        new_points = {}
         for wpt_list, dist, q_idx, t_idx, qid in all_new:
             wpt    = np.array(wpt_list)
             q_frame= ctx.map.keyframes[qid]
             q_feat = q_frame.features[q_frame.keypoints[q_idx].class_id]
             t_feat = t_frame.features[t_frame.keypoints[t_idx].class_id]
-            self._add_new_point(wpt, dist, t_frame, q_frame, t_feat, q_feat)
+            p = self._add_new_point(wpt, dist, t_frame, q_frame, t_feat, q_feat)
+            if qid not in new_points.keys():
+                new_points[qid] = [p]
+            else:
+                new_points[qid].append(p)
 
+        # The created points also need to be projected to the rest of the keyframes
+        # and correspondences to be added if they are matched
+        num_projection_matches = 0
+        for qid, points in new_points.items():
+            rest_kf_ids = neighbor_ids - {qid}
+            num_projection_matches += window_search(points, rest_kf_ids)
+        
         log.info(f"\tCreated {len(all_new)} points! Filtered:")
         for k,v in total_ctrs.items():
             log.info(f"\t\t{k.capitalize()}: {v}")
+        log.info(f"\t The created points generated an additional {num_projection_matches} edges!")
 
     def create_local_map(self, frame: utils.Frame):
         """
@@ -741,6 +772,9 @@ class Map():
         removed_point_ids = set()
 
         # Iterate over all points
+        r1 = 0
+        r2 = 0
+        r3 = 0
         for pid, p in self.points.items():
             
             # The tracking must find the point in more than 25% of the frames in which 
@@ -748,23 +782,29 @@ class Map():
             r = p.tracked_counter / p.visible_counter
             if r < MATCH_VIEW_RATIO:
                 removed_point_ids.add(pid)
+                r1 += 1
                 continue
 
             # The point must always be observed during the first 2 keyframes
             num_kf_passed_since_creation = self._kf_counter - p.kf_number
             if (num_kf_passed_since_creation <= 2) and (p.num_observations-1 != num_kf_passed_since_creation):
                 removed_point_ids.add(pid)
+                r2 += 1
                 continue
             
             # After that, it must always be observed by at least 3 keyframes
             elif num_kf_passed_since_creation >= 3 and p.num_observations < 3:
                 removed_point_ids.add(pid)
+                r3 += 1
                 continue
 
         self.remove_points(removed_point_ids)
         ctx.cgraph.remove_points(removed_point_ids)
 
         log.info(f"\t Removed {len(removed_point_ids)} points. {self.num_points} left!")
+        log.info(f"\t\t Ratio: {r1}")
+        log.info(f"\t\t Creation: {r2}")
+        log.info(f"\t\t Observations: {r3}")
 
     def cull_keyframes(self, frame: utils.Frame):
         """
