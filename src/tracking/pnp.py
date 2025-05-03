@@ -3,6 +3,7 @@ import cv2
 import src.utils as utils
 import src.visualization as vis
 import src.globals as ctx
+from .utils import constant_velocity_model
 from config import SETTINGS, results_dir, log, K
 
 
@@ -26,11 +27,19 @@ def estimate_relative_pose(t_frame: utils.Frame):
     map_point_positions = np.array(map_point_positions, dtype=np.float64) # (M, 3)
     image_pxs = np.array(image_pxs, dtype=np.float64)     # (M, 2)
 
+    # Provide an initial guess to PnP
+    T_cw_init = constant_velocity_model(t_frame)
+    T_wc_init = utils.invert_transform(T_cw_init)
+    rvec_init, _ = cv2.Rodrigues(T_wc_init[:3, :3])
+    t_vec_init = T_wc_init[:3, 3].reshape(3,1)
+
     # 2) solvePnPRansac to get rvec/tvec for world->new_cam
     success, rvec, tvec, inliers = cv2.solvePnPRansac(
         map_point_positions,
         image_pxs,
         cameraMatrix=K,
+        rvec=rvec_init,
+        tvec=t_vec_init,
         distCoeffs=None,
         reprojectionError=SETTINGS["tracking"]["PnP"]["max_reprojection"],
         confidence=SETTINGS["tracking"]["PnP"]["confidence"],

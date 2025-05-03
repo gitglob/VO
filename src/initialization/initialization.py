@@ -212,9 +212,6 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
     reproj_mask, t_proj_pxs = utils.filter_by_reprojection(q_points, t_kpt_pixels, T_q2t, REPROJECTION_THREHSOLD
     )
     log.info(f"\t Reprojection filtered: {sum(~reproj_mask)}/{len(q_points)} matches!")
-    if reproj_mask is None or reproj_mask.sum() < MIN_NUM_TRIANG_POINTS: 
-        log.warning("\t Discarding frame due to insufficient parallax.")
-        return None          
     if debug:
         save_path = results_dir / f"initialization/4-reprojection/{q_frame.id}_{t_frame.id}.png"
         s1 = Path(str(save_path.with_suffix("")) + "-a" + save_path.suffix)
@@ -228,6 +225,10 @@ def triangulate_points(matches: list[cv2.DMatch], T_q2t: np.ndarray, q_frame: ut
         vis.plot_matches(matches[~reproj_mask], q_frame, t_frame, save_path=match_save_path)
         match_save_path = results_dir / "initialization/5-reprojection" / f"{q_frame.id}_{t_frame.id}-b.png"
         vis.plot_matches(matches[reproj_mask], q_frame, t_frame, save_path=match_save_path)
+        
+    if reproj_mask.sum() < MIN_NUM_TRIANG_POINTS: 
+        log.warning("\t Discarding frame due to high reprojection error.")
+        return None          
         
     matches = matches[reproj_mask]
     q_points = q_points[reproj_mask]

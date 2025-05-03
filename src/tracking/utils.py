@@ -4,7 +4,7 @@ import src.utils as utils
 import src.globals as ctx
 
 
-def constant_velocity_model(t_frame: utils.Frame):
+def constant_velocity_model(t_frame: utils.Frame) -> np.ndarray:
     """Predicts the next pose assuming constant velocity between the last 3 frames"""
     # Extract previous frames from map
     prev_frames = ctx.map.keyframes
@@ -38,5 +38,4 @@ def constant_velocity_model(t_frame: utils.Frame):
     # The predicted current pose is T_last followed by the predicted incremental transformation.
     T_c2w = T_t2w @ T_c2t
 
-    # Set the frame pose
-    t_frame.set_pose(T_c2w)
+    return T_c2w

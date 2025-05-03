@@ -431,7 +431,7 @@ class Map():
         # bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
         # Get the neighbor frames in the convisibility graph
-        neighbor_kf_ids = ctx.cgraph.get_connected_frames(t_frame.id, num_edges=30)
+        neighbor_kf_ids = ctx.cgraph.get_connected_frames(t_frame.id, num_edges=10)
         ratio_factor = 1.5 * t_frame.scale_factors[1]
         log.info(f"[Map] Creating new map points using frame {t_frame.id} and {len(neighbor_kf_ids)} neighbors!")
 
@@ -612,7 +612,7 @@ class Map():
         Parallelized version of create_points: each neighbor is processed
         in its own thread, results and filter‐counters are aggregated at the end.
         """
-        neighbor_ids = ctx.cgraph.get_connected_frames(t_frame.id, num_edges=30)
+        neighbor_ids = ctx.cgraph.get_connected_frames(t_frame.id, num_edges=10)
         ratio_factor = 1.5 * t_frame.scale_factors[1]
         tasks = [(q_id, t_frame.id, ratio_factor) for q_id in neighbor_ids]
 
